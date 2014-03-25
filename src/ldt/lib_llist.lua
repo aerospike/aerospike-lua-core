@@ -1,11 +1,11 @@
 -- Large Ordered List (llist.lua)
 -- Track the date and iteration of the last update:
-local MOD = "llist_2014_03_10.e";
+local MOD = "llist_2014_03_25.B";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
 -- amount of inter-version compatibility.
-local G_LDT_VERSION = 1.1;
+local G_LDT_VERSION = 2.1;
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -63,7 +63,7 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- is reduced overhead for the retieval operation, since it is doing a
 -- binary search (order log(N)) rather than scan (order N).
 -- ======================================================================
--- >> Please refer to ldt/doc_lstack.md for architecture and design notes.
+-- >> Please refer to ldt/doc_llist.md for architecture and design notes.
 -- ======================================================================
 
 -- ======================================================================
@@ -116,6 +116,12 @@ local ldte = require('ldt/ldt_errors');
 
 -- We have a set of packaged settings for each LDT
 local llistPackage = require('ldt/settings_llist');
+
+-- We have recently moved a number of COMMON functions into the "ldt_common"
+-- module, namely the subrec routines and some list management routines.
+-- We will likely move some other functions in there as they become common.
+local ldt_common = require('ldt/ldt_common');
+
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- || FUNCTION TABLE ||
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -293,22 +299,28 @@ local ND_ByteEntryCount       = 'B';-- # current bytes used
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- These Field Values must match ALL of the other LDTs
+-- Note that the other LDTs use "M_xxx" values, and LLIST use "R_xxx"
+-- values, but where they must be common, they will be all "M_xxx" values.
+--
+-- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+local M_UserModule          = 'P';-- User's Lua file for overrides
+local M_KeyFunction         = 'F';-- Function to compute Key from Object
+local M_KeyType             = 'k';-- Type of key (atomic, complex)
+local M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
+local M_StoreLimit          = 'L';-- Storage Capacity Limit
+local M_Transform           = 't';-- Transform Object (from User to bin store)
+local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
+
 -- Tree Level values
 local R_TotalCount          = 'T';-- A count of all "slots" used in LLIST
 local R_LeafCount           = 'c';-- A count of all Leaf Nodes
 local R_NodeCount           = 'C';-- A count of all Nodes (including Leaves)
-local R_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
 local R_TreeLevel           = 'l';-- Tree Level (Root::Inner nodes::leaves)
-local R_KeyType             = 'k';-- Type of key (atomic, complex)
 local R_KeyDataType         = 'd';-- Data Type of key (Number, Integer)
 local R_KeyUnique           = 'U';-- Are Keys Unique? (boolean)
-local R_TransFunc           = 't';-- Transform Func(from user to storage)
-local R_UnTransFunc         = 'u';-- Reverse transform (from storage to user)
 local R_StoreState          = 'S';-- Compact or Regular Storage
 local R_Threshold           = 'H';-- After this#:Move from compact to tree mode
-local R_KeyFunction         = 'F';-- Function to compute Key from Object
-local R_UserModule          = 'P';-- User's Lua file for overrides
-local R_StoreLimit          = 'L';-- Storage Capacity Limit
 -- Key and Object Sizes, when using fixed length (byte array stuff)
 local R_KeyByteSize         = 'B';-- Fixed Size (in bytes) of Key
 local R_ObjectByteSize      = 'b';-- Fixed Size (in bytes) of Object
@@ -327,32 +339,34 @@ local R_NodeByteCountMax    = 'Y';-- Max # of BYTES for keyspace in a node
 local R_LeafListMax         = 'x';-- Max # of items in a leaf node
 local R_LeafByteCountMax    = 'y';-- Max # of BYTES for obj space in a leaf
 -- ------------------------------------------------------------------------
--- -- Maintain the Field letter Mapping here, so that we never have a name
--- -- collision: Obviously -- only one name can be associated with a character.
--- -- We won't need to do this for the smaller maps, as we can see by simple
--- -- inspection that we haven't reused a character.
--- ------------------------------------------------------------------------
+-- Maintain the Field letter Mapping here, so that we never have a name
+-- collision: Obviously -- only one name can be associated with a character.
+-- We won't need to do this for the smaller maps, as we can see by simple
+-- inspection that we haven't reused a character.
+-- ----------------------------------------------------------------------
+-- >>> Be Mindful of the LDT Common Fields that ALL LDTs must share <<<
+-- ----------------------------------------------------------------------
 -- A:                         a:                        0:
 -- B:R_KeyByteSize            b:R_NodeByteCountSize     1:
 -- C:R_NodeCount              c:R_LeafCount             2:
 -- D:R_RootDigestList         d:R_KeyDataType           3:
 -- E:                         e:                        4:
--- F:R_KeyFunction            f:                        5:
+-- F:M_KeyFunction            f:                        5:
 -- G:                         g:                        6:
 -- H:R_Threshold              h:                        7:
 -- I:                         i:                        8:
 -- J:R_KeyByteArray           j:R_DigestByteArray       9:
--- K:R_RootKeyList            k:R_KeyType         
+-- K:R_RootKeyList            k:M_KeyType         
 -- L:                         l:R_TreeLevel          
 -- M:R_StoreMode              m:                
 -- N:                         n:
 -- O:                         o:
--- P:R_UserModule             p:
+-- P:M_UserModule             p:
 -- Q:R_CompactList            q:R_LeafByteEntrySize
 -- R:R_RootListMax            r:R_RootByteCountMax      
 -- S:R_StoreState             s:                        
--- T:R_TotalCount             t:R_Transform
--- U:R_KeyUnique              u:R_UnTransform
+-- T:R_TotalCount             t:M_Transform
+-- U:R_KeyUnique              u:M_UnTransform
 -- V:                         v:
 -- W:                         w:                        
 -- X:R_NodeListMax            x:R_LeafListMax           
@@ -459,8 +473,8 @@ end -- resetPtrs()
 local function setKeyFunction( ldtMap, required )
   local meth = "setKeyFunction()";
   -- Look in the Create Module first, then check the Function Table.
-  local createModule = ldtMap[R_UserModule];
-  local keyFunction = ldtMap[R_KeyFunction];
+  local createModule = ldtMap[M_UserModule];
+  local keyFunction = ldtMap[M_KeyFunction];
   G_KeyFunction = nil;
   if( keyFunction ~= nil ) then
     if( type(keyFunction) ~= "string" or filter == "" ) then
@@ -492,7 +506,7 @@ local function setKeyFunction( ldtMap, required )
         error( ldte.ERR_KEY_FUN_NOT_FOUND );
       end
     end
-  elseif( ldtMap[R_KeyType] == KT_COMPLEX and required == true ) then
+  elseif( ldtMap[M_KeyType] == KT_COMPLEX and required == true ) then
     warn("[ERROR]<%s:%s> Key Function is Required for LLIST Complex Objects",
       MOD, meth );
     error( ldte.ERR_KEY_FUN_NOT_FOUND );
@@ -523,7 +537,7 @@ local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
 
   -- Do the Filter First. If not nil, then process.  Complain if things
   -- go badly.
-  local createModule = ldtMap[R_UserModule];
+  local createModule = ldtMap[M_UserModule];
   G_Filter = nil;
   G_FunctionArgs = filterArgs;
   if( filter ~= nil ) then
@@ -563,7 +577,7 @@ local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
   end -- if filter not nil
 
   -- That wraps up the Filter handling.  Now do  the UnTransform Function.
-  local untrans = ldtMap[R_UnTransform];
+  local untrans = ldtMap[M_UnTransform];
   G_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
@@ -614,8 +628,8 @@ local function setWriteFunctions( ldtMap )
 
   -- Look in the create module first, then the UdfFunctionTable to find
   -- the transform function (if there is one).
-  local createModule = ldtMap[R_UserModule];
-  local trans = ldtMap[R_Transform];
+  local createModule = ldtMap[M_UserModule];
+  local trans = ldtMap[M_Transform];
   G_Transform = nil;
   if( trans ~= nil ) then
     if( type(trans) ~= "string" or trans == "" ) then
@@ -686,15 +700,15 @@ local function ldtMapSummary( resultMap, ldtMap )
   -- General Tree Settings
   resultMap.StoreMode         = ldtMap[R_StoreMode];
   resultMap.StoreState        = ldtMap[R_StoreState];
-  resultMap.StoreLimit        = ldtMap[R_StoreLimit];
+  resultMap.StoreLimit        = ldtMap[M_StoreLimit];
   resultMap.TreeLevel         = ldtMap[R_TreeLevel];
   resultMap.LeafCount         = ldtMap[R_LeafCount];
   resultMap.NodeCount         = ldtMap[R_NodeCount];
-  resultMap.KeyType           = ldtMap[R_KeyType];
-  resultMap.TransFunc         = ldtMap[R_TransFunc];
-  resultMap.UnTransFunc       = ldtMap[R_UnTransFunc];
-  resultMap.KeyFunction       = ldtMap[R_KeyFunction];
-  resultMap.UserModule        = ldtMap[R_UserModule];
+  resultMap.KeyType           = ldtMap[M_KeyType];
+  resultMap.TransFunc         = ldtMap[M_Transform];
+  resultMap.UnTransFunc       = ldtMap[M_UnTransform];
+  resultMap.KeyFunction       = ldtMap[M_KeyFunction];
+  resultMap.UserModule        = ldtMap[M_UserModule];
 
   -- Top Node Tree Root Directory
   resultMap.RootListMax        = ldtMap[R_RootListMax];
@@ -798,69 +812,7 @@ local function ldtDebugDump( ldtCtrl )
 
 end -- function ldtDebugDump()
 
--- ======================================================================
--- When we create the initial LDT Control Bin for the entire record (the
--- first time ANY LDT is initialized in a record), we create a property
--- map in it with various values.
--- TODO: Move this to LDT_COMMON (7/21/2013)
--- ======================================================================
-local function setLdtRecordType( topRec )
-  local meth = "setLdtRecordType()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  local rc = 0;
-  local recPropMap;
-
-  -- Check for existence of the main record control bin.  If that exists,
-  -- then we're already done.  Otherwise, we create the control bin, we
-  -- set the topRec record type (to LDT) and we praise the lord for yet
-  -- another miracle LDT birth.
-  if( topRec[REC_LDT_CTRL_BIN] == nil ) then
-    GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
-
-    -- If this record doesn't even exist yet -- then create it now.
-    -- Otherwise, things break.
-    if( not aerospike:exists( topRec ) ) then
-      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
-      rc = aerospike:create( topRec );
-    end
-
-    record.set_type( topRec, RT_LDT );
-    recPropMap = map();
-    -- vinfo will be a 5 byte value, but it will be easier for us to store
-    -- 6 bytes -- and just leave the high order one at zero.
-    -- Initialize the VINFO value to all zeros.
-    -- local vinfo = bytes(6);
-    -- bytes.put_int16(vinfo, 1, 0 );
-    -- bytes.put_int16(vinfo, 3, 0 );
-    -- bytes.put_int16(vinfo, 5, 0 );
-    -- Change this to use a number, rather than bytes.
-    local vinfo = 0;
-    recPropMap[RPM_VInfo] = vinfo; -- to be replaced later - on the server side.
-    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
-    recPropMap[RPM_Magic] = MAGIC;
-    -- Set this bin as HIDDEN
-  else
-    -- Not much to do -- increment the LDT count for this record.
-    recPropMap = topRec[REC_LDT_CTRL_BIN];
-    local ldtCount = recPropMap[RPM_LdtCount];
-    recPropMap[RPM_LdtCount] = ldtCount + 1;
-    GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
-      MOD, meth, ldtCount + 1 );
-  end
-  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-  topRec[REC_LDT_CTRL_BIN] = recPropMap;
-
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update( topRec );
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return rc;
-end -- setLdtRecordType()
-
 -- <><><><> <Initialize Control Maps> <Initialize Control Maps> <><><><>
-
 -- ======================================================================
 -- initializeLdtCtrl:
 -- ======================================================================
@@ -899,8 +851,6 @@ initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
   propMap[PM_EsrDigest]    = 0; -- not set yet.
   propMap[PM_CreateTime] = aerospike:get_current_time();
-  -- warn("WARNING:: Please Fix GET CURRENT TIME");
-  -- propMap[PM_CreateTime] = 0;
   propMap[PM_SelfDigest]  = record.digest( topRec );
 
   -- General Tree Settings
@@ -909,10 +859,10 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[R_NodeCount] = 0;     -- A count of all Nodes (incl leaves, excl root)
   ldtMap[R_StoreMode] = SM_LIST; -- SM_LIST or SM_BINARY (applies to all nodes)
   ldtMap[R_TreeLevel] = 1;     -- Start off Lvl 1: Root ONLY. Leaves Come l8tr
-  ldtMap[R_KeyType]   = KT_ATOMIC;-- atomic or complex
+  ldtMap[M_KeyType]   = KT_ATOMIC;-- atomic or complex
   ldtMap[R_KeyUnique] = false; -- Keys are NOT unique by default.
-  ldtMap[R_TransFunc] = nil; -- (set later) transform Func (user to storage)
-  ldtMap[R_UnTransFunc] = nil; -- (set later) Un-transform (storage to user)
+  ldtMap[M_Transform] = nil; -- (set later) transform Func (user to storage)
+  ldtMap[M_UnTransform] = nil; -- (set later) Un-transform (storage to user)
   ldtMap[R_StoreState] = SS_COMPACT; -- start in "compact mode"
   ldtMap[R_Threshold] = DEFAULT_THRESHOLD;-- Amount to Move out of compact mode
 
@@ -937,23 +887,22 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[R_LeafListMax] = 100;  -- Max # of items
   ldtMap[R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
-  -- Put our new map in the record, then store the record.
-  list.append( ldtCtrl, propMap );
-  list.append( ldtCtrl, ldtMap );
-  topRec[ldtBinName] = ldtCtrl;
-
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
   -- then we know that the main LDT record type has already been set.
   -- Otherwise, we should set it. This function will check, and if necessary,
   -- set the control bin.
   -- This method also sets this toprec as an LDT type record.
-  setLdtRecordType( topRec );
+  ldt_common.setLdtRecordType( topRec );
   
   -- Set the BIN Flag type to show that this is an LDT Bin, with all of
   -- the special priviledges and restrictions that go with it.
   GP=F and trace("[DEBUG]:<%s:%s>About to call record.set_flags(Bin(%s)F(%s))",
     MOD, meth, ldtBinName, tostring(BF_LDT_BIN) );
 
+  -- Put our new map in the record, then store the record.
+  list.append( ldtCtrl, propMap );
+  list.append( ldtCtrl, ldtMap );
+  topRec[ldtBinName] = ldtCtrl;
   record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
 
   GP=F and trace("[DEBUG]: <%s:%s> Back from calling record.set_flags()",
@@ -965,8 +914,6 @@ initializeLdtCtrl( topRec, ldtBinName )
   return ldtCtrl;
 end -- initializeLdtCtrl()
 
--- ======================================================================
--- ======================================================================
 -- ======================================================================
 -- adjustLdtMap:
 -- ======================================================================
@@ -1063,77 +1010,6 @@ end -- adjustLdtMap
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
 -- ======================================================================
--- initializeNode( Interior Tree Nodes )
--- ======================================================================
--- Set the values in an Inner Tree Node Control Map and Key/Digest Lists.
--- There are potentially FIVE bins in an Interior Tree Node Record:
---
--- >>>>>>>>>>>>>12345678901234<<<<<< (14 char limit for Bin Names) 
--- (1) nodeRec['NsrControlBin']: The control Map (defined here)
--- (2) nodeRec['NsrKeyListBin']: The Data Entry List (when in list mode)
--- (3) nodeRec['NsrBinaryBin']: The Packed Data Bytes (when in Binary mode)
--- (4) nodeRec['NsrDigestBin']: The Data Entry List (when in list mode)
--- Pages are either in "List" mode or "Binary" mode (the whole tree is in
--- one mode or the other), so the record will employ only three fields.
--- Either Bins 1,2,4 or Bins 1,3,4.
---
--- NOTES:
--- (1) For the Digest Bin -- we'll be in LIST MODE for debugging, but
---     in BINARY mode for production.
--- (2) For the Digests (when we're in binary mode), we could potentially
--- save some space by NOT storing the Lock bits and the Partition Bits
--- since we force all of those to be the same,
--- we know they are all identical to the top record.  So, that would save
--- us 4 bytes PER DIGEST -- which adds up for 50 to 100 entries.
--- We would use a transformation method to transform a 20 byte value into
--- and out of a 16 byte value.
---
--- ======================================================================
-local function initializeNode(topRec, nodeRec, ldtCtrl)
-  local meth = "initializeNode()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  -- Extract the property map and control map from the ldt bin list.
-  local topPropMap = ldtCtrl[1];
-  local ldtMap     = ldtCtrl[2];
-
-  -- Set up our new property and control map for this node
-  local nodePropMap = map();
-  local nodeMap = map();
-
-  nodePropMap[PM_Magic] = MAGIC;
-  nodePropMap[PM_EsrDigest] = topPropMap[PM_EsrDigest];
-  nodePropMap[PM_RecType] = RT_NODE;
-  -- nodePropMap[PM_ParentDigest] = topPropMap[PM_SelfDigest];
-  nodePropMap[PM_ParentDigest] = record.digest( topRec );
-  nodePropMap[PM_SelfDigest] = record.digest( nodeRec );
-
-  -- Notes:
-  -- (1) Item Count is implicitly the KeyList size
-  -- (2) All Max Limits, Key sizes and Obj sizes are in the root map
-  nodeMap[ND_ListEntryCount] = 0;  -- Current # of entries in the node list
-  nodeMap[ND_ListEntryTotal] = 0;  -- Total # of slots used in the node list
-  nodeMap[ND_ByteEntryCount] = 0;  -- Bytes used (if in binary mode)
-
-  -- Store the new maps in the record.
-  nodeRec[SUBREC_PROP_BIN] = nodePropMap;
-  nodeRec[NSR_CTRL_BIN]    = nodeMap;
-  nodeRec[NSR_KEY_LIST_BIN] = list(); -- Holds the keys
-  nodeRec[NSR_DIGEST_BIN] = list(); -- Holds the Digests -- the Rec Ptrs
-
-  -- We must tell the system what type of record this is (sub-record)
-  record.set_type( nodeRec, RT_SUB );
-
-  aerospike:update_subrec( nodeRec );
-
-  -- If we had BINARY MODE working for inner nodes, we would initialize
-  -- the Key BYTE ARRAY here.  However, the real savings would be in the
-  -- leaves, so it may not be much of an advantage to use binary mode in nodes.
-
-  return 0;
-end -- initializeNode()
-
--- ======================================================================
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- || B+ Tree Data Page Record |||||||||||||||||||||||||||||||||||||||||||
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1166,92 +1042,6 @@ end -- initializeNode()
 --
 --    -- Entry List (Holds entry and, implicitly, Entry Count)
 -- ======================================================================
--- initializeLeaf()
--- Set the values in an Inner Tree Node Control Map and Key/Digest Lists.
--- There are potentially FOUR bins in an Interior Tree Node Record:
--- (0) nodeRec[SUBREC_PROP_BIN]: The Property Map
--- (1) nodeRec[LSR_CTRL_BIN]:   The control Map (defined here)
--- (2) nodeRec[LSR_LIST_BIN]:   The Data Entry List (when in list mode)
--- (3) nodeRec[LSR_BINARY_BIN]: The Packed Data Bytes (when in Binary mode)
--- Pages are either in "List" mode or "Binary" mode (the whole tree is in
--- one mode or the other), so the record will employ only four fields.
--- Either Bins 0,1,2,4 or Bins 0,1,3,5.
--- Parms:
--- (*) topRec
--- (*) ldtCtrl
--- (*) leafRec
--- (*) firstValue
--- (*) pd: previous (left) Leaf Digest (or 0, if not there)
--- (*) nd: next (right) Leaf Digest (or 0, if not there)
--- ======================================================================
-local function initializeLeaf(topRec, ldtCtrl, leafRec, firstValue, pd, nd )
-  local meth = "initializeLeaf()";
-  local rc = 0;
-  GP=E and trace("[ENTER]<%s:%s>:1st Val(%s)", MOD, meth, tostring(firstValue));
-
-  local topDigest = record.digest( topRec );
-  local leafDigest = record.digest( leafRec );
-  
-  -- Extract the property map and control map from the ldt bin list.
-  local topPropMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Set up the Property Map
-  leafPropMap = map();
-  leafPropMap[PM_Magic] = MAGIC;
-  leafPropMap[PM_EsrDigest] = topPropMap[PM_EsrDigest]; 
-  leafPropMap[PM_RecType] = RT_LEAF;
-  leafPropMap[PM_ParentDigest] = topDigest;
-  leafPropMap[PM_SelfDigest] = leafDigest;
-  -- For subrecs, set create time to ZERO.
-  leafPropMap[PM_CreateTime] = 0;
-
-  leafMap = map();
-  if( ldtMap[R_StoreMode] == SM_LIST ) then
-    -- List Mode
-    GP=F and trace("[DEBUG]: <%s:%s> Initialize in LIST mode", MOD, meth );
-    leafMap[LF_ByteEntryCount] = 0;
-    -- If we have an initial value, then enter that in our new object list.
-    -- Otherwise, create an empty list.
-    local objectList = list();
-    if( firstValue ~= nil ) then
-      list.append( objectList, firstValue );
-      leafMap[LF_ListEntryCount] = 1;
-      leafMap[LF_ListEntryTotal] = 1;
-    else
-      leafMap[LF_ListEntryCount] = 0;
-      leafMap[LF_ListEntryTotal] = 0;
-    end
-    leafRec[LSR_LIST_BIN] = objectList;
-  else
-    -- Binary Mode
-    GP=F and trace("[DEBUG]: <%s:%s> Initialize in BINARY mode", MOD, meth );
-    warn("[WARNING!!!]<%s:%s>Not ready for BINARY MODE YET!!!!", MOD, meth );
-    leafMap[LF_ListEntryTotal] = 0;
-    leafMap[LF_ListEntryCount] = 0;
-    leafMap[LF_ByteEntryCount] = startCount;
-  end
-
-  -- Take our new structures and put them in the leaf record.
-  leafRec[SUBREC_PROP_BIN] = leafPropMap;
-  leafRec[LSR_CTRL_BIN] = leafMap;
-  -- We must tell the system what type of record this is (sub-record)
-  record.set_type( leafRec, RT_SUB );
-
-  aerospike:update_subrec( leafRec );
-  -- Note that the caller will write out the record, since there will
-  -- possibly be more to do (like add data values to the object list).
-  GP=F and trace("[DEBUG]<%s:%s> TopRec Digest(%s) Leaf Digest(%s))",
-    MOD, meth, tostring(topDigest), tostring(leafDigest));
-
-  GP=F and trace("[DEBUG]<%s:%s> LeafPropMap(%s) Leaf Map(%s)",
-    MOD, meth, tostring(leafPropMap), tostring(leafMap));
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return rc;
-end -- initializeLeaf()
-
--- ======================================================================
 -- <><><><><> -- <><><><><> -- <><><><><> -- <><><><><> -- <><><><><> --
 --           Large Ordered List (LLIST) Utility Functions
 -- <><><><><> -- <><><><><> -- <><><><><> -- <><><><><> -- <><><><><> --
@@ -1273,10 +1063,10 @@ end -- getLeafMap
 -- ======================================================================
 -- Convenience function to return the Control Map given a subrec
 -- ======================================================================
-local function getNodeMap( nodeRec )
+local function getNodeMap( nodeSubRec )
   -- local meth = "getNodeMap()";
   -- GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
-  return nodeRec[NSR_CTRL_BIN]; -- this should be a map.
+  return nodeSubRec[NSR_CTRL_BIN]; -- this should be a map.
 end -- getNodeMap
 
 -- ======================================================================
@@ -1443,11 +1233,11 @@ end -- printRoot()
 -- ======================================================================
 -- Dump the Node contents for Debugging/Tracing purposes
 -- ======================================================================
-local function printNode( nodeRec )
-  local pMap        = nodeRec[SUBREC_PROP_BIN];
-  local cMap        = nodeRec[NSR_CTRL_BIN];
-  local keyList     = nodeRec[NSR_KEY_LIST_BIN];
-  local digestList  = nodeRec[NSR_DIGEST_BIN];
+local function printNode( nodeSubRec )
+  local pMap        = nodeSubRec[SUBREC_PROP_BIN];
+  local cMap        = nodeSubRec[NSR_CTRL_BIN];
+  local keyList     = nodeSubRec[NSR_KEY_LIST_BIN];
+  local digestList  = nodeSubRec[NSR_DIGEST_BIN];
   -- if( F == true ) then
     trace("\n NNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNNN");
     trace("\n NODE::PMAP(%s)", tostring( pMap ) );
@@ -1488,18 +1278,18 @@ local function rootNodeSummary( ldtCtrl )
 end -- rootNodeSummary()
 
 -- ======================================================================
--- nodeSummary( nodeRec )
--- nodeSummaryString( nodeRec )
+-- nodeSummary( nodeSubRec )
+-- nodeSummaryString( nodeSubRec )
 -- ======================================================================
 -- Print out interesting stats about this Interior B+ Tree Node
 -- ======================================================================
-local function nodeSummary( nodeRec )
+local function nodeSummary( nodeSubRec )
   local meth = "nodeSummary()";
   local resultMap = map();
-  local propMap  = nodeRec[SUBREC_PROP_BIN];
-  local nodeMap  = nodeRec[NSR_CTRL_BIN];
-  local keyList = nodeRec[NSR_KEY_LIST_BIN];
-  local digestList = nodeRec[NSR_DIGEST_BIN];
+  local propMap  = nodeSubRec[SUBREC_PROP_BIN];
+  local nodeCtrlMap  = nodeSubRec[NSR_CTRL_BIN];
+  local keyList = nodeSubRec[NSR_KEY_LIST_BIN];
+  local digestList = nodeSubRec[NSR_DIGEST_BIN];
 
   -- General Properties (the Properties Bin)
   resultMap.SUMMARY           = "NODE Summary";
@@ -1510,8 +1300,8 @@ local function nodeSummary( nodeRec )
   resultMap.PropParentDigest  = propMap[PM_ParentDigest];
   
   -- Node Control Map
-  resultMap.ListEntryCount = nodeMap[ND_ListEntryCount];
-  resultMap.ListEntryTotal = nodeMap[ND_ListEntryTotal];
+  resultMap.ListEntryCount = nodeCtrlMap[ND_ListEntryCount];
+  resultMap.ListEntryTotal = nodeCtrlMap[ND_ListEntryTotal];
 
   -- Node Contents (Object List)
   resultMap.KEY_LIST              = keyList;
@@ -1520,8 +1310,8 @@ local function nodeSummary( nodeRec )
   return resultMap;
 end -- nodeSummary()
 
-local function nodeSummaryString( nodeRec )
-  return tostring( nodeSummary( nodeRec ) );
+local function nodeSummaryString( nodeSubRec )
+  return tostring( nodeSummary( nodeSubRec ) );
 end -- nodeSummaryString()
 
 -- ======================================================================
@@ -1569,7 +1359,7 @@ end
 
 -- ======================================================================
 -- ======================================================================
-local function showRecSummary( nodeRec, propMap )
+local function showRecSummary( nodeSubRec, propMap )
   local meth = "showRecSummary()";
   -- Debug/Tracing to see what we're putting in the SubRec Context
   -- if( F == true ) then
@@ -1580,19 +1370,15 @@ local function showRecSummary( nodeRec, propMap )
     GP=F and trace("\n[SUBREC DEBUG]:: SRC Contents \n");
     local recType = propMap[PM_RecType];
     if( recType == RT_LEAF ) then
-      GP=F and trace("\n[Leaf Record Summary] %s\n",leafSummaryString(nodeRec));
+      GP=F and trace("\n[Leaf Record Summary] %s\n",leafSummaryString(nodeSubRec));
     elseif( recType == RT_NODE ) then
-      GP=F and trace("\n[Node Record Summary] %s\n",nodeSummaryString(nodeRec));
+      GP=F and trace("\n[Node Record Summary] %s\n",nodeSummaryString(nodeSubRec));
     else
       GP=F and trace("\n[OTHER Record TYPE] (%s)\n", tostring( recType ));
     end
   -- end
 end -- showRecSummary()
 
-
--- =============================
--- Begin SubRecord Function Area
--- =============================
 -- ======================================================================
 -- SUB RECORD CONTEXT DESIGN NOTE:
 -- All "outer" functions, like insert(), search(), remove(),
@@ -1611,127 +1397,8 @@ end -- showRecSummary()
 -- to mark them dirty -- but for now we'll update them in place (as needed),
 -- but we won't close them until the end.
 -- ======================================================================
-local function createSubrecContext()
-  local meth = "createSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  local src = map();
-  src.ItemCount = 0;
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
-  return src;
-end -- createSubrecContext()
-
+-- NOTE: We are now using ldt_common.createSubRecContext()
 -- ======================================================================
--- Given an already opened subrec (probably one that was recently created),
--- add it to the subrec context.
--- ======================================================================
-local function addSubrecToContext( src, nodeRec )
-  local meth = "addSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  if( src == nil ) then
-    warn("[ERROR]<%s:%s> SubRec Pool is nil", MOD, meth );
-    error( ldte.ERR_SUBREC_POOL_DAMAGED );
-  end
-
-  local digest = record.digest( nodeRec );
-  local digestString = tostring( digest );
-  src[digestString] = nodeRec;
-
-  local itemCount = src.ItemCount;
-  src.ItemCount = itemCount + 1;
-
---  trace("\n[ADD SUBREC]<%s:%s> SRC(%s) nodeRec(%s) Digest(%s) IC(%d)\n",
---  MOD, meth, tostring(src), tostring(nodeRec), digestString, src.ItemCount);
-
-  -- Debug/Tracing to see what we're putting in the SubRec Context
---  if( F == true ) then
---    local propMap = nodeRec[SUBREC_PROP_BIN];
---    showRecSummary( nodeRec, propMap );
---  end
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
-  return 0;
-end -- addSubrecToContext()
-
--- ======================================================================
--- ======================================================================
-local function openSubrec( src, topRec, digestString )
-  local meth = "openSubrec()";
-  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(src));
-
-  -- We have a global limit on the number of subrecs that we can have
-  -- open at a time.  If we're at (or above) the limit, then we must
-  -- exit with an error (better here than in the subrec code).
-  local itemCount = src.ItemCount;
-
-  local rec = src[digestString];
-  if( rec == nil ) then
-    if( itemCount >= G_OPEN_SR_LIMIT ) then
-      warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-        itemCount, G_OPEN_SR_LIMIT );
-      error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
-    end
-
-    src.ItemCount = itemCount + 1;
-    GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
-      MOD, meth, src.ItemCount, tostring(topRec), digestString );
-    rec = aerospike:open_subrec( topRec, digestString );
-    GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)",MOD,meth,tostring(rec));
-    if( rec == nil ) then
-      warn("[ERROR]<%s:%s> Subrec Open Failure: Digest(%s)", MOD, meth,
-        digestString );
-      error( ldte.ERR_SUBREC_OPEN );
-    end
-  else
-    GP=F and trace("[FOUND REC]: <%s:%s> : Rec(%s)", MOD, meth, tostring(rec));
-  end
-
-  -- Debug/Tracing to see what is in the SubRec Context
-  GP=F and showRecSummary( rec, rec[SUBREC_PROP_BIN] );
-
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
-    MOD, meth, tostring(rec), digestString );
-  return rec;
-end -- openSubrec()
-
--- ======================================================================
--- ======================================================================
-local function closeAllSubrecs( src )
-  local meth = "closeAllSubrecs()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(src));
-
-  -- Iterate thru the SubRecContext and close all subrecords.
-  local digestString;
-  local rec;
-  local rc = 0;
-  for name, value in map.pairs( src ) do
-    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-    if( name == "ItemCount" ) then
-      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
-    else
-      digestString = name;
-      rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Would have closed SubRec(%s) Rec(%s)",
-      MOD, meth, digestString, tostring(rec) );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
-      --   MOD, meth, digestString, tostring(rec) );
-      -- rc = aerospike:close_subrec( rec );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing Results(%d)", MOD, meth, rc );
-    end
-  end -- for all fields in SRC
-
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  -- return rc;
-  return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
-end -- closeAllSubrecs()
-
--- ===========================
--- End SubRecord Function Area
--- ===========================
 
 -- ======================================================================
 -- Produce a COMPARABLE value (our overloaded term here is "key") from
@@ -1754,7 +1421,7 @@ end -- closeAllSubrecs()
 local function getKeyValue( ldtMap, value )
   local meth = "getKeyValue()";
   GP=E and trace("[ENTER]<%s:%s> value(%s) KeyType(%s)",
-    MOD, meth, tostring(value), tostring(ldtMap[R_KeyType]) );
+    MOD, meth, tostring(value), tostring(ldtMap[M_KeyType]) );
 
   if( value == nil ) then
     GP=E and trace("[Early EXIT]<%s:%s> Value is nil", MOD, meth );
@@ -1765,7 +1432,7 @@ local function getKeyValue( ldtMap, value )
     tostring( type(value)));
 
   local keyValue;
-  if( ldtMap[R_KeyType] == KT_ATOMIC or type(value) ~= "userdata" ) then
+  if( ldtMap[M_KeyType] == KT_ATOMIC or type(value) ~= "userdata" ) then
     keyValue = value;
   else
     if( G_KeyFunction ~= nil ) then
@@ -1848,7 +1515,7 @@ end -- keyCompare()
 -- ======================================================================
 local function objectCompare( ldtMap, searchKey, objectValue )
   local meth = "objectCompare()";
-  local keyType = ldtMap[R_KeyType];
+  local keyType = ldtMap[M_KeyType];
 
   GP=E and trace("[ENTER]<%s:%s> keyType(%s) searchKey(%s) data(%s)",
     MOD, meth, tostring(keyType), tostring(searchKey), tostring(objectValue));
@@ -1871,7 +1538,9 @@ local function objectCompare( ldtMap, searchKey, objectValue )
       warn("[WARNING]<%s:%s> ObjectValue::SearchKey TYPE Mismatch", MOD, meth );
       warn("[INFO] TYPE ObjectValue(%s) TYPE SearchKey(%s)",
         type(objectKey), type(searchKey) );
-      return CR_INTERNAL_ERROR; -- Need to catch this sooner.
+      -- return CR_INTERNAL_ERROR; -- Need to catch this sooner.
+      -- Generate the error here.
+      error(ldte.ERR_TYPE_MISMATCH);
     end
 
     -- For atomic types (keyType == 0), compare objects directly
@@ -1952,77 +1621,6 @@ initPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
 end -- initPropMap()
 
 -- ======================================================================
--- Create and Init ESR
--- ======================================================================
--- The Existence SubRecord is the synchronization point for the lDTs that
--- have multiple records (one top rec and many children).  It's a little
--- like the baby sitter for the children -- it helps keeps track of them.
--- And, when the ESR is gone, we kill the children. (BRUA-HAHAHAH!!!)
---
--- All LDT subrecs have a properties bin that describes the subrec.  This
--- bin contains a map that is "un-msg-packed" by the C code on the server
--- and read.  It must be the same for all LDT recs.
---
--- ======================================================================
-local function createAndInitESR( src, topRec, ldtCtrl )
-  local meth = "createAndInitESR()";
-  GP=E and trace("[ENTER]<%s:%s> LDT Summary(%s)",
-    MOD, meth, ldtSummaryString(ldtCtrl));
-
-  local rc = 0;
-  -- Remember to add this to the SRC
-  local esrRec       = aerospike:create_subrec( topRec );
-  if( esrRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating ESR", MOD, meth );
-    error( ldte.ERR_SUBREC_CREATE );
-  end
-
-  local esrDigest = record.digest( esrRec );
-  local topDigest = record.digest( topRec );
-  local topPropMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Init the properties map for this ESR. Note that esrDigest is in here
-  -- twice -- once for "self" and once for "esrRec".
-  -- Set the Property ControlMap for the ESR, and assign the parent Digest
-  -- Note that we use our standard convention for property maps - all subrecs
-  -- have a property map, including ESRs.
-  local esrPropMap = map();
-  initPropMap(esrPropMap, esrDigest, esrDigest, topDigest, RT_ESR, topPropMap);
-
-  esrRec[SUBREC_PROP_BIN] = esrPropMap;
-  -- NOTE: We have to make sure that the TopRec propMap also gets saved.
-
-  -- Set the record type as "ESR"
-  trace("[TRACE]<%s:%s> SETTING RECORD TYPE(%s)", MOD, meth, tostring(RT_ESR));
-  record.set_type( esrRec, RT_ESR );
-  trace("[TRACE]<%s:%s> DONE SETTING RECORD TYPE", MOD, meth );
-
-  GP=E and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
-    MOD, meth, tostring(esrDigest));
-
-  -- Now that it's initialized, add the ESR to the SRC.
-  addSubrecToContext( src, esrRec );
-
-  rc = aerospike:update_subrec( esrRec );
-  if( rc == nil or rc == 0) then
-    -- No longer close via aerospike:close_subrec().
-    -- Do that all via the subrecContext
-      GP=F and trace("[ESR CLOSE]: <%s:%s> ESR Close postponed", MOD, meth );
-  else
-    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
-  end
-
-  -- After the ESR is all buttoned up -- add it to the SubRec Context.
-  -- addSubrecToContext( src, esrRec );
-
-  trace("[EXIT]<%s:%s> EsrDigest(%s)", MOD, meth, tostring(esrDigest));
-  return esrDigest;
-
-end -- createAndInitESR()
-
--- ======================================================================
 -- searchKeyList(): Search the Key list in a Root or Inner Node
 -- ======================================================================
 -- Search the key list, return the index of the value that represents the
@@ -2062,7 +1660,7 @@ local function searchKeyList( ldtMap, keyList, searchKey )
   end
 
   -- Don't need this at the moment.
-  -- local keyType = ldtMap[R_KeyType];
+  -- local keyType = ldtMap[M_KeyType];
 
   -- Linear scan of the KeyList.  Find the appropriate entry and return
   -- the index.  Binary Search will come later.
@@ -2140,7 +1738,7 @@ end -- searchKeyList()
 -- ======================================================================
 local function searchObjectList( ldtMap, objectList, searchKey )
   local meth = "searchObjectList()";
-  local keyType = ldtMap[R_KeyType];
+  local keyType = ldtMap[M_KeyType];
   GP=E and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
     MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
 
@@ -2237,7 +1835,7 @@ local function printTree( src, topRec, ldtBinName )
   local nodeList = list();
   local childList = list();
   local digestString;
-  local nodeRec;
+  local nodeSubRec;
   local treeLevel = ldtMap[R_TreeLevel];
 
   trace("\n ===========================================================\n");
@@ -2258,22 +1856,23 @@ local function printTree( src, topRec, ldtBinName )
     for n = 1, listSize, 1 do
       digestString = tostring( nodeList[n] );
       GP=F and trace("[SUBREC]<%s:%s> OpenSR(%s)", MOD, meth, digestString );
-      nodeRec = openSubrec( src, topRec, digestString );
+      nodeSubRec = ldt_common.openSubRec( src, topRec, digestString );
       if( lvl < treeLevel ) then
         -- This is an inner node -- remember all children
-        local digestList  = nodeRec[NSR_DIGEST_BIN];
+        local digestList  = nodeSubRec[NSR_DIGEST_BIN];
         local digestListSize = list.size( digestList );
         for d = 1, digestListSize, 1 do
           list.append( childList, digestList[d] );
         end -- end for each digest in the node
-        printNode( nodeRec );
+        printNode( nodeSubRec );
       else
         -- This is a leaf node -- just print contents of each leaf
-        printLeaf( nodeRec );
+        printLeaf( nodeSubRec );
       end
       GP=F and trace("[SUBREC]<%s:%s> CloseSR(%s)", MOD, meth, digestString );
       -- No -- we don't close.  The SubRecContext handles everything.
-      -- aerospike:close_subrec( nodeRec );
+      -- aerospike:close_subrec( nodeSubRec );
+      ldt_common.closeSubRec( src, nodeSubRec ); -- Mark it as available
     end -- for each node in the list
     -- If we're going around again, then the old childList is the new
     -- ParentList (as in, the nodeList for the next iteration)
@@ -2307,7 +1906,8 @@ local function setLeafPagePointers( leafRec, leftDigest, rightDigest )
     leafMap[LF_NextPage] = rightDigest;
   end
   leafRec[LSR_CTRL_BIN] = leafMap;
-  aerospike:update_subrec( leafRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leafRec );
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- setLeafPagePointers()
@@ -2368,7 +1968,8 @@ local function adjustPagePointers( src, topRec, newLeftLeaf, rightLeaf )
   else 
     -- Regular situation:  Go open the old left leaf and update it.
     local oldLeftLeafDigestString = tostring(oldLeftLeafDigest);
-    local oldLeftLeaf = openSubrec( src, topRec, oldLeftLeafDigestString );
+    local oldLeftLeaf =
+        ldt_common.openSubRec( src, topRec, oldLeftLeafDigestString );
     if( oldLeftLeaf == nil ) then
       warn("[ERROR]<%s:%s> oldLeftLeaf NIL from openSubrec: digest(%s)",
         MOD, meth, oldLeftLeafDigestString );
@@ -2377,7 +1978,8 @@ local function adjustPagePointers( src, topRec, newLeftLeaf, rightLeaf )
     local oldLeftLeafMap = oldLeftLeaf[LSR_CTRL_BIN];
     oldLeftLeafMap[LF_NextPage] = newLeftLeafDigest;
     oldLeftLeaf[LSR_CTRL_BIN] = oldLeftLeafMap;
-    aerospike:update_subrec( oldLeftLeaf );
+    -- We no longer call udpate -- it is done at the close of Lua Context.
+    -- aerospike:update_subrec( oldLeftLeaf );
     -- Remember, we don't close subrecs.  We use the SRC to do that all 
     -- at the end.
   end
@@ -2390,9 +1992,9 @@ local function adjustPagePointers( src, topRec, newLeftLeaf, rightLeaf )
   -- Save the Leaf Record Maps, and update the subrecs.
   newLeftLeaf[LSR_CTRL_BIN]   =  newLeftLeafMap;
   rightLeaf[LSR_CTRL_BIN]     = rightLeafMap;
-  aerospike:update_subrec( newLeftLeaf );
-  aerospike:update_subrec( rightLeaf );
-  -- Remember:: We use the SRC to close all subrecs at the end.
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( newLeftLeaf );
+  -- aerospike:update_subrec( rightLeaf );
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- adjustPagePointers()
@@ -2448,12 +2050,12 @@ end -- createSearchPath()
 -- (*) SearchPath: a map that holds all of the secrets
 -- (*) propMap: The Property Map (tells what TYPE this record is)
 -- (*) ldtMap: Main LDT Control structure
--- (*) nodeRec: a subrec
+-- (*) nodeSubRec: a subrec
 -- (*) position: location in the current list
 -- (*) keyCount: Number of keys in the list
 -- ======================================================================
 local function
-updateSearchPath(sp, propMap, ldtMap, nodeRec, position, keyCount)
+updateSearchPath(sp, propMap, ldtMap, nodeSubRec, position, keyCount)
   local meth = "updateSearchPath()";
   local rc = 0;
   GP=E and trace("[ENTER]<%s:%s> SP(%s) PMap(%s) LMap(%s) Pos(%d) KeyCnt(%d)",
@@ -2461,9 +2063,9 @@ updateSearchPath(sp, propMap, ldtMap, nodeRec, position, keyCount)
     position, keyCount);
 
   local levelCount = sp.LevelCount;
-  local nodeRecordDigest = record.digest( nodeRec );
+  local nodeRecordDigest = record.digest( nodeSubRec );
   sp.LevelCount = levelCount + 1;
-  list.append( sp.RecList, nodeRec );
+  list.append( sp.RecList, nodeSubRec );
   list.append( sp.DigestList, nodeRecordDigest );
   list.append( sp.PositionList, position );
   -- Depending on the Tree Node (Root, Inner, Leaf), we might have different
@@ -2767,7 +2369,7 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
   local digestList = ldtMap[R_RootDigestList];
   local position = 0;
   local nodeRec = topRec;
-  local nodeMap;
+  local nodeCtrlMap;
   local resultMap;
   local digestString;
 
@@ -2795,7 +2397,7 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
       updateSearchPath(sp,propMap,ldtMap,nodeRec,position,keyCount );
 
       -- Get ready for the next iteration.  If the next level is an inner node,
-      -- then populate our keyList and nodeMap.
+      -- then populate our keyList and nodeCtrlMap.
       -- If the next level is a leaf, then populate our ObjectList and LeafMap.
       -- Remember to get the STRING version of the digest in order to
       -- call "open_subrec()" on it.
@@ -2810,10 +2412,10 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
         -- Next Node is an Inner Node. 
         GP=F and trace("[Opening NODE Subrec]<%s:%s> Digest(%s) Pos(%d)",
             MOD, meth, digestString, position );
-        nodeRec = openSubrec( src, topRec, digestString );
+        nodeRec = ldt_common.openSubRec( src, topRec, digestString );
         GP=F and trace("[Open Inner Node Results]<%s:%s>nodeRec(%s)",
           MOD, meth, tostring(nodeRec));
-        nodeMap = nodeRec[NSR_CTRL_BIN];
+        nodeCtrlMap = nodeRec[NSR_CTRL_BIN];
         propMap = nodeRec[SUBREC_PROP_BIN];
         GP=F and trace("[DEBUG]<%s:%s> NEXT NODE: INNER NODE: Summary(%s)",
             MOD, meth, nodeSummaryString( nodeRec ));
@@ -2826,11 +2428,11 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
         -- Next Node is a Leaf
         GP=F and trace("[Opening Leaf]<%s:%s> Digest(%s) Pos(%d) TreeLevel(%d)",
           MOD, meth, digestString, position, i+1);
-        nodeRec = openSubrec( src, topRec, digestString );
+        nodeRec = ldt_common.openSubRec( src, topRec, digestString );
         GP=F and trace("[Open Leaf Results]<%s:%s>nodeRec(%s)",
           MOD,meth,tostring(nodeRec));
         propMap = nodeRec[SUBREC_PROP_BIN];
-        nodeMap = nodeRec[LSR_CTRL_BIN];
+        nodeCtrlMap = nodeRec[LSR_CTRL_BIN];
         GP=F and trace("[DEBUG]<%s:%s> NEXT NODE: LEAF NODE: Summary(%s)",
             MOD, meth, leafSummaryString( nodeRec ));
         objectList = nodeRec[LSR_LIST_BIN];
@@ -2890,7 +2492,8 @@ local function populateLeaf( leafRec, objectList )
   leafMap[LF_ListEntryTotal] = count;
 
   leafRec[LSR_CTRL_BIN] = leafMap;
-  aerospike:update_subrec( leafRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leafRec );
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return rc;
@@ -2951,6 +2554,7 @@ end -- listInsert()
 -- room for the new value.
 -- If we're at the end, we just append to the list.
 -- Parms:
+-- (*) src: Sub-Rec Context
 -- (*) topRec: Primary Record
 -- (*) leafRec: the leaf subrecord
 -- (*) ldtMap: LDT Control: needed for key type and storage mode
@@ -2958,7 +2562,7 @@ end -- listInsert()
 -- (*) newValue: Object to be inserted.
 -- (*) position: If non-zero, then it's where we insert. Otherwise, we search
 -- ======================================================================
-local function leafInsert( topRec, leafRec, ldtMap, newKey, newValue, position)
+local function leafInsert(src, topRec, leafRec, ldtMap, newKey, newValue, position)
   local meth = "leafInsert()";
   local rc = 0;
   GP=E and trace("[ENTER]<%s:%s> key(%s) value(%s) ldtMap(%s)",
@@ -2993,7 +2597,9 @@ local function leafInsert( topRec, leafRec, ldtMap, newKey, newValue, position)
 
   leafRec[LSR_LIST_BIN] = objectList;
   -- Update the leaf record; Close waits until the end
-  aerospike:update_subrec( leafRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leafRec );
+  updateSubRec( src, leafRec );
   -- aerospike:close_subrec( leafRec ); -- No longer close here.
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
@@ -3096,24 +2702,24 @@ end -- nodeInsert()
 -- ======================================================================
 -- Populate this inner node after a child split.
 -- Parms:
--- (*) nodeRec
+-- (*) nodeSubRec
 -- (*) keyList
 -- (*) digestList
 -- ======================================================================
-local function  populateNode( nodeRec, keyList, digestList)
+local function  populateNode( nodeSubRec, keyList, digestList)
   local meth = "populateNode()";
   local rc = 0;
   GP=E and trace("[ENTER]<%s:%s> keyList(%s) digestList(%s)",
     MOD, meth, tostring(keyList), tostring(digestList));
 
   local nodeItemCount = list.size( keyList );
-  nodeRec[NSR_KEY_LIST_BIN] = keyList;
-  nodeRec[NSR_DIGEST_BIN] = digestList;
+  nodeSubRec[NSR_KEY_LIST_BIN] = keyList;
+  nodeSubRec[NSR_DIGEST_BIN] = digestList;
 
-  local nodeMap = nodeRec[NSR_CTRL_BIN];
-  nodeMap[ND_ListEntryCount] = nodeItemCount;
-  nodeMap[ND_ListEntryTotal] = nodeItemCount;
-  nodeRec[NSR_CTRL_BIN] = nodeMap;
+  local nodeCtrlMap = nodeSubRec[NSR_CTRL_BIN];
+  nodeCtrlMap[ND_ListEntryCount] = nodeItemCount;
+  nodeCtrlMap[ND_ListEntryTotal] = nodeItemCount;
+  nodeSubRec[NSR_CTRL_BIN] = nodeCtrlMap;
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return rc;
@@ -3121,6 +2727,33 @@ end -- populateNode()
 
 -- ======================================================================
 -- Create a new Inner Node Page and initialize it.
+-- ======================================================================
+-- initializeNode( Interior Tree Nodes )
+-- ======================================================================
+-- Set the values in an Inner Tree Node Control Map and Key/Digest Lists.
+-- There are potentially FIVE bins in an Interior Tree Node Record:
+--
+-- >>>>>>>>>>>>>12345678901234<<<<<< (14 char limit for Bin Names) 
+-- (1) nodeSubRec['NsrControlBin']: The control Map (defined here)
+-- (2) nodeSubRec['NsrKeyListBin']: The Data Entry List (when in list mode)
+-- (3) nodeSubRec['NsrBinaryBin']: The Packed Data Bytes (when in Binary mode)
+-- (4) nodeSubRec['NsrDigestBin']: The Data Entry List (when in list mode)
+-- Pages are either in "List" mode or "Binary" mode (the whole tree is in
+-- one mode or the other), so the record will employ only three fields.
+-- Either Bins 1,2,4 or Bins 1,3,4.
+--
+-- NOTES:
+-- (1) For the Digest Bin -- we'll be in LIST MODE for debugging, but
+--     in BINARY mode for production.
+-- (2) For the Digests (when we're in binary mode), we could potentially
+-- save some space by NOT storing the Lock bits and the Partition Bits
+-- since we force all of those to be the same,
+-- we know they are all identical to the top record.  So, that would save
+-- us 4 bytes PER DIGEST -- which adds up for 50 to 100 entries.
+-- We would use a transformation method to transform a 20 byte value into
+-- and out of a 16 byte value.
+--
+-- ======================================================================
 -- Parms:
 -- (*) src: subrecContext: The pool of open subrecords
 -- (*) topRec: The main AS Record holding the LDT
@@ -3140,28 +2773,46 @@ local function createNodeRec( src, topRec, ldtCtrl )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
-  -- Remember to add this to the SRC
-  local nodeRec = aerospike:create_subrec( topRec );
-  if( nodeRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating Subrec", MOD, meth );
-    error( ldte.ERR_SUBREC_CREATE );
-  end
+  -- Create the Aerospike Sub-Record, initialize the Bins (Ctrl, List).
+  -- The createSubRec() handles the record type and the SRC.
+  -- It also kicks out with an error if something goes wrong.
+  local nodeSubRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_SUB );
+  local nodePropMap = nodeSubRec[SUBREC_PROP_BIN];
+  local nodeCtrlMap = map();
 
-  local rc = initializeNode( topRec, nodeRec, ldtCtrl );
-  if( rc >= 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s>Node Init OK", MOD, meth );
-    rc = aerospike:update_subrec( nodeRec );
-  else
-    warn("[ERROR]<%s:%s> Problems initializing Node(%d)", MOD, meth, rc );
-    error( ldte.ERR_INTERNAL );
-  end
+  -- Set up our new property and control map for this node
+  -- NodePropMap is already set up from the createSubRec() call.
+  local nodeCtrlMap = map();
 
-  -- Must wait until subRec is initialized before it can be added to SRC.
-  -- It should be ready now.
-  addSubrecToContext( src, nodeRec );
+  -- Notes:
+  -- (1) Item Count is implicitly the KeyList size
+  -- (2) All Max Limits, Key sizes and Obj sizes are in the root map
+  nodeCtrlMap[ND_ListEntryCount] = 0;  -- Current # of entries in the node list
+  nodeCtrlMap[ND_ListEntryTotal] = 0;  -- Total # of slots used in the node list
+  nodeCtrlMap[ND_ByteEntryCount] = 0;  -- Bytes used (if in binary mode)
+
+  -- Store the new maps in the record.
+  nodeSubRec[SUBREC_PROP_BIN] = nodePropMap;
+  nodeSubRec[NSR_CTRL_BIN]    = nodeCtrlMap;
+  nodeSubRec[NSR_KEY_LIST_BIN] = list(); -- Holds the keys
+  nodeSubRec[NSR_DIGEST_BIN] = list(); -- Holds the Digests -- the Rec Ptrs
+
+  -- We must tell the system what type of record this is (sub-record)
+  -- Handled by the subRecCreate()
+  -- record.set_type( nodeSubRec, RT_SUB );
+
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( nodeSubRec );
+
+
+  -- If we had BINARY MODE working for inner nodes, we would initialize
+  -- the Key BYTE ARRAY here.  However, the real savings would be in the
+  -- leaves, so it may not be much of an advantage to use binary mode in nodes.
+
+  -- NOTE: SubRec already added to the SR Context.
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return nodeRec;
+  return nodeSubRec;
 end -- createNodeRec()
 
 
@@ -3275,8 +2926,9 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
   -- Populate the new nodes with their Key and Digest Lists
   populateNode( leftNodeRec, leftKeyList, leftDigestList);
   populateNode( rightNodeRec, rightKeyList, rightDigestList);
-  aerospike:update_subrec( leftNodeRec );
-  aerospike:update_subrec( rightNodeRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leftNodeRec );
+  -- aerospike:update_subrec( rightNodeRec );
 
   -- Replace the Root Information with just the split-key and the
   -- two new child node digests (much like first Tree Insert).
@@ -3343,16 +2995,16 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     local ldtBinName = propMap[PM_BinName];
 
     local nodePosition = sp.PositionList[level];
-    local nodeRecDigest = sp.DigestList[lnodeevel];
-    local nodeRec = sp.RecList[level];
+    local nodeSubRecDigest = sp.DigestList[level];
+    local nodeSubRec = sp.RecList[level];
 
     -- Open the Node get the map, Key and Digest Data
-    local nodePropMap    = nodeRec[SUBREC_PROP_BIN];
+    local nodePropMap    = nodeSubRec[SUBREC_PROP_BIN];
     GP=F and trace("\n[DUMP]<%s:%s>Node Prop Map(%s)", MOD, meth, tostring(nodePropMap));
 
-    local nodeMap    = nodeRec[NSR_CTRL_BIN];
-    local keyList    = nodeRec[NSR_KEY_LIST_BIN];
-    local digestList = nodeRec[NSR_DIGEST_BIN];
+    local nodeCtrlMap    = nodeSubRec[NSR_CTRL_BIN];
+    local keyList    = nodeSubRec[NSR_KEY_LIST_BIN];
+    local digestList = nodeSubRec[NSR_DIGEST_BIN];
 
     -- Calculate the split position and the key to propagate up to parent.
     local splitPosition =
@@ -3362,7 +3014,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     local splitKey = keyList[splitPosition];
 
     GP=F and trace("\n[DUMP]<%s:%s> Take and Drop:: Map(%s) KeyList(%s) DigestList(%s)",
-      MOD, meth, tostring(nodeMap), tostring(keyList), tostring(digestList));
+      MOD, meth, tostring(nodeCtrlMap), tostring(keyList), tostring(digestList));
 
     -- Splitting a node works as follows.  The node is split into a left
     -- piece, a right piece, and a center value that is propagated up to
@@ -3396,7 +3048,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
       MOD, meth, tostring(leftKeyList), tostring(leftDigestList),
       tostring(rightKeyList), tostring(rightDigestList) );
 
-    local rightNodeRec = nodeRec; -- our new name for the existing node
+    local rightNodeRec = nodeSubRec; -- our new name for the existing node
     local leftNodeRec = createNodeRec( src, topRec, ldtCtrl );
     local leftNodeDigest = record.digest( leftNodeRec );
 
@@ -3423,8 +3075,9 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     -- Populate the new nodes with their Key and Digest Lists
     populateNode( leftNodeRec, leftKeyList, leftDigestList);
     populateNode( rightNodeRec, rightKeyList, rightDigestList);
-    aerospike:update_subrec( leftNodeRec );
-    aerospike:update_subrec( rightNodeRec );
+    -- We no longer call udpate -- it is done at the close of Lua Context.
+    -- aerospike:update_subrec( leftNodeRec );
+    -- aerospike:update_subrec( rightNodeRec );
 
     -- Update the parent node with the new Node information.  It is the job
     -- of this method to either split the parent or do a straight insert.
@@ -3511,7 +3164,9 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
       if( level > 1 ) then
         nodeRec[NSR_KEY_LIST_BIN] = keyList;
         nodeRec[NSR_DIGEST_BIN]   = digestList;
-        aerospike:update_subrec( nodeRec );
+        ldt_common.updateSubRec( src, nodeRec );
+        -- We no longer call udpate -- it is done at the close of Lua Context.
+        -- aerospike:update_subrec( nodeRec );
       end
     else
       -- Bummer.  Errors.
@@ -3543,6 +3198,25 @@ end -- insertParentNode()
 -- (3) LSR_LIST_BIN:    Object List goes here
 -- (4) LSR_BINARY_BIN:  Packed Binary Array (if used) goes here
 -- ======================================================================
+-- ======================================================================
+-- initializeLeaf()
+-- Set the values in an Inner Tree Node Control Map and Key/Digest Lists.
+-- There are potentially FOUR bins in an Interior Tree Node Record:
+-- (0) nodeSubRec[SUBREC_PROP_BIN]: The Property Map
+-- (1) nodeSubRec[LSR_CTRL_BIN]:   The control Map (defined here)
+-- (2) nodeSubRec[LSR_LIST_BIN]:   The Data Entry List (when in list mode)
+-- (3) nodeSubRec[LSR_BINARY_BIN]: The Packed Data Bytes (when in Binary mode)
+-- Pages are either in "List" mode or "Binary" mode (the whole tree is in
+-- one mode or the other), so the record will employ only four fields.
+-- Either Bins 0,1,2,4 or Bins 0,1,3,5.
+-- Parms:
+-- (*) topRec
+-- (*) ldtCtrl
+-- (*) leafRec
+-- (*) firstValue
+-- (*) pd: previous (left) Leaf Digest (or 0, if not there)
+-- (*) nd: next (right) Leaf Digest (or 0, if not there)
+-- ======================================================================
 local function createLeafRec( src, topRec, ldtCtrl, firstValue )
   local meth = "createLeafRec()";
   GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
@@ -3551,29 +3225,68 @@ local function createLeafRec( src, topRec, ldtCtrl, firstValue )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
-  -- Remember to add this to the SRC
-  local leafRec = aerospike:create_subrec( topRec );
-  if( leafRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating Subrec", MOD, meth );
-    error( ldte.ERR_SUBREC_CREATE );
-  end
+  -- Create the Aerospike Sub-Record, initialize the Bins (Ctrl, List).
+  -- The createSubRec() handles the record type and the SRC.
+  -- It also kicks out with an error if something goes wrong.
+  local leafSubRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_SUB );
+  local leafPropMap = leafSubRec[SUBREC_PROP_BIN];
+  local leafCtrlMap = map();
 
-  -- Increase the Subrec Count
-  local subrecCount = propMap[PM_SubRecCount];
-  propMap[PM_SubRecCount] = subrecCount + 1;
+  -- Set up our new property and control map for this leaf
+  -- leafPropMap is already set up from the createSubRec() call.
+  local leafCtrlMap = map();
 
-  local rc = initializeLeaf( topRec, ldtCtrl, leafRec, firstValue );
-  if( rc >= 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s>Leaf Init OK", MOD, meth );
-    rc = aerospike:update_subrec( leafRec );
+  -- Store the new maps in the record.
+  -- leafSubRec[SUBREC_PROP_BIN] = leafPropMap; (Already Set)
+  leafSubRec[NSR_CTRL_BIN]    = leafCtrlMap;
+  leafSubRec[NSR_KEY_LIST_BIN] = list(); -- Holds the keys
+  leafSubRec[NSR_DIGEST_BIN] = list(); -- Holds the Digests -- the Rec Ptrs
+
+  local topDigest = record.digest( topRec );
+  local leafDigest = record.digest( leafSubRec );
+  
+  if( ldtMap[R_StoreMode] == SM_LIST ) then
+    -- List Mode
+    GP=F and trace("[DEBUG]: <%s:%s> Initialize in LIST mode", MOD, meth );
+    leafCtrlMap[LF_ByteEntryCount] = 0;
+    -- If we have an initial value, then enter that in our new object list.
+    -- Otherwise, create an empty list.
+    local objectList = list();
+    if( firstValue ~= nil ) then
+      list.append( objectList, firstValue );
+      leafCtrlMap[LF_ListEntryCount] = 1;
+      leafCtrlMap[LF_ListEntryTotal] = 1;
+    else
+      leafCtrlMap[LF_ListEntryCount] = 0;
+      leafCtrlMap[LF_ListEntryTotal] = 0;
+    end
+    leafSubRec[LSR_LIST_BIN] = objectList;
   else
-    warn("[ERROR]<%s:%s> Problems initializing Leaf(%d)", MOD, meth, rc );
-    error( ldte.ERR_INTERNAL );
+    -- Binary Mode
+    GP=F and trace("[DEBUG]: <%s:%s> Initialize in BINARY mode", MOD, meth );
+    warn("[WARNING!!!]<%s:%s>Not ready for BINARY MODE YET!!!!", MOD, meth );
+    leafCtrlMap[LF_ListEntryTotal] = 0;
+    leafCtrlMap[LF_ListEntryCount] = 0;
+    leafCtrlMap[LF_ByteEntryCount] = startCount;
   end
+
+  -- Take our new structures and put them in the leaf record.
+  -- leafSubRec[SUBREC_PROP_BIN] = leafPropMap; (Already Set)
+  leafSubRec[LSR_CTRL_BIN] = leafCtrlMap;
+
+  ldt_common.updateSubRec( src, leafSubRec );
+  
+  -- Note that the caller will write out the record, since there will
+  -- possibly be more to do (like add data values to the object list).
+  GP=F and trace("[DEBUG]<%s:%s> TopRec Digest(%s) Leaf Digest(%s))",
+    MOD, meth, tostring(topDigest), tostring(leafDigest));
+
+  GP=F and trace("[DEBUG]<%s:%s> LeafPropMap(%s) Leaf Map(%s)",
+    MOD, meth, tostring(leafPropMap), tostring(leafCtrlMap));
 
   -- Must wait until subRec is initialized before it can be added to SRC.
   -- It should be ready now.
-  addSubrecToContext( src, leafRec );
+  -- ldt_common.addSubRecToContext( src, leafRec, true );
 
   GP=F and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return leafRec;
@@ -3702,18 +3415,19 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local compareResult = keyCompare( newKey, splitKey );
   if( compareResult == CR_LESS_THAN ) then
     -- We choose the LEFT Leaf -- but we must search for the location
-    leafInsert( topRec, leftLeafRec, ldtMap, newKey, newValue, 0);
+    leafInsert(src, topRec, leftLeafRec, ldtMap, newKey, newValue, 0);
   elseif( compareResult >= CR_EQUAL  ) then -- this works for EQ or GT
     -- We choose the RIGHT (new) Leaf -- but we must search for the location
-    leafInsert( topRec, rightLeafRec, ldtMap, newKey, newValue, 0);
+    leafInsert(src, topRec, rightLeafRec, ldtMap, newKey, newValue, 0);
   else
     -- We got some sort of goofy error.
     warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
     error( ldte.ERR_INTERNAL );
   end
 
-  aerospike:update_subrec( leftLeafRec );
-  aerospike:update_subrec( rightLeafRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leftLeafRec );
+  -- aerospike:update_subrec( rightLeafRec );
 
   -- Update the parent node with the new leaf information.  It is the job
   -- of this method to either split the parent or do a straight insert.
@@ -3747,7 +3461,8 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue, stats )
 
   -- We know that on the VERY FIRST SubRecord create, we want to create
   -- the Existence Sub Record (ESR).  So, do this first.
-  local esrDigest = createAndInitESR( src, topRec, ldtCtrl );
+  --NOT NEEDED -- ESR will be created by createLeafRec()
+  --local esrDigest = createAndInitESR( src, topRec, ldtCtrl );
 
   -- Extract the property map and control map from the ldt bin list.
   local propMap = ldtCtrl[1];
@@ -3799,9 +3514,12 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue, stats )
 
   -- Note: The caller will update the top record, but we need to update
   -- and close the subrecs here.
-  aerospike:update_subrec( leftLeafRec );
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- aerospike:update_subrec( leftLeafRec );
+  ldt_common.updateSubRec( src, leftLeafRec );
   -- aerospike:close_subrec( leftLeafRec );
-  aerospike:update_subrec( rightLeafRec );
+  -- aerospike:update_subrec( rightLeafRec );
+  ldt_common.updateSubRec( src, rightLeafRec );
   -- aerospike:close_subrec( rightLeafRec );
 
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
@@ -3872,8 +3590,9 @@ local function treeInsert( src, topRec, ldtCtrl, value, stats )
       -- Regular Leaf Insert
       local leafRec = sp.RecList[leafLevel];
       local position = sp.PositionList[leafLevel];
-      rc = leafInsert( topRec, leafRec, ldtMap, key, value, position);
-      aerospike:update_subrec( leafRec );
+      rc = leafInsert(src, topRec, leafRec, ldtMap, key, value, position);
+      -- We no longer call udpate -- it is done at the close of Lua Context.
+      -- aerospike:update_subrec( leafRec );
     else
       -- Split first, then insert.  This split can potentially propagate all
       -- the way up the tree to the root. This is potentially a big deal.
@@ -3934,9 +3653,9 @@ end -- treeInsert
 --  GP=E and trace("[ENTER]<%s:%s>storeValue(%s)",MOD,meth,tostring(storeValue));
 --
 --  local returnValue = storeValue;
---  if ldtMap[R_UnTransform] ~= nil and
---    functionTable[ldtMap[R_UnTransform]] ~= nil then
---    returnValue = functionTable[ldtMap[R_UnTransform]]( storeValue );
+--  if ldtMap[M_UnTransform] ~= nil and
+--    functionTable[ldtMap[M_UnTransform]] ~= nil then
+--    returnValue = functionTable[ldtMap[M_UnTransform]]( storeValue );
 --  end
 --  GP=F and trace("[EXIT]<%s:%s>RetValue(%s)",MOD,meth,tostring(returnValue));
 --  return returnValue;
@@ -4103,6 +3822,7 @@ end -- localInsert
 -- getNextLeaf( src, topRec, leafRec  )
 -- Our Tree Leaves are doubly linked -- so from any leaf we can move 
 -- right or left.  Get the next leaf (right neighbor) in the chain.
+-- This is called primarily by scan(), so the pages should be clean.
 -- ======================================================================
 local function getNextLeaf( src, topRec, leafRec  )
   local meth = "getNextLeaf()";
@@ -4117,14 +3837,15 @@ local function getNextLeaf( src, topRec, leafRec  )
 
   -- Close the current leaf before opening the next one.  It should be clean,
   -- so closing is ok.
-  aerospike:close_subrec( leafRec );
+  -- aerospike:close_subrec( leafRec );
+  ldt_common.closeSubRec( src, leafRec );
 
   if( nextLeafDigest ~= nil and nextLeafDigest ~= 0 ) then
     nextLeafDigestString = tostring( nextLeafDigest );
     GP=F and trace("[OPEN SUB REC]:<%s:%s> Digest(%s)",
       MOD, meth, nextLeafDigestString);
 
-    nextLeaf = openSubrec( src, topRec, nextLeafDigestString )
+    nextLeaf = ldt_common.openSubRec( src, topRec, nextLeafDigestString )
     if( nextLeaf == nil ) then
       warn("[ERROR]<%s:%s> Can't Open Leaf(%s)",MOD,meth,nextLeafDigestString);
       error( ldte.ERR_SUBREC_OPEN );
@@ -4368,11 +4089,13 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
 
   GP=F and trace("[DUMP]After delete(%s) Key(%s)", tostring(resultList), tostring(key));
 
-  rc = aerospike:update_subrec( leafRec );
-  if( rc == nil or rc == 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec", MOD, meth );
-    rc = aerospike:update( topRec );
-  end
+  -- We no longer call udpate -- it is done at the close of Lua Context.
+  -- rc = aerospike:update_subrec( leafRec );
+  -- if( rc == nil or rc == 0 ) then
+  --   GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec", MOD, meth );
+  --   -- We ONLY call TopRec update at the outer level.
+  --   -- rc = aerospike:update( topRec );
+  -- end
 
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(newValue), tostring(rc));
@@ -4424,7 +4147,7 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   if( status == ST_FOUND ) then
     rc = leafDelete( src, sp, topRec, ldtCtrl, key );
     if( rc == 0 ) then
-      rc = closeAllSubrecs( src );
+      -- rc = ldt_common.closeAllSubrecs( src );
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problems in closeAllSubrecs() SRC(%s)",
           MOD, meth, tostring( src ));
@@ -4482,7 +4205,7 @@ local function processModule( ldtCtrl, moduleName )
       local userSettings =  userModule[G_SETTINGS];
       if( userSettings ~= nil ) then
         userSettings( ldtMap ); -- hope for the best.
-        ldtMap[R_UserModule] = moduleName;
+        ldtMap[M_UserModule] = moduleName;
       end
     end
   else
@@ -4535,6 +4258,7 @@ GP=E and trace("[ENTER]<%s:%s> ldtBinName(%s)",MOD,meth,tostring(ldtBinName));
   -- we created from InitializeLSetMap() : 
   -- Item 1 :  the property map & Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
+  record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
 
   -- NOTE: The Caller will write out the LDT bin.
   return 0;
@@ -4654,6 +4378,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec )
   GP=E and trace("[ENTER]<%s:%s>LLIST BIN(%s) NwVal(%s) createSpec(%s)",
     MOD, meth, tostring(ldtBinName), tostring( newValue ),tostring(createSpec));
 
+  local rc = 0;
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   -- This function does not build, save or update.  It only checks.
@@ -4676,7 +4401,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec )
   local ldtMap  = ldtCtrl[2];
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  setKeyFunction( ldtMap, true )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   setReadFunctions( ldtMap, nil, nil, nil );
   setWriteFunctions( ldtMap );
   
@@ -4691,7 +4416,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec )
   -- calls to the treeInsert() function (which opens and closes subrecs) and
   -- the regular treeInsert() call, which, in the case of a split, may do
   -- a lot of opens/closes of nodes and leaves.
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to turn our single list into a tree.
@@ -4716,8 +4441,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec )
   -- GP=F and printTree( src, topRec, ldtBinName );
 
   -- Close ALL of the subrecs that might have been opened
-  rc = closeAllSubrecs( src );
-
+  -- rc = ldt_common.closeAllSubrecs( src );
   if( rc < 0 ) then
     warn("[ERROR]<%s:%s> Problems in closeAllSubrecs() SRC(%s)",
       MOD, meth, tostring( src ));
@@ -4824,12 +4548,13 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs)
   local ldtMap  = ldtCtrl[2];
 
   -- set up the Read Functions (UnTransform, Filter)
-  setKeyFunction( ldtMap, true );
+  -- setKeyFunction( ldtMap, true );
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   setReadFunctions( ldtMap, userModule, filter, fargs );
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   local resultA;
   local resultB;
@@ -4875,7 +4600,7 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs)
   end -- tree search
 
   -- Close ALL of the subrecs that might have been opened
-  rc = closeAllSubrecs( src );
+  -- rc = ldt_common.closeAllSubrecs( src );
   if( rc < 0 ) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
@@ -4948,12 +4673,13 @@ function llist.remove( topRec, ldtBinName, key )
   local ldtMap  = ldtCtrl[2];
   --
   -- Set up the Read Functions (KeyFunction, Transform, Untransform)
-  setKeyFunction( ldtMap, true )
+  -- setKeyFunction( ldtMap, true )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   setReadFunctions( ldtMap, nil, nil, nil );
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   -- If our state is "compact", do a simple list insert, otherwise do a
   -- real tree insert.
@@ -4988,7 +4714,7 @@ function llist.remove( topRec, ldtBinName, key )
   -- probably did not change -- we don't need to udpate.
   if( rc == 0 ) then
     -- Close ALL of the subrecs that might have been opened
-    rc = closeAllSubrecs( src );
+    -- rc = ldt_common.closeAllSubrecs( src );
     if( rc < 0 ) then
       warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
       error( ldte.ERR_SUBREC_CLOSE );
@@ -4996,7 +4722,6 @@ function llist.remove( topRec, ldtBinName, key )
 
     -- All done, store the record
     GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
-    rc = aerospike:update( topRec );
 
     -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
     -- so just turn any NILs into zeros.
@@ -5049,6 +4774,9 @@ function llist.destroy( topRec, ldtBinName )
   GP=F and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
     tostring( propMap ), ldtSummaryString( ldtCtrl ));
 
+  -- Create our subrecContext, which tracks all open SubRecords during
+  -- the call.  Then, allows us to close them all at the end.
+  local src = ldt_common.createSubRecContext();
 
   -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
   -- compact list, then the ESR will be ZERO.
@@ -5056,7 +4784,7 @@ function llist.destroy( topRec, ldtBinName )
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
-    local esrRec = aerospike:open_subrec( topRec, esrDigestString );
+    local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
       rc = aerospike:remove_subrec( esrRec );
       if( rc == nil or rc == 0 ) then
@@ -5191,7 +4919,7 @@ function llist.get_capacity( topRec, ldtBinName )
   local ldtCtrl = topRec[ ldtBinName ];
   -- Extract the property map and LDT control map from the LDT bin list.
   local ldtMap = ldtCtrl[2];
-  local capacity = ldtMap[R_StoreLimit];
+  local capacity = ldtMap[M_StoreLimit];
   if( capacity == nil ) then
     capacity = 0;
   end
@@ -5227,7 +4955,7 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
   -- Extract the property map and LDT control map from the LDT bin list.
   local ldtMap = ldtCtrl[2];
   if( capacity ~= nil and type(capacity) == "number" and capacity >= 0 ) then
-    ldtMap[R_StoreLimit] = capacity;
+    ldtMap[M_StoreLimit] = capacity;
   else
     warn("[ERROR]<%s:%s> Bad Capacity Value(%s)",MOD,meth,tostring(capacity));
     error( ldte.ERR_INTERNAL );
@@ -5243,7 +4971,7 @@ end -- function llist.set_capacity()
 -- ========================================================================
 function llist.dump( topRec, ldtBinName )
   GP=B and trace("\n\n >>>>>>>>> API[ LLIST DUMP ] <<<<<<<<<< \n");
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
   printTree( src, topRec, ldtBinName );
   return 0;
 end -- llist.dump()

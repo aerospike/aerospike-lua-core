@@ -1,6 +1,6 @@
 -- AS Large Set (LSET) Operations
 -- Track the date and iteration of the last update.
-local MOD="lset_2014_03_10.d"; 
+local MOD="lset_2014_03_25.A"; 
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -27,25 +27,6 @@ local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug Instrument
 local DEBUG=true; -- turn on for more elaborate state dumps.
 
--- Large Set Design/Architecture
---
--- Large Set includes two different implementations in the same module.
--- The implementation used is determined by the setting "SetTypeStore"
--- in the LDT control structure.  There are the following choices.
--- (1) "TopRecord" SetTypeStore, which holds all data in the top record.
---     This is appropriate for small to medium lists only, as the total
---     storage capacity is limited to the max size of a record, which 
---     defaults to 128kb, but can be upped to 2mb (or even more?)
--- (2) "SubRecord" SetTypeStore, which holds data in sub-records.  With
---     the sub-record type, Large Sets can be virtually any size, although
---     the digest directory in the TopRecord can potentially grow large 
---     for VERY large sets.
---
--- The LDT bin value in a top record, known as "ldtCtrl" (LDT Control),
--- is a list of two maps.  The first map is the property map, and is the
--- same for every LDT.  It is done this way so that the LDT code in
--- the Aerospike Server can read any LDT property using the same mechanism.
---
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSET Main Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -65,6 +46,28 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- (*) Status = get_capacity( topRec, ldtBinName )
 -- ======================================================================
 
+-- Large Set Design/Architecture
+--
+-- Large Set includes two different implementations in the same module.
+-- The implementation used is determined by the setting "SetTypeStore"
+-- in the LDT control structure.  There are the following choices.
+-- (1) "TopRecord" SetTypeStore, which holds all data in the top record.
+--     This is appropriate for small to medium lists only, as the total
+--     storage capacity is limited to the max size of a record, which 
+--     defaults to 128kb, but can be upped to 2mb (or even more?)
+-- (2) "SubRecord" SetTypeStore, which holds data in sub-records.  With
+--     the sub-record type, Large Sets can be virtually any size, although
+--     the digest directory in the TopRecord can potentially grow large 
+--     for VERY large sets.
+--
+-- The LDT bin value in a top record, known as "ldtCtrl" (LDT Control),
+-- is a list of two maps.  The first map is the property map, and is the
+-- same for every LDT.  It is done this way so that the LDT code in
+-- the Aerospike Server can read any LDT property using the same mechanism.
+-- ======================================================================
+-- >> Please refer to ldt/doc_lset.md for architecture and design notes.
+-- ======================================================================
+--
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- LSET Visual Depiction
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -229,6 +232,11 @@ local ldte = require('ldt/ldt_errors');
 -- We have a set of packaged settings for each LDT.
 local lsetPackage = require('ldt/settings_lset');
 
+-- We have recently moved a number of COMMON functions into the "ldt_common"
+-- module, namely the subrec routines and some list management routines.
+-- We will likely move some other functions in there as they become common.
+local ldt_common = require('ldt/ldt_common');
+
 -- ++=======================================++
 -- || GLOBAL VALUES -- Local to this module ||
 -- ++=======================================++
@@ -356,12 +364,16 @@ local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LDT Map Field Name Mapping
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
--- Fields unique to lset & lmap 
+-- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+local M_UserModule             = 'P'; -- User's Lua file for overrides
+local M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
+local M_KeyType                = 'k'; -- Key Type: Atomic or Complex
 local M_StoreMode              = 'M'; -- SM_LIST or SM_BINARY
 local M_StoreLimit             = 'L'; -- Used for Eviction (eventually)
-local M_UserModule             = 'P'; -- User's Lua file for overrides
 local M_Transform              = 't'; -- Transform object to Binary form
 local M_UnTransform            = 'u'; -- UnTransform object from Binary form
+
+-- Fields unique to lset & lmap 
 local M_LdrEntryCountMax       = 'e'; -- Max size of the LDR List
 local M_LdrByteEntrySize       = 's'; -- Size of a Fixed Byte Object
 local M_LdrByteCountMax        = 'b'; -- Max Size of the LDR in bytes
@@ -369,11 +381,9 @@ local M_StoreState             = 'S'; -- Store State (Compact or List)
 local M_SetTypeStore           = 'T'; -- Type of the Set Store (Rec/SubRec)
 local M_HashType               = 'h'; -- Hash Type (static or dynamic)
 local M_BinaryStoreSize        = 'B'; -- Size of Object when in Binary form
-local M_KeyType                = 'K'; -- Key Type: Atomic or Complex
 local M_TotalCount             = 'C'; -- Total number of slots used
 local M_Modulo 				   = 'm'; -- Modulo used for Hash Function
 local M_ThreshHold             = 'H'; -- Threshold: Compact->Regular state
-local M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
 local M_CompactList            = 'c'; -- Compact List (when in Compact Mode)
 local M_HashDirectory          = 'D'; -- Directory of Hash Cells
 local M_BinListThreshold       = 'l'; -- Threshold for converting from a
@@ -383,7 +393,9 @@ local M_BinListThreshold       = 'l'; -- Threshold for converting from a
 -- collision: Obviously -- only one name can be associated with a character.
 -- We won't need to do this for the smaller maps, as we can see by simple
 -- inspection that we haven't reused a character.
---
+-- ------------------------------------------------------------------------
+---- >>> Be Mindful of the LDT Common Fields that ALL LDTs must share <<<
+-- ------------------------------------------------------------------------
 -- A:                         a:                         0:
 -- B:M_BinaryStoreSize        b:M_LdrByteCountMax        1:
 -- C:M_TotalCount             c:M_CompactList            2:
@@ -394,7 +406,7 @@ local M_BinListThreshold       = 'l'; -- Threshold for converting from a
 -- H:M_Threshold              h:M_HashType               7:
 -- I:                         i:                         8:
 -- J:                         j:                         9:
--- K:M_KeyType                k:
+-- K:                         k:M_KeyType
 -- L:M_StoreLimit             l:M_BinListThreshold
 -- M:M_StoreMode              m:M_Modulo
 -- N:                         n:
@@ -756,66 +768,6 @@ local function createSearchPath( ldtMap )
 end -- createSearchPath()
 
 -- ======================================================================
--- When we create the initial LDT Control Bin for the entire record (the
--- first time ANY LDT is initialized in a record), we create a property
--- map in it with various values.
--- TODO: Move this to LDT_COMMON (7/21/2013)
--- ======================================================================
-local function setLdtRecordType( topRec )
-  local meth = "setLdtRecordType()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  local rc = 0;
-  local recPropMap;
-
-  -- Check for existence of the main record control bin.  If that exists,
-  -- then we're already done.  Otherwise, we create the control bin, we
-  -- set the topRec record type (to LDT) and we praise the lord for yet
-  -- another miracle LDT birth.
-  if( topRec[REC_LDT_CTRL_BIN] == nil ) then
-    GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
-
-    -- If this record doesn't even exist yet -- then create it now.
-    -- Otherwise, things break.
-    if( not aerospike:exists( topRec ) ) then
-      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
-      rc = aerospike:create( topRec );
-    end
-
-    record.set_type( topRec, RT_LDT );
-    recPropMap = map();
-    -- vinfo will be a 5 byte value, but it will be easier for us to store
-    -- 6 bytes -- and just leave the high order one at zero.
-    -- Initialize the VINFO value to all zeros.
-    -- local vinfo = bytes(6);
-    -- bytes.put_int16(vinfo, 1, 0 );
-    -- bytes.put_int16(vinfo, 3, 0 );
-    -- bytes.put_int16(vinfo, 5, 0 );
-    local vinfo = 0;
-    recPropMap[RPM_VInfo] = vinfo; 
-    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
-    recPropMap[RPM_Magic] = MAGIC;
-    -- Set this control bin as HIDDEN
-  else
-    -- Not much to do -- increment the LDT count for this record.
-    recPropMap = topRec[REC_LDT_CTRL_BIN];
-    local ldtCount = recPropMap[RPM_LdtCount];
-    recPropMap[RPM_LdtCount] = ldtCount + 1;
-    GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
-      MOD, meth, ldtCount + 1 );
-  end
-  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-  topRec[REC_LDT_CTRL_BIN] = recPropMap;
-
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update( topRec );
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
-  return rc;
-end -- setLdtRecordType()
-
--- ======================================================================
 -- adjustLdtMap:
 -- ======================================================================
 -- Using the settings supplied by the caller in the stackCreate call,
@@ -1080,6 +1032,7 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   list.append( ldtCtrl, propMap );
   list.append( ldtCtrl, ldtMap );
   topRec[ldtBinName]            = ldtCtrl;
+  record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
 
   GP=F and trace("[DEBUG]: <%s:%s> : LSET Summary after Init(%s)",
       MOD, meth , ldtSummaryString(ldtCtrl));
@@ -1089,7 +1042,7 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   -- Otherwise, we should set it. This function will check, and if necessary,
   -- set the control bin.
   -- This method will also call record.set_type().
-  setLdtRecordType( topRec );
+  ldt_common.setLdtRecordType( topRec );
 
   GP=E and trace("[EXIT]:<%s:%s>:", MOD, meth );
   return ldtCtrl;
@@ -1202,9 +1155,13 @@ local function getKeyValue( ldtMap, value )
     tostring( type(value)));
 
   local keyValue;
-  if( ldtMap[M_KeyType] == KT_ATOMIC or type(value) ~= "userdata" ) then
+  -- This test looks bad.  Let's just base our decision on the value
+  -- that is in front of us.
+  -- if( ldtMap[M_KeyType] == KT_ATOMIC or type(value) ~= "userdata" ) then
+  if( type(value) == "number" or type(value) == "string" ) then
     keyValue = value;
   else
+    -- Now, we assume type is "userdata".
     if( G_KeyFunction ~= nil ) then
       -- Employ the user's supplied function (keyFunction).
       keyValue = G_KeyFunction( value );
@@ -1303,16 +1260,18 @@ end -- listAppend()
 -- to mark them dirty -- but for now we'll update them in place (as needed),
 -- but we won't close them until the end.
 -- ======================================================================
-local function createSubrecContext()
-  local meth = "createSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  local src = map();
-  src.ItemCount = 0;
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
-  return src;
-end -- createSubrecContext()
+-- We are now using the ldt_common.createSubRecContext() function
+-- ======================================================================
+-- local function createSubrecContext()
+  -- local meth = "createSubrecContext()";
+  -- GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
+-- 
+  -- local src = map();
+  -- src.ItemCount = 0;
+-- 
+  -- GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
+  -- return src;
+-- end -- createSubrecContext()
 
 -- ======================================================================
 -- Given an already opened subrec (probably one that was recently created),
@@ -1960,7 +1919,7 @@ local function subRecSearch( topRec, ldtCtrl, key )
     -- Ok -- so we have sub-records.  Get the subrec, then search the list.
     -- For NOW -- we will have ONLY ONE digest in the list.  Later, we'll
     -- go with a list (for cell fan-out).
-    local src = createSubrecContext();
+    local src = ldt_common.createSubRecContext();
     local digestList = cellAnchor[X_DigestList];
     -- SPECIAL CASE :: ONLY ONE DIGEST FOR NOW.
     --
@@ -2506,6 +2465,7 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- Item 1 : the property map 
   -- Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
+  record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
 
   -- initializeLdtCtrl always sets ldtMap[M_StoreState] to SS_COMPACT.
   -- When in TopRec mode, there is only one bin.
@@ -2628,7 +2588,7 @@ local function subRecInsert( topRec, ldtCtrl, newValue )
 
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
   local ldtBinName = propMap[PM_BinName];
 
   -- When we're in "Compact" mode, before each insert, look to see if 
@@ -2825,6 +2785,8 @@ local function topRecDelete( topRec, ldtCtrl, deleteValue, returnVal)
   end
   local newBinList = list.take( binList, listSize - 1 );
 
+  -- NOTE: The MAIN record LDT bin, holding ldtCtrl, is of type BF_LDT_BIN,
+  -- but the LSET named bins are of type BF_LDT_HIDDEN.
   topRec[binName] = newBinList;
   record.set_flags(topRec, binName, BF_LDT_HIDDEN );--Must set every time
 
@@ -2943,7 +2905,7 @@ local function localDump( topRec, ldtBinName )
 
   -- Check once for the untransform functions -- so we don't need
   -- to do it inside the loop.  No filters here, though.
-  setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, nil, nil, nil );
 
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
@@ -3194,7 +3156,7 @@ function lset.add( topRec, ldtBinName, newValue, userModule )
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, nil, nil, nil );
   setWriteFunctions( ldtMap );
 
@@ -3292,7 +3254,8 @@ function lset.get( topRec, ldtBinName, searchValue,
   -- Set up our global "UnTransform" and Filter Functions.  This lets us
   -- process the function pointers once per call, and consistently for
   -- all LSET operations.
-  setKeyFunction( ldtMap, false )
+  -- setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, userModule, filter, fargs );
 
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
@@ -3351,7 +3314,8 @@ function lset.exists( topRec, ldtBinName, searchValue )
   -- Set up our global "UnTransform" and Filter Functions. This lets us
   -- process the function pointers once per call, and consistently for
   -- all LSET operations. (However, filter not used here.)
-  setKeyFunction( ldtMap, false )
+  -- setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, nil, nil, nil );
 
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
@@ -3407,7 +3371,8 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs)
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up our global "UnTransform" and Filter Functions.
-  setKeyFunction( ldtMap, false )
+  -- setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, userModule, filter, fargs );
   
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
@@ -3464,7 +3429,8 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   local key = getKeyValue( ldtMap, deleteValue );
 
   -- Set up our global "UnTransform" and Filter Functions.
-  setKeyFunction( ldtMap, false )
+  --setKeyFunction( ldtMap, false )
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   setReadFunctions( ldtMap, userModule, filter, fargs );
   
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
