@@ -1,11 +1,11 @@
 -- Large Stack Object (LSTACK) Operations Library
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_03_24.G";
+local MOD="lib_lstack_2014_03_27.B";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
 -- amount of inter-version compatibility.
-local G_LDT_VERSION = 1.1;
+local G_LDT_VERSION = 2.1;
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -474,6 +474,9 @@ end -- resetPtrs()
 -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
 -- -----------------------------------------------------------------------
 local function setKeyFunction( ldtMap, required )
+
+  error("DO NOT USE");
+
   local meth = "setKeyFunction()";
   -- Look in the Create Module first, then check the Function Table.
   local createModule = ldtMap[M_UserModule];
@@ -517,7 +520,7 @@ local function setKeyFunction( ldtMap, required )
 end -- setKeyFunction()
 
 -- -----------------------------------------------------------------------
--- setReadFunctions()()
+-- setReadFunctions()
 -- -----------------------------------------------------------------------
 -- Set the Filter and UnTransform Function pointers for Reading values.
 -- We follow this hierarchical lookup pattern for the read filter function:
@@ -534,6 +537,8 @@ end -- setKeyFunction()
 --
 -- -----------------------------------------------------------------------
 local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
+  error("DO NOT USE");
+
   local meth = "setReadFunctions()";
   GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
     MOD, meth, tostring(filter));
@@ -543,6 +548,7 @@ local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
   local createModule = ldtMap[M_UserModule];
   G_Filter = nil;
   G_FunctionArgs = filterArgs;
+  error("DO NOT USE");
   if( filter ~= nil ) then
     if( type(filter) ~= "string" or filter == "" ) then
       warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
@@ -626,6 +632,7 @@ end -- setReadFunctions()
 --
 -- -----------------------------------------------------------------------
 local function setWriteFunctions( ldtMap )
+  error("DO NOT USE");
   local meth = "setWriteFunctions()";
   GP=E and trace("[ENTER]<%s:%s> ldtMap(%s)", MOD, meth, tostring(ldtMap));
 
@@ -907,8 +914,14 @@ end -- listAppend()
 -- structure contains ALL of the settings/parameters that drive the LDT
 -- behavior.  Thus this function represents the "type" LDT MAP -- all
 -- LDT control fields are defined here.
--- The LdtMap is obtained using the user's LDT Bin Name:
--- ldtMap = 
+-- The LdtMap is obtained using the user's LDT Bin Name.
+--
+-- Parms:
+-- (*) topRec: The Aerospike Server record on which we operate
+-- (*) ldtBinName: The name of the bin for the LDT
+--
+-- ======================================================================
+-- Additional Notes:
 -- local RT_REG = 0; -- 0x0: Regular Record (Here only for completeneness)
 -- local RT_LDT = 1; -- 0x1: Top Record (contains an LDT)
 -- local RT_SUB = 2; -- 0x2: Regular Sub Record (LDR, CDIR, etc)
@@ -1995,7 +2008,7 @@ local function   warmListSubRecCreate( src, topRec, ldtCtrl )
   local ldtMap     = ldtCtrl[2];
   local ldtBinName = propMap[PM_BinName];
 
-  -- Create the Aerospike Record, initialize the bins: Ctrl, List
+  -- Create the Aerospike Sub-Record, initialize the bins: Ctrl, List
   -- Notes: 
   -- (1) All Field Names start with UPPER CASE.
   -- (2) Remember to add the ldrSubRec to the SRC
@@ -3630,9 +3643,8 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
-  -- Set the type of this record to LDT (it might already be set)
-  -- No Longer needed.  The Set Type is handled in initializeLdtCtrl()
-  -- record.set_type( topRec, RT_LDT ); -- LDT Type Rec
+  -- Remember that record.set_type() for the TopRec
+  -- is handled in initializeLdtCtrl()
 
   -- If the user has passed in settings that override the defaults
   -- (the userModule), then process that now.
@@ -3924,8 +3936,8 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  setReadFunctions( ldtMap, nil, nil, nil );
-  setWriteFunctions( ldtMap );
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
   -- Now, it looks like we're ready to insert.  If there is a transform
   -- function present, then apply it now.
@@ -4017,8 +4029,8 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  setReadFunctions( ldtMap, nil, nil, nil );
-  setWriteFunctions( ldtMap );
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
   -- Set up our sub-rec pool
   local src = ldt_common.createSubRecContext();
@@ -4139,11 +4151,12 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
   GP=F and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  -- Set up the Read Functions (KeyFunction, Untransform, Filter)
+  -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  -- setKeyFunction( ldtMap, false )
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  setReadFunctions( ldtMap, nil, nil, nil );
+  G_Filter, G_UnTransform =
+    ldt_common.setReadFunctions(ldtMap, userModule, filter );
+  G_FunctionArgs = fargs;
 
   -- Create the SubrecContext, which will hold all of the open subrecords.
   -- The key will be the DigestString, and the value will be the subRec
@@ -4181,9 +4194,6 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
   else
     count = peekCount;
   end
-
-  -- Set up the Read Functions (UnTransform, Filter)
-  setReadFunctions( ldtMap, userModule, filter, fargs );
 
   -- Set up our answer list.
   local resultList = list(); -- everyone will fill this in
@@ -4584,6 +4594,7 @@ function lstack.destroy( topRec, ldtBinName )
       MOD, meth, REC_LDT_CTRL_BIN );
     error( ldte.ERR_INTERNAL );
   end
+
   local ldtCount = recPropMap[RPM_LdtCount];
   if( ldtCount <= 1 ) then
     -- Remove this bin

@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_03_24.J";
+local MOD="ldt_common_2014_03_27.L";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -39,6 +39,7 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- (2) Convenience: We know that many of the LDT routines need some common
 --     support for Lists (search, insert, delete, summarize) and Common 
 --     Object summary.  This Convenience list may grow over time.
+-- =====================================================================
 -- ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
 -- ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
 -- ldt_common.setWriteFunctions( ldtMap )
@@ -53,9 +54,11 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- ldt_common.listAppendList( baseList, additionalList )
 -- ldt_common.setLdtRecordType( topRec )
 -- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
--- ldt_common.adjustLdtMap( ldtCtrl, argListMap )
+-- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
 -- ldt_common.summarizeList( myList )
 
+-- ldt_common.validateBinName( ldtBinName )
+-- ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
 -- ======================================================================
 -- Using These Functions:
 -- ======================================================================
@@ -419,9 +422,13 @@ end -- setKeyFunction()
 -- Notice that it would be generally dangerous to use some sort of ad hoc
 -- UnTransform filter -- the Transform/UnTransform should be defined at
 -- the LDT Instance Creation, and then left alone.
---
+-- Parms:
+-- (*) ldtMap:
+-- (*) userModule:
+-- (*) filter:
+-- RETURN: L_Filter, L_UnTransform, to be assigned to G_Filter, G_UnTransform
 -- -----------------------------------------------------------------------
-function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
+function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   local meth = "setReadFunctions()";
   GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
     MOD, meth, tostring(filter));
@@ -429,8 +436,8 @@ function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
   -- Do the Filter First. If not nil, then process.  Complain if things
   -- go badly.
   local createModule = ldtMap[M_UserModule];
-  G_Filter = nil;
-  G_FunctionArgs = filterArgs;
+  local L_Filter = nil;
+  
   if( filter ~= nil ) then
     if( type(filter) ~= "string" or filter == "" ) then
       warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
@@ -441,25 +448,25 @@ function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
       if( userModule ~= nil and type(userModule) == "string" ) then
         local userModuleRef = require(userModule);
         if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
-          G_Filter = userModuleRef[filter];
+          L_Filter = userModuleRef[filter];
         end
       end
       -- If we didn't find a good filter, keep looking.  Try the createModule.
-      if( G_Filter == nil and createModule ~= nil ) then
+      if( L_Filter == nil and createModule ~= nil ) then
         local createModuleRef = require(createModule);
         if( createModuleRef ~= nil and createModuleRef[filter] ~= nil ) then
-          G_Filter = createModuleRef[filter];
+          L_Filter = createModuleRef[filter];
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
       -- one of the standard Functions.
-      if( G_Filter == nil and functionTable ~= nil ) then
-        G_Filter = functionTable[filter];
+      if( L_Filter == nil and functionTable ~= nil ) then
+        L_Filter = functionTable[filter];
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
-      if( G_Filter == nil ) then
+      if( L_Filter == nil ) then
         warn("[ERROR]<%s:%s> filter not found: type(%s) filter(%s)",
           MOD, meth, type(filter), tostring(filter) );
         error( ldte.ERR_FILTER_NOT_FOUND );
@@ -469,7 +476,7 @@ function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
 
   -- That wraps up the Filter handling.  Now do  the UnTransform Function.
   local untrans = ldtMap[M_UnTransform];
-  G_UnTransform = nil;
+  local L_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
       warn("[ERROR]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
@@ -480,18 +487,18 @@ function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
       if( createModule ~= nil ) then
         local createModuleRef = require(createModule);
         if( createModuleRef ~= nil and createModuleRef[untrans] ~= nil ) then
-          G_UnTransform = createModuleRef[untrans];
+          L_UnTransform = createModuleRef[untrans];
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
       -- one of the standard Functions.
-      if( G_UnTransform == nil and functionTable ~= nil ) then
-        G_UnTransform = functionTable[untrans];
+      if( L_UnTransform == nil and functionTable ~= nil ) then
+        L_UnTransform = functionTable[untrans];
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
-      if( G_UnTransform == nil ) then
+      if( L_UnTransform == nil ) then
         warn("[ERROR]<%s:%s> UnTransform Func not found: type(%s) Func(%s)",
           MOD, meth, type(untrans), tostring(untrans) );
         error( ldte.ERR_UNTRANS_FUN_NOT_FOUND );
@@ -499,7 +506,10 @@ function ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
     end
   end -- if untransform not nil
 
-  GP=E and trace("[EXIT]<%s:%s>", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> Filter(%s) UnTransform(%s)", MOD, meth,
+    tostring(L_Filter), tostring(L_UnTransform));
+
+  return L_Filter, L_UnTransform;
 end -- setReadFunctions()
 
 
@@ -511,7 +521,8 @@ end -- setReadFunctions()
 -- We follow a hierarchical lookup pattern for the transform function.
 -- (*) Create Module
 -- (*) UdfFunctionTable
---
+-- PARMS:
+-- RETURN: L_Transform, to be assigned to G_Transform
 -- -----------------------------------------------------------------------
 function ldt_common.setWriteFunctions( ldtMap )
   local meth = "setWriteFunctions()";
@@ -521,7 +532,7 @@ function ldt_common.setWriteFunctions( ldtMap )
   -- the transform function (if there is one).
   local createModule = ldtMap[M_UserModule];
   local trans = ldtMap[M_Transform];
-  G_Transform = nil;
+  local L_Transform;
   if( trans ~= nil ) then
     if( type(trans) ~= "string" or trans == "" ) then
       warn("[ERROR]<%s:%s> Bad Transformation Name: type(%s) function(%s)",
@@ -532,18 +543,18 @@ function ldt_common.setWriteFunctions( ldtMap )
       if( createModule ~= nil ) then
         local createModuleRef = require(createModule);
         if( createModuleRef ~= nil and createModuleRef[trans] ~= nil ) then
-          G_Transform = createModuleRef[trans];
+          L_Transform = createModuleRef[trans];
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
       -- one of the standard Functions.
-      if( G_Transform == nil and functionTable ~= nil ) then
-        G_Transform = functionTable[trans];
+      if( L_Transform == nil and functionTable ~= nil ) then
+        L_Transform = functionTable[trans];
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
-      if( G_Transform == nil ) then
+      if( L_Transform == nil ) then
         warn("[ERROR]<%s:%s> Transform Func not found: type(%s) Func(%s)",
           MOD, meth, type(trans), tostring(trans) );
         error( ldte.ERR_TRANS_FUN_NOT_FOUND );
@@ -551,7 +562,10 @@ function ldt_common.setWriteFunctions( ldtMap )
     end
   end
 
-  GP=E and trace("[EXIT]<%s:%s>", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> Transform(%s)",
+    MOD, meth, tostring(L_Transform));
+
+  return L_Transform;
 end -- setWriteFunctions()
 
 -- ======================================================================
@@ -674,9 +688,9 @@ local function cleanSRC( srcCtrl )
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
 
-  INFO("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
-  INFO("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
-  INFO("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
@@ -709,18 +723,23 @@ local function cleanSRC( srcCtrl )
         else
           -- We're ok.  It's closed.  Decrement the count and free up the
           -- slot.
+
           dirtyMap[digestString] = nil;
           recMap[digestString] = nil;
-          local itemCount = recMap[ItemCount];
-          recMap[ItemCount] = itemCount - 1;
+          local itemCount = recMap.ItemCount;
+          recMap.ItemCount = itemCount - 1;
           closeCount = closeCount + 1;
+
+          GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
+          MOD, meth, digestString, tostring(recMap[digestString]),
+          recMap.ItemCount, closeCount );
         end
       end -- else we have something to close
     end -- else it's a Sub-Rec Field in recMap
   end -- for all fields in SRC
 
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  return rc; 
+  GP=E and trace("[EXIT]<%s:%s> POST CLEAN: CloseCnt(%d) ItemCount(%d)",
+  MOD, meth, closeCount, recMap.ItemCount );
 
 end -- cleanSRC()
 
@@ -839,7 +858,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   --
   -- Update and close the ESR.  We're done with it.
   -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-  info("[WARN:ERROR]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
+  info("[WARN:NOTICE]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
   rc = aerospike:update_subrec( esrRec );
   if( rc == nil or rc == 0 ) then
     -- aerospike:close_subrec( esrRec );
@@ -909,10 +928,12 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
     -- Not sure if I need to do this, but just in case.
     -- Reaccess the srcCtrl structure from the top.
-    recMap = srcCtrl[i];
+    GD=DEBUG and info("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
+
+    -- recMap = srcCtrl[1];
     if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
       warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-        itemCount, G_OPEN_SR_LIMIT );
+        recMap.ItemCount, G_OPEN_SR_LIMIT );
       error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
     end
   end
@@ -927,6 +948,9 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local subRecDigest = record.digest( newSubRec );
   local topRecDigest = record.digest( topRec );
   local subRecDigestString = tostring( subRecDigest );
+  
+  -- Recalc ItemCount after the clean.
+  itemCount = recMap.ItemCount;
   recMap.ItemCount = itemCount + 1;
 
   GP=F and trace("[CREATE SUBREC]<%s:%s>New SRC.ItemCount(%d) DigStr(%s)",
@@ -945,7 +969,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
 
-  info("[WARN:ERROR]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
+  info("[WARN:NOTICE]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
   rc = aerospike:update_subrec( newSubRec );
   if( rc ~= nil and rc ~= 0 ) then
     warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
@@ -985,6 +1009,11 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
     MOD, meth, tostring(topRec), tostring(digestString), tostring(srcCtrl));
 
+  -- Do some checks while we're in DEBUG mode.
+  if( digestString == nil ) then
+    warn("[ERROR]<%s:%s> NIL DigestString", MOD, meth );
+    error( ldte.ERR_INTERNAL );
+  end
   -- We have a global limit on the number of subRecs that we can have
   -- open at a time.  If we're at (or above) the limit, then we must
   -- exit with an error (better here than in the subRec code).
@@ -1007,7 +1036,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
       -- Not sure if I need to do this, but just in case.
       -- Reaccess the srcCtrl structure from the top.
-      recMap = srcCtrl[i];
+      -- recMap = srcCtrl[1];
       if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
         warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
           itemCount, G_OPEN_SR_LIMIT );
@@ -1015,6 +1044,8 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
       end
     end
 
+    -- Recalc ItemCount after the clean.
+    itemCount = recMap.ItemCount;
     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
       MOD, meth, recMap.ItemCount, tostring(topRec), digestString );
@@ -1110,12 +1141,17 @@ end -- closeSubRec()
 -- ======================================================================
 function ldt_common.updateSubRec( srcCtrl, subRec )
   local meth = "updateSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> SRC(%s) subRec(FILL THIS IN)",
-    MOD, meth, tostring(srcCtrl));
+  GP=E and trace("[ENTER]<%s:%s> SRC(%s) subRec(%s)",
+    MOD, meth, tostring(srcCtrl), tostring(subRec));
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
   local rc = 0;
+
+  if( subRec == nil ) then
+    warn("[ERROR]<%s:%s> Unexpected nil value for subRec", MOD, meth);
+    error( ldte.ERR_INTERNAL );
+  end
 
   local digest = record.digest( subRec );
   local digestString = tostring( digest );
@@ -1361,6 +1397,107 @@ function ldt_common.summarizeList( myList )
   return tostring( resultMap );
 end -- summarizeList()
 
+-- ======================================================================
+-- validateBinName()
+-- ======================================================================
+-- validateBinName(): Validate that the user's bin name for this large
+-- object complies with the rules of Aerospike. Currently, a bin name
+-- cannot be larger than 14 characters (a seemingly low limit).
+-- ======================================================================
+function ldt_common.validateBinName( ldtBinName )
+  local meth = "ldt_common.validateBinName()";
+  GP=E and trace("[ENTER]: <%s:%s> validate Bin Name(%s)",
+      MOD, meth, tostring(ldtBinName));
+
+  if ldtBinName == nil  then
+    warn("[ERROR EXIT]:<%s:%s> Null Bin Name", MOD, meth );
+    error( ldte.ERR_NULL_BIN_NAME );
+  elseif type( ldtBinName ) ~= "string"  then
+    warn("[ERROR EXIT]:<%s:%s> Bin Name Not a String", MOD, meth );
+    error( ldte.ERR_BIN_NAME_NOT_STRING );
+  elseif string.len( ldtBinName ) > 14 then
+    warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
+    error( ldte.ERR_BIN_NAME_TOO_LONG );
+  end
+  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
+end -- ldt_common.validateBinName
+
+-- ======================================================================
+-- ldt_common.validateRecBinAndMap():
+-- Check that the topRec, the BinName and CrtlMap are valid, otherwise
+-- jump out with an error() call. Notice that we look at different things
+-- depending on whether or not "mustExist" is true.
+-- Parms:
+-- (*) topRec:
+-- ======================================================================
+function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+  local meth = "ldt_common.validateRecBinAndMap()";
+  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
+    MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
+
+  -- Start off with validating the bin name -- because we might as well
+  -- flag that error first if the user has given us a bad name.
+  ldt_common.validateBinName( ldtBinName );
+
+  local ldtCtrl;
+  local propMap;
+  local ldtMap;
+
+  -- If "mustExist" is true, then several things must be true or we will
+  -- throw an error.
+  -- (*) Must have a record.
+  -- (*) Must have a valid Bin
+  -- (*) Must have a valid Map in the bin.
+  --
+  -- Otherwise, If "mustExist" is false, then basically we're just going
+  -- to check that our bin includes MAGIC, if it is non-nil.
+  if mustExist == true then
+    -- Check Top Record Existence.
+    if( not aerospike:exists( topRec ) and mustExist == true ) then
+      warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+      error( ldte.ERR_TOP_REC_NOT_FOUND );
+    end
+
+    -- Control Bin Must Exist
+    if( topRec[ldtBinName] == nil ) then
+      warn("[ERROR EXIT]: <%s:%s> LDT BIN (%s) DOES NOT Exists",
+            MOD, meth, tostring(ldtBinName) );
+      error( ldte.ERR_BIN_DOES_NOT_EXIST );
+    end
+
+    -- check that our bin is (mostly) there
+    ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
+    -- Extract the property map and LDT Map from the LDT Control.
+    propMap = ldtCtrl[1];
+    ldtMap  = ldtCtrl[2];
+
+    if propMap[PM_Magic] ~= MAGIC then
+      GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
+            MOD, meth, tostring( ldtBinName ) );
+      error( ldte.ERR_BIN_DAMAGED );
+    end
+    -- Ok -- all done for the Must Exist case.
+  else
+    -- OTHERWISE, we're just checking that nothing looks bad, but nothing
+    -- is REQUIRED to be there.  Basically, if a control bin DOES exist
+    -- then it MUST have magic.
+    if topRec ~= nil and topRec[ldtBinName] ~= nil then
+      ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
+      -- Extract the property map and LDT Map from the LDT Control.
+      propMap = ldtCtrl[1];
+      ldtMap  = ldtCtrl[2];
+      if propMap[PM_Magic] ~= MAGIC then
+        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)2",
+              MOD, meth, tostring( ldtBinName ) );
+        error( ldte.ERR_BIN_DAMAGED );
+      end
+    end -- if worth checking
+  end -- else for must exist
+  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
+
+  return ldtCtrl; -- to be trusted ONLY in the mustExist == true case;
+
+end -- ldt_common.validateRecBinAndMap()
 -- ========================================================================
 -- Return the ldt_commonm MAP (or table) that contains all of the functions
 -- that we're exporting from this module.
