@@ -69,7 +69,10 @@ function get( topRec, ldtBinName, searchName )
 end -- get()
 
 function scan( topRec, ldtBinName )
-  return lmap.scan(topRec, ldtBinName, nil, nil)
+  local resultMap =  lmap.scan(topRec, ldtBinName, nil, nil)
+  info("[RESULT]<scan()> (%s)", tostring(resultMap));
+
+  return resultMap;
 end -- scan()
 
 -- ========================================================================

@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_03_27.L";
+local MOD="ldt_common_2014_03_30.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -858,7 +858,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   --
   -- Update and close the ESR.  We're done with it.
   -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-  info("[WARN:NOTICE]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
+  info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
   rc = aerospike:update_subrec( esrRec );
   if( rc == nil or rc == 0 ) then
     -- aerospike:close_subrec( esrRec );
@@ -969,7 +969,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
 
-  info("[WARN:NOTICE]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
+  info("[REMEMBER]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
   rc = aerospike:update_subrec( newSubRec );
   if( rc ~= nil and rc ~= 0 ) then
     warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
@@ -1160,7 +1160,7 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
   -- Lua Call Context.  However, we DO have to mark the record as DIRTY
   -- so that we don't try to close it when we're looking for available
   -- slots when trying to close a clean Sub-Rec.
-  warn("[WARNING:NOTICE]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
+  info("[REMEMBER]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
   rc = aerospike:update_subrec( subRec );
 
   dirtyMap[digestString] = DM_DIRTY;
