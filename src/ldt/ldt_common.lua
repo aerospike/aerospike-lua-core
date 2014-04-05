@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_03_30.A";
+local MOD="ldt_common_2014_04_04.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -21,11 +21,11 @@ local G_LDT_VERSION = 1.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -55,7 +55,11 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- ldt_common.setLdtRecordType( topRec )
 -- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
 -- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
+-- ldt_common.validateRecBinAndMap()
 -- ldt_common.summarizeList( myList )
+-- ldt_common.dumpList( myList )
+-- ldt_common.summarizeMap( myMap )
+-- ldt_common.dumpMap( myMap )
 
 -- ldt_common.validateBinName( ldtBinName )
 -- ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
@@ -1014,6 +1018,11 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     warn("[ERROR]<%s:%s> NIL DigestString", MOD, meth );
     error( ldte.ERR_INTERNAL );
   end
+  if( type(digestString) ~= "string" ) then
+    warn("[ERROR]<%s:%s> Parm DigestString is NOT a string. It is(%s)",
+        MOD, meth, type(digestString));
+    error( ldte.ERR_INTERNAL );
+  end
   -- We have a global limit on the number of subRecs that we can have
   -- open at a time.  If we're at (or above) the limit, then we must
   -- exit with an error (better here than in the subRec code).
@@ -1032,11 +1041,12 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
   local subRec = recMap[digestString];
   if( subRec == nil ) then
+    GD=DEBUG and
+      info("[DEBUG]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
+      tostring(digestString), tostring( recMap ));
+
     if( itemCount >= G_OPEN_SR_LIMIT ) then
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
-      -- Not sure if I need to do this, but just in case.
-      -- Reaccess the srcCtrl structure from the top.
-      -- recMap = srcCtrl[1];
       if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
         warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
           itemCount, G_OPEN_SR_LIMIT );
@@ -1044,7 +1054,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
       end
     end
 
-    -- Recalc ItemCount after the clean.
+    -- Recalc ItemCount after the (possible) clean.
     itemCount = recMap.ItemCount;
     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
@@ -1102,7 +1112,7 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
 
   local dirtyStatus = dirtyMap[digestString] == DM_DIRTY or dirty == true;
   if( dirtyStatus == true ) then
-    warn("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
+    info("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
       MOD, meth, tostring(digestString));
   else
     rc = aerospike:close_subrec( subRec );
@@ -1280,6 +1290,10 @@ function ldt_common.setLdtRecordType( topRec )
     if( not aerospike:exists( topRec ) ) then
       GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
       rc = aerospike:create( topRec );
+      if( rc ~= 0 ) then
+        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
+        error( ldte.ERR_TOPREC_CREATE );
+      end
     end
 
     record.set_type( topRec, RT_LDT );
@@ -1306,12 +1320,9 @@ function ldt_common.setLdtRecordType( topRec )
   -- Now that we've changed the top rec, do the update to make sure the
   -- changes are saved.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[EXIT]: <%s:%s>", MOD, meth);
-  else
-    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%s)",
-    MOD, meth, tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+  if( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
+    error( ldte.ERR_TOPREC_UPDATE );
   end
 
   GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
@@ -1373,29 +1384,6 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
     MOD,meth,tostring(ldtCtrl));
   return ldtCtrl;
 end -- adjustLdtMap
-
-
--- ======================================================================
--- Summarize the List (usually ResultList) so that we don't create
--- huge amounts of crap in the console.
--- Show Size, First Element, Last Element
--- ======================================================================
-function ldt_common.summarizeList( myList )
-  if( myList == nil ) then return "NULL LIST"; end;
-
-  local resultMap = map();
-  resultMap.Summary = "Summary of the List";
-  local listSize  = list.size( myList );
-  resultMap.ListSize = listSize;
-  if resultMap.ListSize == 0 then
-    resultMap.ListStatus = "List Is Empty";
-  else
-    resultMap.FirstElement = tostring( myList[1] );
-    resultMap.LastElement =  tostring( myList[ listSize ] );
-  end
-
-  return tostring( resultMap );
-end -- summarizeList()
 
 -- ======================================================================
 -- validateBinName()
@@ -1498,6 +1486,128 @@ function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
   return ldtCtrl; -- to be trusted ONLY in the mustExist == true case;
 
 end -- ldt_common.validateRecBinAndMap()
+
+-- ======================================================================
+-- Summarize the List (usually ResultList) so that we don't create
+-- huge amounts of crap in the console.
+-- Show Size, First Element, Last Element
+-- ======================================================================
+function ldt_common.summarizeList( myList )
+  if( myList == nil ) then return "NULL LIST"; end;
+
+  local resultMap = map();
+  resultMap.Summary = "Summary of the List";
+  local listSize  = list.size( myList );
+  resultMap.ListSize = listSize;
+  if resultMap.ListSize == 0 then
+    resultMap.ListStatus = "List Is Empty";
+  else
+    resultMap.FirstElement = tostring( myList[1] );
+    resultMap.LastElement =  tostring( myList[ listSize ] );
+  end
+
+  return tostring( resultMap );
+end -- summarizeList()
+
+
+-- ======================================================================
+-- Dump the List (usually ResultList) with multiple prints so that we
+-- can see the whole thing (regular Logging limits each print to something
+-- like 1k or 2k per info/trace line).
+-- ======================================================================
+function ldt_common.dumpList( myList )
+  if( myList == nil ) then
+     info("NULL LIST");
+     return;
+  end
+
+  -- Iterate thru the list (myList) and print items out 10 (or so) at a time.
+  local subSize = 10;
+  local count = 0;
+  local remainderList = myList;
+  local takeSize;
+  local frontList;
+  while ( list.size( remainderList ) > 0 ) do
+    if( list.size( remainderList ) > subSize ) then
+      takeSize = subSize;
+    else
+      takeSize = list.size( remainderList );
+    end
+    frontList = list.take( remainderList, takeSize );
+    info("\n<LIST:[%d : %d] %s", count, count + takeSize, tostring(frontList));
+    remainderList = list.drop( remainderList, takeSize );
+  end
+
+end -- ldt_common.dumpList()
+
+
+-- ======================================================================
+-- Summarize the MAP (usually ResultMap) so that we don't create
+-- huge amounts of crap in the console.
+-- Show Size and two Name/Values.  Unlike Summarize List, we really can't
+-- make much sense of "first and last" items.
+-- ======================================================================
+function ldt_common.summarizeMap( myMap )
+  if( myMap == nil ) then return "NULL MAP"; end;
+
+  local resultMap = map();
+  local summaryMap = map;
+  resultMap.Summary = "Summary of the MAP";
+  local mapSize  = map.size( myMap );
+  resultMap.MapSize = mapSize;
+  if resultMap.MapSize == 0 then
+    resultMap.MapStatus = "Map Is Empty";
+  else
+    local limit = 5;
+    for name, value in map.pairs( myMap ) do
+      summaryMap[name] = value;
+      limit = limit - 1;
+      if( limit < 1 ) then
+        resultMap.Summary = summaryMap;
+      end
+    end
+  end
+
+  return tostring( resultMap );
+end -- summarizeMap()
+
+
+-- ======================================================================
+-- Dump the MAP (usually ResultMAP) with multiple prints so that we
+-- can see the whole thing (regular Logging limits each print to something
+-- like 1k or 2k per info/trace line).
+-- ======================================================================
+function ldt_common.dumpMap( myMap, msg )
+  if( myMap == nil ) then
+     info("NULL MAP");
+     return;
+  end
+
+  info("\n <<<<> DUMP MAP [%s]<>>>>", tostring(msg));
+
+  -- Iterate thru the map (myMap) and print items out 10 (or so) at a time.
+  local subSize = 10;
+  local count = 0;
+  local subCount = 0;
+  local subMap = map();
+  for name, value in map.pairs( myMap ) do
+    subMap[name] = value;
+    subCount = subCount + 1;
+    count = count + 1;
+    if( subCount > subSize ) then
+      info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
+      subMap = map(); -- start a new map for the next round.
+      subCount = 0;
+    end
+  end
+  -- Print anything remaining -- after we fall out of the for loop.
+  if( map.size( subMap ) ) then
+      info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
+  end
+  info("\n<>>>>> END OF MAP <<<<>");
+
+end -- ldt_common.dumpMap()
+
 -- ========================================================================
 -- Return the ldt_commonm MAP (or table) that contains all of the functions
 -- that we're exporting from this module.

@@ -1,5 +1,5 @@
 -- Test Facility for trying things out.
-local MOD="lib_test_2014_03_28.A";
+local MOD="lib_test_2014_04_04.A";
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -51,8 +51,6 @@ function test.list_test( topRec, ldtBinName, size )
     list.append(resultList, i);
   end
   return resultList;
-
-
 
 end -- test.list_test()
 

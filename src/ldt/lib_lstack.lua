@@ -1,6 +1,6 @@
 -- Large Stack Object (LSTACK) Operations Library
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_03_27.B";
+local MOD="lib_lstack_2014_04_04.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -21,11 +21,11 @@ local G_LDT_VERSION = 2.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSTACK Main Functions >>
@@ -3871,13 +3871,13 @@ function lstack.create( topRec, ldtBinName, createSpec )
   -- in order to work with the LDT fields.  Now, after some additional
   -- changes, we call update().
   local rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
   
   GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
-  if( rc == nil or rc == 0 ) then
-    return 0;
-  else
-    error( ldte.ERR_CREATE );
-  end
+  return rc;
 end -- function lstack.create()
 
 -- =======================================================================
@@ -3977,13 +3977,13 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   local rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- function lstack.push()
 
 -- =======================================================================
@@ -4088,14 +4088,13 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   local rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
-  return rc;
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- end lstack.push_all()
 
 -- ======================================================================
@@ -4486,13 +4485,12 @@ function lstack.set_capacity( topRec, ldtBinName, newLimit )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- lstack.set_capacity();
 
 -- ========================================================================
@@ -4612,13 +4610,12 @@ function lstack.destroy( topRec, ldtBinName )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- lstack.destroy()
 
 -- ========================================================================

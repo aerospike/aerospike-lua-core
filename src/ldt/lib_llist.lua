@@ -1,6 +1,6 @@
 -- Large Ordered List (llist.lua)
 -- Track the date and iteration of the last update:
-local MOD = "llist_2014_03_25.B";
+local MOD = "llist_2014_04_04.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -21,11 +21,11 @@ local G_LDT_VERSION = 2.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set F (flag) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set F (flag) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;      -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
@@ -1171,10 +1171,13 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
     end -- if worth checking
   end -- else for must exist
 
+  -- -----------------------------------------------------------------
   -- Finally -- let's check the version of our code against the version
   -- in the data.  If there's a mismatch, then kick out with an error.
-  --  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  --  Can't check this because WE DON"T FUCKING STORE REAL NUMBERS !!!!
+  -- -----------------------------------------------------------------
+  --  We need to switch to a different mechanism for version.  In the
+  --  beginning, we assumed that real numbers could be stored, but it turns
+  --  out they can NOT.  (FIXME :: TODO)
 --  if( propMap ~= nil and G_LDT_VERSION > propMap[PM_Version] ) then
 --    GP=E and warn("[ERROR EXIT]:<%s:%s> Code Version (%s) <> Data Version(%s)",
 --    MOD, meth, tostring(G_LDT_VERSION), tostring(propMap[PM_Version]));
@@ -1538,8 +1541,7 @@ local function objectCompare( ldtMap, searchKey, objectValue )
       warn("[WARNING]<%s:%s> ObjectValue::SearchKey TYPE Mismatch", MOD, meth );
       warn("[INFO] TYPE ObjectValue(%s) TYPE SearchKey(%s)",
         type(objectKey), type(searchKey) );
-      -- return CR_INTERNAL_ERROR; -- Need to catch this sooner.
-      -- Generate the error here.
+      -- Generate the error here for mismatched types.
       error(ldte.ERR_TYPE_MISMATCH);
     end
 
@@ -3608,6 +3610,10 @@ local function treeInsert( src, topRec, ldtCtrl, value, stats )
     GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec: rc(%s)",
       MOD, meth, tostring( rc ));
     rc = aerospike:update( topRec );
+    if ( rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
   else
     warn("[ERROR]<%s:%s>Insert Error::Ldt(%s) value(%s) stats(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(value), tostring(stats),
@@ -4089,14 +4095,6 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
 
   GP=F and trace("[DUMP]After delete(%s) Key(%s)", tostring(resultList), tostring(key));
 
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- rc = aerospike:update_subrec( leafRec );
-  -- if( rc == nil or rc == 0 ) then
-  --   GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec", MOD, meth );
-  --   -- We ONLY call TopRec update at the outer level.
-  --   -- rc = aerospike:update( topRec );
-  -- end
-
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(newValue), tostring(rc));
   return rc;
@@ -4164,6 +4162,10 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   if( rc == 0 ) then
     GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec", MOD, meth );
     rc = aerospike:update( topRec );
+    if ( rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
   end
 
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
@@ -4352,6 +4354,10 @@ function llist.create( topRec, ldtBinName, createSpec )
   -- so all we need to do is perform the update (no create needed).
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
 
   GP=F and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return rc;
@@ -4448,29 +4454,18 @@ function llist.add( topRec, ldtBinName, newValue, createSpec )
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
-  -- All done, store the record (either CREATE or UPDATE)
-  local rc;
-  if( not aerospike:exists( topRec ) ) then
-    GP=F and trace("[DEBUG]:<%s:%s>:Create TopRecord()", MOD, meth );
-    rc = aerospike:create( topRec );
-  else
-    GP=F and trace("[DEBUG]:<%s:%s>:Update TopRecord()", MOD, meth );
-    rc = aerospike:update( topRec );
-  end
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
   -- so all we need to do is perform the update (no create needed).
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
-  
--- Process Create/Update results.
-  if( rc == nil or rc == 0 ) then
-    GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=F and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[EXIT]:<%s:%s> rc(%d)", MOD, meth, rc );
+  return rc;
 end -- function llist.add()
 
 -- =======================================================================
@@ -4706,6 +4701,7 @@ function llist.remove( topRec, ldtBinName, key )
     propMap[PM_ItemCount] = itemCount - 1; 
     ldtMap[R_TotalCount] = totalCount - 1;
     GP=F and trace("[DEBUG]: <%s:%s> itemCount(%d)", MOD, meth, itemCount );
+    rc = 0;
   end
   topRec[ ldtBinName ] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
@@ -4726,13 +4722,13 @@ function llist.remove( topRec, ldtBinName, key )
     -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
     -- so just turn any NILs into zeros.
     rc = aerospike:update( topRec );
-    if( rc == nil or rc == 0 ) then
-      GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-      return 0;
-    else
-      GP=F and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-      error( ldte.ERR_INTERNAL );
-    end
+    if ( rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
+
+    GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+    return 0;
   else
     GP=F and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
     error( ldte.ERR_DELETE );
@@ -4824,13 +4820,13 @@ function llist.destroy( topRec, ldtBinName )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=F and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- localLdtDestroy()
 
 -- ========================================================================

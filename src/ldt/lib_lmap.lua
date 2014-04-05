@@ -1,6 +1,6 @@
 -- Large Map (LMAP) Operations Library
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_03_27.S";
+local MOD="lib_lmap_2014_04_04.D";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -21,11 +21,11 @@ local G_LDT_VERSION = 2.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LMAP Main Functions >>
@@ -1053,7 +1053,7 @@ end -- initializeLdtCtrl()
 local function initializeLMapRegular( topRec, ldtCtrl )
   local meth = "initializeLMapRegular()";
   
-  GP=E and info("[ENTER]: <%s:%s>:: Regular Mode", MOD, meth );
+  GP=E and trace("[ENTER]: <%s:%s>:: Regular Mode", MOD, meth );
   
   -- Extract the property map and LDT control map from the LDT bin list.
   local propMap = ldtCtrl[1];
@@ -1064,7 +1064,7 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   -- All the other params must already be set by default. 
   local ldtBinName = propMap[PM_BinName];
  
-  GP=F and info("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type: %s",
+  GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type: %s",
       MOD, meth, tostring(ldtBinName), tostring(ldtMap[M_KeyType]));
 
   ldtMap[M_StoreState]  = SS_REGULAR; -- SM_LIST or SM_BINARY:
@@ -1073,7 +1073,7 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   local newDirList = list(); -- Our new Hash Directory
   local hashDirSize = ldtMap[M_HashDirSize];
   local cellAnchor;
-  for i = 1, (hashDirSize + 1), 1 do
+  for i = 1, (hashDirSize), 1 do
     cellAnchor = map();
     cellAnchor[C_CellState] = C_STATE_EMPTY;
     list.append( newDirList, cellAnchor );
@@ -1095,10 +1095,10 @@ local function initializeLMapRegular( topRec, ldtCtrl )
 
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
-  GP=F and info("[DEBUG]<%s:%s> LMAP Summary after Init(%s)",
+  GP=F and trace("[DEBUG]<%s:%s> LMAP Summary after Init(%s)",
        MOD, meth, ldtMapSummaryString(ldtMap));
 
-  GP=E and info("[EXIT]:<%s:%s>:", MOD, meth );
+  GP=E and trace("[EXIT]:<%s:%s>:", MOD, meth );
   
 end -- function initializeLMapRegular
 
@@ -1109,7 +1109,7 @@ end -- function initializeLMapRegular
 -- ======================================================================
 local function validateBinName( ldtBinName )
   local meth = "validateBinName()";
-  GP=E and info("[ENTER]: <%s:%s> validate Bin Name(%s)",
+  GP=E and trace("[ENTER]: <%s:%s> validate Bin Name(%s)",
       MOD, meth, tostring(ldtBinName));
 
   if ldtBinName == nil  then
@@ -1136,7 +1136,7 @@ end -- validateBinName
 -- ======================================================================
 local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   local meth = "validateRecBinAndMap()";
-  GP=E and info("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
+  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
     MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
 
   -- Start off with validating the bin name -- because we might as well
@@ -1490,7 +1490,7 @@ end -- setupLdtBin( topRec, ldtBinName )
 -- ======================================================================
 local function stringHash( value, modulo )
   local meth = "stringHash()";
-  GP=E and info("[ENTER]<%s:%s> val(%s) Mod = %s", MOD, meth,
+  GP=E and trace("[ENTER]<%s:%s> val(%s) Mod = %s", MOD, meth,
     tostring(value), tostring(modulo));
 
   -- local CRC32 = require('ldt/CRC32');
@@ -1509,7 +1509,7 @@ end -- stringHash()
 -- ======================================================================
 local function numberHash( value, modulo )
   local meth = "numberHash()";
-  GP=E and info("[ENTER]<%s:%s> val(%s) Mod = %s", MOD, meth,
+  GP=E and trace("[ENTER]<%s:%s> val(%s) Mod = %s", MOD, meth,
     tostring(value), tostring(modulo));
 
   local result = 0;
@@ -1518,7 +1518,7 @@ local function numberHash( value, modulo )
     -- math.randomseed( value ); return math.random( modulo );
     result = CRC32.Hash( value ) % modulo;
   end
-  GP=E and info("[EXIT]:<%s:%s>HashResult(%s)", MOD, meth, tostring(result))
+  GP=E and trace("[EXIT]:<%s:%s>HashResult(%s)", MOD, meth, tostring(result))
   return result
 end -- numberHash
 
@@ -1533,7 +1533,7 @@ end -- numberHash
 -- ======================================================================
 local function computeHashCell( newValue, ldtMap )
   local meth = "computeHashCell()";
-  GP=E and info("[ENTER]: <%s:%s> val(%s) type = %s Map(%s) ", MOD, meth,
+  GP=E and trace("[ENTER]: <%s:%s> val(%s) type = %s Map(%s) ", MOD, meth,
     tostring(newValue), type(newValue), tostring(ldtMap) );
 
   -- Check StoreState:  If we're in single bin mode, it's easy. Everything
@@ -1556,7 +1556,7 @@ local function computeHashCell( newValue, ldtMap )
     end
   end
   
-  GP=E and info("[EXIT]<%s:%s> Val(%s) Hash Cell(%d) ", MOD, meth,
+  GP=E and trace("[EXIT]<%s:%s> Val(%s) Hash Cell(%d) ", MOD, meth,
     tostring(newValue), cellNumber );
 
   return cellNumber + 1;
@@ -1568,6 +1568,9 @@ end -- computeHashCell()
 -- Print out interesting stats about this LDR Sub-Record
 -- ======================================================================
 local function  ldrSubRecSummary( subRec ) 
+  local meth = "ldrSubRecSummary()";
+  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
+
   if( subRec  == nil ) then
     return "NULL Data Chunk (LDR) RECORD";
   end;
@@ -1582,13 +1585,16 @@ local function  ldrSubRecSummary( subRec )
   local subRecCtrlMap = subRec[LDR_CTRL_BIN];
   local subRecPropMap = subRec[SUBREC_PROP_BIN];
 
+  resultMap.SUMMARY = "LDR SUMMARY";
   resultMap.SelfDigest   = subRecPropMap[PM_SelfDigest];
   resultMap.ParentDigest   = subRecPropMap[PM_ParentDigest];
 
-  resultMap.NameList = subRec[LDR_NLIST_BIN];
-  resultMap.NameListSize = list.size( resultMap.NameList );
-  resultMap.ValueList = subRec[LDR_VLIST_BIN];
-  resultMap.ValueListSize = list.size( resultMap.ValueList );
+  resultMap.LDR_NameList = subRec[LDR_NLIST_BIN];
+  resultMap.NameListSize = list.size( resultMap.LDR_NameList );
+  resultMap.LDR_ValueList = subRec[LDR_VLIST_BIN];
+  resultMap.ValueListSize = list.size( resultMap.LDR_ValueList );
+
+  GP=E and trace("[EXIT]<%s:%s>", MOD, meth );
 
   return tostring( resultMap );
 end -- ldrSubRecSummary()
@@ -1651,7 +1657,7 @@ end -- ldtInitPropMap()
 -- ======================================================================
 local function createLMapSubRec( src, topRec, ldtCtrl )
   local meth = "createLMapSubRec()";
-  GP=E and info("[ENTER]<%s:%s> ", MOD, meth );
+  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
 
     -- Set up the TOP REC prop and ctrl maps
     local propMap    = ldtCtrl[1];
@@ -1701,7 +1707,7 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
   -- we can't actually write sub-recs until the end of the Lua Context.
   ldt_common.updateSubRec( src, newSubRec );
 
-  GP=E and info("[EXIT]<%s:%s> SR PropMap(%s) Name-list: %s value-list: %s ",
+  GP=E and trace("[EXIT]<%s:%s> SR PropMap(%s) Name-list: %s value-list: %s ",
     MOD, meth, tostring( subRecPropMap ), tostring(newSubRec[LDR_NLIST_BIN]),
     tostring(newSubRec[LDR_VLIST_BIN]));
   
@@ -1762,13 +1768,15 @@ end --  createLMapSubRec()
 -- =======================================================================
 -- Search the entire Hash Directory for an item.
 -- Parms:
+-- (*) src: SubRec Context
 -- (*) topRec: The main AS Record (needed for open subrec)
 -- (*) ldtCtrl: Main LDT Control Structure
+-- (*) resultMap:
 -- Results:
 -- OK: Results are in resultMape
 -- ERROR: LDT Error to client
 -- =======================================================================
-local function regularScan( topRec, ldtCtrl, resultMap )
+local function regularScan( src, topRec, ldtCtrl, resultMap )
   local meth = "regularScan()";
   GP=E and trace("[ENTER]: <%s:%s> ", MOD, meth );
 
@@ -1782,10 +1790,9 @@ local function regularScan( topRec, ldtCtrl, resultMap )
   local hashDir = ldtMap[M_HashDirectory]; 
   local cellAnchor;
 
-  -- Set up the Sub-Rec Context to track open Sub-Records.
-  local src = ldt_common.createSubRecContext();
+  local hashDirSize = list.size( hashDir );
 
-  for i = 1, list.size( hashDir ), 1 do
+  for i = 1, hashDirSize,  1 do
     cellAnchor = hashDir[i];
     if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
 
@@ -1847,7 +1854,7 @@ end -- function regularScan()
 -- ======================================================================
 local function compactInsert( ldtCtrl, newName, newValue )
   local meth = "compactInsert()";
-  GP=E and info("[ENTER]<%s:%s>Insert Name(%s) Value(%s)",
+  GP=E and trace("[ENTER]<%s:%s>Insert Name(%s) Value(%s)",
     MOD, meth, tostring(newName), tostring(newValue));
   
   local propMap = ldtCtrl[1]; 
@@ -1866,7 +1873,7 @@ local function compactInsert( ldtCtrl, newName, newValue )
 
   local position = searchList( ldtCtrl, nameList, newName );
   if( position > 0 and ldtMap[M_OverWrite] == AS_FALSE) then
-    info("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
+    trace("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
                  MOD, meth, tostring(newName), tostring(newValue));
     error( ldte.ERR_INTERNAL );
   end
@@ -1993,7 +2000,7 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
     warn("[ERROR]<%s:%s>: SubRec Create Error",  MOD, meth );
     error( ldte.ERR_SUBREC_CREATE );
   else
-    GP=F and info("[NOTICE]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
+    GP=F and trace("[NOTICE]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
         MOD, meth, ldrSubRecSummary( subRec ), tostring(subRecDigest));
   end
 
@@ -2035,15 +2042,20 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   -- values (which are now in the sub-rec).
   cellAnchor[C_CellState] = C_STATE_DIGEST;
   cellAnchor[C_CellDigest] = subRecDigest;
-  cellAnchor[C_CellNameList] = nil;
-  cellAnchor[C_CellValueList] = nil;
+  -- NOTE: Once we figure out how to REMOVE a map entry by assigning NIL to
+  -- it, we can THEN replace this with NIL. Until then, we have to reset the
+  -- list by putting in an EMPTY (a new) list.
+  -- cellAnchor[C_CellNameList] = nil;
+  -- cellAnchor[C_CellValueList] = nil;
+  cellAnchor[C_CellNameList] = list();
+  cellAnchor[C_CellValueList] = list();
 
   ldt_common.updateSubRec( src, subRec );
 
-  GP=F and info("[DEBUG]<%s:%s> Cell(%s) LDR Summary(%s)", MOD, meth,
+  GP=F and trace("[DEBUG]<%s:%s> Cell(%s) LDR Summary(%s)", MOD, meth,
     tostring(cellAnchor), ldrSubRecSummary( subRec ));
 
-  GP=E and info("[EXIT]<%s:%s> Conversion Successful", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> Conversion Successful", MOD, meth );
 
 end -- function hashCellConvertInsert()
 
@@ -2074,7 +2086,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   -- ATTENTION!!!  Here is the place where we will eventually do the check
   -- for single Sub-Rec overflow and turn the single sub-rec into a Radix
   -- tree of multiple sub-records.
-  warn("[REMEMBER]<%s:%s> HERE: we'll check for SubRec spill into Radix tree",
+  trace("[REMEMBER]<%s:%s> HERE: we'll check for SubRec spill into Radix tree",
       MOD, meth );
 
   local nameList = subRec[LDR_NLIST_BIN];
@@ -2100,7 +2112,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   end
   list.append( valueList, storeValue );
 
-  GP=E and info("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
 end -- function hashCellSubRecInsert()
 
 
@@ -2172,7 +2184,7 @@ local function regularInsert( src, topRec, ldtCtrl, newName, newValue )
       hashCellListInsert( cellAnchor, newName, newValue );
     else
       -- Harder.  Convert List into Subrec and insert.
-      hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue);
+      hashCellConvertInsert(src,topRec,ldtCtrl,cellAnchor,newName,newValue);
     end
   else
     -- It's a sub-record insert, with a possible tree overflow
@@ -2183,7 +2195,7 @@ local function regularInsert( src, topRec, ldtCtrl, newName, newValue )
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  GP=E and info("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
 end -- function regularInsert()
 
 -- ======================================================================
@@ -2448,8 +2460,8 @@ local function regularSearch(topRec, ldtCtrl, searchName, resultMap )
   else
     -- Get the lists from the correct Sub-Rec in the Radix Tree.
     -- Radix tree support not yet implemented
-    info("[NOT FOUND]<%s:%s> name(%s) not found, Tree Not Ready", MOD, meth,
-      tostring( searchName ));
+    info("[NOT FOUND]<%s:%s> name(%s) not found, RADIX Tree Not Ready",
+      MOD, meth, tostring( searchName ));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -2479,7 +2491,7 @@ local function regularSearch(topRec, ldtCtrl, searchName, resultMap )
   -- ALSO -- resultMap is returned via parameter, so does not need to be
   -- returned here as a function result.
 
-  GP=E and info("[EXIT]: <%s:%s>: Search Returns (%s)",
+  GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
                    MOD, meth, tostring(resultMap));
 end -- function regularSearch()
 
@@ -2493,8 +2505,11 @@ end -- function regularSearch()
 local function localLMapWalkThru( resultList, topRec, ldtBinName )
   
   local meth = "localLMapWalkThru()";
+
+  warn("[ERROR: INCORRECT CODE]<%s:%s> Do not call", MOD, meth );
+
   rc = 0; -- start out OK.
-  GP=E and info("[ENTER]: <%s:%s> Search for Value(%s)",
+  GP=E and trace("[ENTER]: <%s:%s> Search for Value(%s)",
                  MOD, meth, tostring( searchValue ) );
                  
   -- Validate the topRec, the bin and the map.  If anything is weird, then
@@ -2505,7 +2520,7 @@ local function localLMapWalkThru( resultList, topRec, ldtBinName )
 
   if ldtMap[M_StoreState] == SS_COMPACT then 
     -- Find the appropriate bin for the Search value
-    GP=F and info(" !!!!!! Compact Mode LMAP Search !!!!!");
+    GP=F and trace(" !!!!!! Compact Mode LMAP Search !!!!!");
     -- local binList = ldtMap[M_CompactList];
     list.append( resultList,
       " =========== LMAP WALK-THRU COMPACT MODE \n ================" );
@@ -2516,7 +2531,7 @@ local function localLMapWalkThru( resultList, topRec, ldtBinName )
       rc = complexDumpListAll(topRec, resultList, ldtCtrl, ldtBinName );
     end
 	
-    GP=E and info("[EXIT]: <%s:%s>: Search Returns (%s)",
+    GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
 	                 MOD, meth, tostring(result));
   else -- regular searchAll
     -- HACK : TODO : Fix this number to list conversion  
@@ -2538,7 +2553,7 @@ local function localLMapWalkThru( resultList, topRec, ldtBinName )
         -- NOTE: openSubRec() does its own error checking. No more needed here.
         local subRec = ldt_common.openSubRec( src, topRec, digestString );
 
-        GP=F and info("[DEBUG]: <%s:%s> Calling ldrSearchList: List(%s)",
+        GP=F and trace("[DEBUG]: <%s:%s> Calling ldrSearchList: List(%s)",
 			           MOD, meth, tostring( entryList ));
 			  
         -- temporary list having result per digest-entry LDR 
@@ -2547,7 +2562,7 @@ local function localLMapWalkThru( resultList, topRec, ldtBinName )
         -- The magical function that is going to fix our deletion :)
         rc = ldrSearchList(topRec,ldtBinName,ldrlist,subRec,0,entryList);
         if( rc == nil or rc == 0 ) then
-          GP=F and info("AllSearch returned SUCCESS %s", tostring(ldrlist));
+          GP=F and trace("AllSearch returned SUCCESS %s", tostring(ldrlist));
           list.append( resultList, "LIST-ENTRIES:" );
           for j = 1, list.size(ldrlist), 1 do 
             -- no need to filter here, results are already filtered in-routine
@@ -2600,7 +2615,7 @@ end -- end of localLMapWalkThru
 -- ======================================================================
 local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
   local meth = "convertCompactToSubRec()";
-  GP=E and info("[ENTER]:<%s:%s> NewName(%s) NewVal(%s)", 
+  GP=E and trace("[ENTER]:<%s:%s> NewName(%s) NewVal(%s)", 
      MOD, meth, tostring(newName), tostring(newValue));
 
   -- Get the list, make a copy, then iterate thru it, re-inserting each one.
@@ -2620,12 +2635,12 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
   end
   
   -- Copy existing elements into temp list
-  info("[DEBUG]<%s:%s> About to copy lists: Name(%s) Value(%s)", MOD, meth,
+  trace("[DEBUG]<%s:%s> About to copy lists: Name(%s) Value(%s)", MOD, meth,
     tostring( nameList ), tostring( valueList ));
   local listNameCopy = list.take(nameList, list.size( nameList ));
   local listValueCopy = list.take(valueList, list.size( valueList ));
 
-  info("[DEBUG]<%s:%s> Got lists: Name(%s) Value(%s)", MOD, meth,
+  trace("[DEBUG]<%s:%s> Got lists: Name(%s) Value(%s)", MOD, meth,
     tostring( listNameCopy ), tostring( listValueCopy ));
 
 
@@ -2659,7 +2674,7 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
     regularInsert( src, topRec, ldtCtrl, listNameCopy[i], listValueCopy[i] );
   end
  
-  GP=E and info("[EXIT]: <%s:%s>", MOD, meth );
+  GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- convertCompactToSubRec()
 
 -- ======================================================================
@@ -2677,10 +2692,10 @@ end -- convertCompactToSubRec()
 -- ======================================================================
 local function localPut( src, topRec, ldtCtrl, newName, newValue )
   local meth = "localPut()";
-  GP=E and info("[ENTER]<%s:%s> newName(%s) newValue(%s)",
+  GP=E and trace("[ENTER]<%s:%s> newName(%s) newValue(%s)",
      MOD, meth, tostring(newName), tostring(newValue) );
                  
-  GP=F and info("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(src));
+  GP=F and trace("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(src));
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
@@ -2707,16 +2722,15 @@ local function localPut( src, topRec, ldtCtrl, newName, newValue )
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
   -- so all we need to do is perform the update (no create needed).
-  GP=F and info("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    rc = 0;
-  else
+  if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+    error( ldte.ERR_TOPREC_UPDATE );
   end 
    
-  GP=E and info("[EXIT]<%s:%s> : Done. RC(%s)", MOD, meth, tostring(rc) );
+  GP=E and trace("[EXIT]<%s:%s> : Done. RC(%s)", MOD, meth, tostring(rc) );
   return rc;
 end -- function localPut()
 
@@ -2782,10 +2796,10 @@ function lmap.create( topRec, ldtBinName, createSpec )
   validateBinName( ldtBinName );
 
   if createSpec == nil then
-    GP=E and info("[ENTER1]: <%s:%s> ldtBinName(%s) NULL createSpec",
+    GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s) NULL createSpec",
       MOD, meth, tostring(ldtBinName));
   else
-    GP=E and info("[ENTER2]: <%s:%s> ldtBinName(%s) createSpec(%s) ",
+    GP=E and trace("[ENTER2]: <%s:%s> ldtBinName(%s) createSpec(%s) ",
     MOD, meth, tostring( ldtBinName), tostring( createSpec ));
   end
 
@@ -2808,10 +2822,14 @@ function lmap.create( topRec, ldtBinName, createSpec )
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
   -- so all we need to do is perform the update (no create needed).
-  GP=F and info("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
 
-  GP=E and info("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
+  GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return rc;
 end -- end lmap.create()
 
@@ -2841,9 +2859,9 @@ end -- end lmap.create()
 -- (*) createSpec: When in "Create Mode", use this Create Spec
 -- ======================================================================
 function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
-  GP=B and info("\n\n >>>>>>>>> API[ LMAP PUT ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ] <<<<<<<<<< \n");
   local meth = "lmap.put()";
-  GP=E and trace("[ENTRY]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
+  GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
     MOD, meth, tostring(ldtBinName), tostring(newName),tostring(newValue),
     tostring(createSpec) );
 
@@ -2889,17 +2907,29 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
   -- so all we need to do is perform the update (no create needed).
-  GP=F and info("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    rc = 0;
-    GP=E and info("[EXIT]: <%s:%s> Success", MOD, meth );      
-  else
+  if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+    error( ldte.ERR_TOPREC_UPDATE );
   end 
+
+  -- Look at the results after EACH insert.
+  if( DEBUG == true ) then
+    local startSize = propMap[PM_ItemCount];
+
+    trace("\n\n>>>>>>>>>>>>>>> VALIDATE PUT: Count Size(%d) <<<<<<<<<<<<\n",
+        startSize);
+    local endSize = lmap.dump( src, topRec, ldtBinName );
+    trace("\n\n>>>>>>>>>>>>>>>>>> DONE VALIDATE Dump Size(%d)<<<<<<<<<<<<\n",
+      endSize);
+    if( startSize ~= endSize ) then
+      warn("[INTERNAL ERROR]: StartSize(%d) <> EndSize(%d)",
+        startSize, endSize );
+    end
+  end
    
-  GP=E and info("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
+  GP=E and trace("[EXIT]<%s:%s> : Done.  RC(%s)", MOD, meth, tostring(rc) );
   return rc;
 end -- function lmap.put()
 
@@ -2917,11 +2947,11 @@ end -- function lmap.put()
 -- (*) createSpec: When in "Create Mode", use this Create Spec
 -- ======================================================================
 function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
-  GP=B and info("\n\n >>>>>>>>> API[ LMAP PUT ALL] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ALL] <<<<<<<<<< \n");
 
   local meth = "lmap.put_all()";
    
-  GP=E and trace("[ENTRY]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
+  GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
     MOD, meth, tostring(ldtBinName), tostring(newName),tostring(newValue),
     tostring(createSpec) );
 
@@ -2954,7 +2984,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
 
   local newCount = 0;
   for name, value in map.pairs( nameValMap ) do
-    GP=F and info("[DEBUG]<%s:%s> Processing Arg: Name(%s) Val(%s) TYPE : %s",
+    GP=F and trace("[DEBUG]<%s:%s> Processing Arg: Name(%s) Val(%s) TYPE : %s",
         MOD, meth, tostring( name ), tostring( value ), type(value));
     rc = localPut( src, topRec, ldtCtrl, name, value );
     -- We need to drop out of here if there's an error, but we have to do it
@@ -2964,10 +2994,10 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
     -- on error!!
     if( rc == 0 ) then
       newCount = newCount + 1;
-      GP=F and info("[DEBUG]<%s:%s> lmap insertion for %s %s RC(%d)",
+      GP=F and trace("[DEBUG]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
         MOD, meth, tostring(name), tostring(value), rc );
     else
-      GP=F and info("[ERROR]<%s:%s> lmap insertion for %s %s RC(%d)",
+      GP=F and trace("[ERROR]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
         MOD, meth, tostring(name), tostring(value), rc );
     end
   end -- for each new value in the map
@@ -2985,17 +3015,14 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
   -- so all we need to do is perform the update (no create needed).
-  GP=F and info("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    rc = 0;
-    GP=E and info("[EXIT]: <%s:%s> Success", MOD, meth );      
-  else
+  if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+    error( ldte.ERR_TOPREC_UPDATE );
   end 
    
-  GP=E and info("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
+  GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return rc;
 end -- function lmap.put_all()
 
@@ -3015,7 +3042,7 @@ end -- function lmap.put_all()
 -- ======================================================================
 function
 lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
-  GP=B and info("\n\n >>>>>>>>> API[ LMAP GET] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP GET] <<<<<<<<<< \n");
   local meth = "lmap.get()";
   GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
                  MOD, meth, tostring( searchName ) );
@@ -3047,7 +3074,7 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
       resultObject = validateValue( valueList[position] );
     end
     if( resultObject == nil ) then
-      info("[NOT FOUND]<%s:%s> name(%s) not found",
+      trace("[NOT FOUND]<%s:%s> name(%s) not found",
         MOD, meth, tostring(searchName));
       error( ldte.ERR_NOT_FOUND );
     end
@@ -3057,7 +3084,7 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
     regularSearch( topRec, ldtCtrl, searchName, resultMap );
   end
 
-  GP=E and info("[EXIT]: <%s:%s>: Search Returns (%s)",
+  GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
      MOD, meth, tostring(resultMap));
 
   return resultMap;
@@ -3092,6 +3119,8 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs)
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
+  local src = ldt_common.createSubRecContext();
+
   -- Set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
     ldt_common.setReadFunctions( ldtMap, userModule, filter );
@@ -3105,13 +3134,15 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs)
     -- Search all of the Sub-Records in the Hash Directory.  Actually,
     -- this is more complex, because each Hash Cell may be EMPTY, hold a
     -- small LIST, or may be a Sub-Record.
-    rc = regularScan( topRec, ldtCtrl, resultMap ); 
+    rc = regularScan(src, topRec, ldtCtrl, resultMap ); 
   end
 
   -- !!!! Need to switch to RESULT MAP SUMMARY !!!!!  @TODO
-  GP=E and trace("[EXIT]: <%s:%s>: Scan Returns (%s)",
-                   MOD, meth, tostring(resultMap));
+  GP=E and trace("[EXIT]: <%s:%s>: Scan Returns Size(%d) Map(%s)",
+                   MOD, meth, map.size(resultMap), tostring(resultMap));
   	  
+  ldt_common.dumpMap(resultMap, "LMap Scan Results");
+
   return resultMap;
 end -- function lmap.scan()
 
@@ -3134,7 +3165,7 @@ end -- function lmap.scan()
 -- ======================================================================
 function
 lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
-  GP=B and info("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and trace("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
 
   local meth = "lmap.remove()";
    
@@ -3184,17 +3215,14 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
   
   -- All done, update the record
-  GP=F and info("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    rc = 0;
-    GP=E and info("[EXIT]: <%s:%s> Success", MOD, meth );      
-  else
+  if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+    error( ldte.ERR_TOPREC_UPDATE );
   end 
    
-  GP=E and info("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
+  GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return rc;
 end -- function lmap.remove()
 
@@ -3219,9 +3247,9 @@ end -- function lmap.remove()
 function lmap.destroy( topRec, ldtBinName )
   local meth = "lmap.destroy()";
 
-  GP=B and info("\n\n  >>>>>>>> API[ LMAP DESTROY ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and trace("\n\n  >>>>>>>> API[ LMAP DESTROY ] <<<<<<<<<<<<<<<<<< \n");
 
-  GP=E and info("[ENTER]: <%s:%s> ldtBinName(%s)",
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
   local rc = 0; -- start off optimistic
 
@@ -3240,7 +3268,7 @@ function lmap.destroy( topRec, ldtBinName )
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
   
-  GP=F and info("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
+  GP=F and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
     tostring( propMap ), ldtSummaryString( ldtCtrl ));
 
   -- Get the ESR and delete it -- if it exists.  If we are in COMPACT MODE,
@@ -3262,7 +3290,7 @@ function lmap.destroy( topRec, ldtBinName )
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    trace("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
       MOD, meth, ldtBinName );
   end
   
@@ -3289,17 +3317,12 @@ function lmap.destroy( topRec, ldtBinName )
   topRec[ldtBinName] = nil;
 
   rc = aerospike:update( topRec );
-  info("[WARN:NOTICE]:<%s:%s> Update Return(%s)", MOD, meth, tostring(rc));
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
 
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
-
-  GP=E and info("[EXIT]: <%s:%s> : Done.  RC(%s)", MOD, meth, tostring(rc));
+  GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%s)", MOD, meth, tostring(rc));
 
   return rc;
 end -- function lmap.destroy()
@@ -3316,9 +3339,9 @@ end -- function lmap.destroy()
 -- ========================================================================
 function lmap.size( topRec, ldtBinName )
   local meth = "size()";
-  GP=B and info("\n\n >>>>>>>>> API[ LMAP SIZE ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP SIZE ] <<<<<<<<<< \n");
 
-  GP=E and info("[ENTER1]: <%s:%s> ldtBinName(%s)",
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
   MOD, meth, tostring(ldtBinName));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
@@ -3349,9 +3372,9 @@ end -- function lmap.size()
 -- ========================================================================
 function lmap.config( topRec, ldtBinName )
   local meth = "lmap.config()";
-  GP=B and info("\n\n >>>>>>>>> API[ LMAP CONFIG ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP CONFIG ] <<<<<<<<<< \n");
 
-  GP=E and info("[ENTER]: <%s:%s> ldtBinName(%s)",
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
@@ -3361,7 +3384,7 @@ function lmap.config( topRec, ldtBinName )
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local config = ldtSummary(ldtCtrl); 
 
-  GP=E and info("[EXIT]: <%s:%s> : config(%s)", MOD, meth, tostring(config) );
+  GP=E and trace("[EXIT]: <%s:%s> : config(%s)", MOD, meth, tostring(config) );
   return config;
 end -- function lmap.config();
 
@@ -3450,33 +3473,92 @@ end -- function lmap.set_capacity()
 -- shown in the result. Unlike scan which simply returns the contents of all 
 -- the bins, this routine gives a tree-walk through or map walk-through of the
 -- entire lmap structure. 
--- Return a LIST of lists -- with Each List marked with it's Hash Name.
+-- Return a COUNT of the number of items dumped to the log.
 -- ========================================================================
-function lmap.dump( topRec, ldtBinName )
-  GP=F and info("\n\n  >>>>>>>>>>>> API[ LMAP DUMP ] <<<<<<<<<<<<<<<< \n");
+function lmap.dump( src, topRec, ldtBinName )
+  GP=F and trace("\n\n  >>>>>>>>>>>> API[ LMAP DUMP ] <<<<<<<<<<<<<<<< \n");
   local meth = "dump()";
-  GP=E and info("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );
+  GP=E and trace("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  resultList = list();
-  list.append( resultList, "EMPTY LIST");
+  -- First, dump the control information.
+  ldtDebugDump( ldtCtrl );
 
-  warn("[ERROR]<%s:%s> not yet implemented", MOD, meth );
-  -- localLMapWalkThru(resultList,topRec,ldtBinName,nil,nil);
+  -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
+  local propMap = ldtCtrl[1]; 
+  local ldtMap = ldtCtrl[2]; 
+  local cellAnchor;
+  local count = 0;
 
-  for i = 1, list.size( resultList ), 1 do
-     info(tostring(resultList[i]));
-  end 
+  local resultMap = map();
 
-  -- Another key difference between dump and scan : 
-  -- dump prints things in the logs and returns a 0
-  -- scan returns the list to the client/caller 
+  if ldtMap[M_StoreState] == SS_COMPACT then 
+    -- Scan the Compact Name/Value Lists
+    rc = scanList( ldtMap[M_CompactNameList], ldtMap[M_CompactValueList],
+      resultMap );
+    ldt_common.dumpMap( resultMap, "CompactList");
+    count = map.size( resultMap );
+  else -- "Regular Hash Dir"
+    -- Search all of the Sub-Records in the Hash Directory.  Actually,
+    -- this is more complex, because each Hash Cell may be EMPTY, hold a
+    -- small LIST, or may be a Sub-Record.
+    local hashDir = ldtMap[M_HashDirectory]; 
 
-  local ret = " \n LDT bin contents dumped to server-logs \n"; 
-  return ret; 
+    -- For each Hash Cell, Dump the contents
+    for i = 1, list.size( hashDir ), 1 do
+      resultMap = map();
+      cellAnchor = hashDir[i];
+      -- TODO: Move this code into a common "cellAnchor" Scan.
+      if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
+        GD=DEBUG and trace("[DEBUG]<%s:%s> Hash Cell :: Index(%d) Cell(%s)",
+          MOD, meth, i, tostring(cellAnchor));
+
+        -- If not empty, then the cell anchor must be either in an empty
+        -- state, or it has a Sub-Record.  Later, it might have a Radix tree
+        -- of multiple Sub-Records.
+        if( cellAnchor[C_CellState] == C_STATE_LIST ) then
+          -- The small list is inside of the cell anchor.  Get the lists.
+          scanList( cellAnchor[C_CellNameList], cellAnchor[C_CellValueList],
+            resultMap );
+        elseif( cellAnchor[C_CellState] == C_STATE_DIGEST ) then
+          -- We have a sub-rec -- open it
+          local digest = cellAnchor[C_CellDigest];
+          if( digest == nil ) then
+            warn("[ERROR]: <%s:%s>: nil Digest value",  MOD, meth );
+            error( ldte.ERR_SUBREC_OPEN );
+          end
+
+          local digestString = tostring(digest);
+          local subRec = ldt_common.openSubRec( src, topRec, digestString );
+          if( subRec == nil ) then
+            warn("[ERROR]: <%s:%s>: subRec nil or empty: Digest(%s)",
+              MOD, meth, digestString );
+            error( ldte.ERR_SUBREC_OPEN );
+          end
+          scanList( subRec[LDR_NLIST_BIN], subRec[LDR_VLIST_BIN], resultMap );
+          ldt_common.closeSubRec( src, subRec );
+        else
+          -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+          -- When we do a Radix Tree, we will STILL end up with a SubRecord
+          -- but it will come from a Tree.  We just need to manage the SubRec
+          -- correctly.
+          warn("[ERROR]<%s:%s> Not ready to handle Radix Trees in Hash Cell",
+            MOD, meth );
+          error( ldte.ERR_INTERNAL );
+          -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        end
+      end -- Cell not empty
+      -- Print out the map for EACH Hash Cell.
+      ldt_common.dumpMap( resultMap, "Cell:" .. tostring(i));
+      count = count + map.size( resultMap );
+    end -- for each Hash Dir Cell
+  end -- regular Hash Dir
+
+  GP=E and trace("[EXIT]<%s:%s> <><><> DONE <><><>", MOD, meth );
+  return count; 
 end -- function lmap.dump();
 
 -- ========================================================================
