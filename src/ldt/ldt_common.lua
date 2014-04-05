@@ -1,10 +1,6 @@
 -- Large Data Type (LDT) Common Functions
--- ldt_common.lua:  July 24, 2013 (Happy Birthday Jamie!!)
---
-module('ldt_common', package.as_ldt)
-
--- Module Marker: Keep this in sync with the stated version
-local MOD="ldt_common_2013_07_24.a"; -- the module name used for tracing
+-- Track the data and iteration of the last update.
+local MOD="ldt_common_2014_04_04.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
@@ -12,63 +8,123 @@ local MOD="ldt_common_2013_07_24.a"; -- the module name used for tracing
 local G_LDT_VERSION = 1.1;
 
 -- ======================================================================
--- || GLOBAL PRINT ||
+-- || GLOBAL PRINT and GLOBAL DEBUG ||
 -- ======================================================================
--- Use this flag to enable/disable global printing (the "detail" level
+-- Use these flags to enable/disable global printing (the "detail" level
 -- in the server).
+-- Usage: GP=F and trace()
+-- When "F" is true, the trace() call is executed.  When it is false,
+-- the trace() call is NOT executed (regardless of the value of GP)
+-- (*) "F" is used for general debug prints
+-- (*) "E" is used for ENTER/EXIT prints
+-- (*) "B" is used for BANNER prints
+-- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
-local GP=true; -- Leave this ALWAYS true (but value seems not to matter)
-local F=true; -- Set F (flag) to true to turn ON global print
+local GP;      -- Global Print Instrument
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local GD;     -- Global Debug instrument.
+local DEBUG=false; -- turn on for more elaborate state dumps.
+
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- <<  LDT COMMON Functions >>
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- The following functions were moved into common for two main reasons:
+-- (1) Mandatory: All of the LDT routines must use the following
+--     functions in the same way with the same function:
+--     + Sub-Rec Context Functions
+--     + Key, Read, Write Functions (those using inner UDFs)
+--     + Propery Map Management
+-- (2) Convenience: We know that many of the LDT routines need some common
+--     support for Lists (search, insert, delete, summarize) and Common 
+--     Object summary.  This Convenience list may grow over time.
+-- =====================================================================
+-- ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
+-- ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
+-- ldt_common.setWriteFunctions( ldtMap )
+-- ldt_common.propMapSummary( resultMap, propMap )
+-- ldt_common.createSubRecContext()
+-- ldt_common.createSubRec( srcCtrl, topRec, recType )
+-- ldt_common.closeSubRec( srcCtrl, digestString )
+-- ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
+-- ldt_common.updateSubRec( srcCtrl, subRec )
+-- ldt_common.markSubRecDirty( srcCtrl, digestString )
+-- ldt_common.closeAllSubRecs( srcCtrl )
+-- ldt_common.listAppendList( baseList, additionalList )
+-- ldt_common.setLdtRecordType( topRec )
+-- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
+-- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
+-- ldt_common.validateRecBinAndMap()
+-- ldt_common.summarizeList( myList )
+-- ldt_common.dumpList( myList )
+-- ldt_common.summarizeMap( myMap )
+-- ldt_common.dumpMap( myMap )
+
+-- ldt_common.validateBinName( ldtBinName )
+-- ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+-- ======================================================================
+-- Using These Functions:
+-- ======================================================================
+-- We use this map to export the externally visible functions from
+-- LDT_COMMON.  The LDT External Modules will include this common module
+-- with a "require" command, like this:
+-- ==>   local ldt_common = require('ldt/ldt_common');
+-- Then it will perform calls on these common functions as if they were
+-- components of a map or table:
+-- ==>   ldt_common.setLdtRecordType( topRec );
+-- ======================================================================
+local ldt_common = {};
+-- ======================================================================
 
 -- ======================================================================
--- LDT COMMON TODO LIST:
--- Future: Short, Medium and Long Term
--- Priority: High, Medium and Low
--- Difficulty: High, Medium and Low
+-- Aerospike Server Functions:
 -- ======================================================================
--- ACTIVITIES LIST:
--- (*) IN-PROGRESS: (July 23, 2012)
---   + Switch to ldt_common.lua for the newly common functions.
---     (*) Subrec methods
---     (*) List Processing Methods
---     (*) Common Property Map Methods
---
--- TODO:
---
+-- These functions represent crossover from the Aerospike Database World
+-- to the Lua World.  These functions perform Aerospike operations on
+-- either main records or sub-records (or both).
 -- ======================================================================
--- DONE:
+-- Aerospike Main Record Functions:
+-- status = aerospike:create( topRec )
+-- status = aerospike:update( topRec )
+-- status = aerospike:remove( rec ) (not currently used)
 --
--- ======================================================================
--- Methods defined in this module:
--- LIST METHODS
--- listAppend( baseList, additionList )
--- SUBREC CONTEXT METHODS
--- ======================================================================
--- Aerospike Record Calls:
--- status = aerospike:remove( record )
---
--- Aerospike SubRecord Calls:
+-- Aerospike SubRecord Functions:
 -- newRec = aerospike:create_subrec( topRec )
--- newRec = aerospike:open_subrec( topRec, childRecDigest)
+-- rec    = aerospike:open_subrec( topRec, childRecDigest)
 -- status = aerospike:update_subrec( childRec )
 -- status = aerospike:close_subrec( childRec )
+-- status = aerospike:remove_subrec( subRec )  
+--
+-- Record Functions:
 -- digest = record.digest( childRec )
 -- status = record.set_type( topRec, recType )
--- status = record.set_flags( topRec, binName, binFlags )
+-- status = record.set_flags( topRec, ldtBinName, binFlags )
 -- ======================================================================
--- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- || FUNCTION TABLE ||
--- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- Table of Functions: Used for Transformation and Filter Functions.
--- This is held in UdfFunctionTable.lua.  Look there for details.
+
+-- ++==================++
+-- || External Modules ||
+-- ++==================++
+-- Get addressability to the Function Table: Used for compress and filter
+local functionTable = require('ldt/UdfFunctionTable');
+
+-- Common LDT functions that are used by ALL of the LDTs.
+-- local LDTC = require('ldt/ldt_common');
+local ldte=require('ldt/ldt_errors');
+
 -- ++==================++
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
 -- ++==================++
-local MAGIC="MAGIC";     -- the magic value for Testing LSO integrity
+local MAGIC="MAGIC";     -- the magic value for Testing LSTACK integrity
 
--- StoreMode (SM) values (which storage Mode are we using?)
-local SM_BINARY ='B'; -- Using a Transform function to compact values
-local SM_LIST   ='L'; -- Using regular "list" mode for storing values.
+-- AS_BOOLEAN TYPE:
+-- There are apparently either storage or conversion problems with booleans
+-- and Lua and Aerospike, so rather than STORE a Lua Boolean value in the
+-- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
+-- is a character (defined here).  We're using Characters rather than
+-- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
+local AS_TRUE='T';    
+local AS_FALSE='F';
 
 -- Record Types -- Must be numbers, even though we are eventually passing
 -- in just a "char" (and int8_t).
@@ -79,20 +135,31 @@ local SM_LIST   ='L'; -- Using regular "list" mode for storing values.
 -- (2) As a TYPE in our own propMap[PM_RecType] field: CDIR *IS* used here.
 local RT_REG = 0; -- 0x0: Regular Record (Here only for completeneness)
 local RT_LDT = 1; -- 0x1: Top Record (contains an LDT)
-local RT_SUB = 2; -- 0x2: Regular Sub Record (LDR, CDIR, etc)
-local RT_CDIR= 3; -- xxx: Cold Dir Subrec::Not used for set_type() 
+local RT_SUB = 2; -- 0x2: Regular Sub Record (Anything other than ESR)
 local RT_ESR = 4; -- 0x4: Existence Sub Record
 
--- Bin Flag Types
-local BF_LDT_BIN     = 1; -- Main LDT Bin
+-- Bin Flag Types -- to show the various types of bins.
+-- NOTE: All bins will be labelled as either (1:RESTRICTED OR 2:HIDDEN)
+-- We will not currently be using "Control" -- that is effectively HIDDEN
+local BF_LDT_BIN     = 1; -- Main LDT Bin (Restricted)
 local BF_LDT_HIDDEN  = 2; -- LDT Bin::Set the Hidden Flag on this bin
 local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 
--- Errors used in LDT Land
-local ERR_OK            =  0; -- HEY HEY!!  Success
-local ERR_GENERAL       = -1; -- General Error
-local ERR_NOT_FOUND     = -2; -- Search Error
---
+-- Our Dirty Map really has only ONE setting for a Digest value.
+-- It is either dirty, or it isn't.   So, we just check for DIRTY, or nothing.
+local DM_DIRTY = 'D';
+
+-- We maintain a pool, or "context", of sub-records that are open.  That allows
+-- us to look up subRecs and get the open reference, rather than bothering
+-- the lower level infrastructure.  There's also a limit to the number
+-- of open subRecs.
+local G_OPEN_SR_LIMIT = 20;
+
+-- When the user wants to override the default settings, or register some
+-- functions, the user module with the "adjust_settings" function will be
+-- used.
+local G_SETTINGS = "adjust_settings";
+
 -- ++====================++
 -- || INTERNAL BIN NAMES || -- Local, but global to this module
 -- ++====================++
@@ -105,61 +172,64 @@ local ERR_NOT_FOUND     = -2; -- Search Error
 -- >> (14 char name limit) 12345678901234 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 local REC_LDT_CTRL_BIN  = "LDTCONTROLBIN"; -- Single bin for all LDT in rec
 
--- All LDT subrecords have a properties bin that holds a map that defines
+-- All LDT subRecords have a properties bin that holds a map that defines
 -- the specifics of the record and the LDT.
 -- NOTE: Even the TopRec has a property map -- but it's stashed in the
 -- user-named LDT Bin
 -- >> (14 char name limit) 12345678901234 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 local SUBREC_PROP_BIN   = "SR_PROP_BIN";
 
+-- Each LDT Flavor (stack, list, map, set) has its own SubRec bins
+-- that are specific to the needs of the type.  They are not common.
+--
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <><><><> <Initialize Control Maps> <Initialize Control Maps> <><><><>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- There are four main Record Types used in the LSO Package, and their
+-- There are four main Record Types used in the LSTACK Package, and their
 -- initialization functions follow.  The initialization functions
 -- define the "type" of the control structure:
 --
--- (*) TopRec: the top level user record that contains the LSO bin
+-- (*) TopRec: the top level user record that contains the LSTACK bin
 -- (*) EsrRec: The Existence SubRecord (ESR) that coordinates all child
---             subrecs for a given LDT.
--- (*) LdrRec: the LSO Data Record (LDR) that holds user Data.
+--             subRecs for a given LDT.
+-- (*) LdrRec: the LDT Data Record (LDR) that holds user Data.
 -- (*) ColdDirRec: The Record that holds a list of Sub Record Digests
 --     (i.e. record pointers) to the LDR Data Records.  The Cold list is
 --     a linked list of Directory pages;  each dir contains a list of
 --     digests (record pointers) to the LDR data pages.
 -- <+> Naming Conventions:
---   + All Field names (e.g. lsoMap[StoreMode]) begin with Upper Case
---   + All variable names (e.g. lsoMap[StoreMode]) begin with lower Case
+--   + All Field names (e.g. ldtMap[StoreMode]) begin with Upper Case
+--   + All variable names (e.g. ldtMap[StoreMode]) begin with lower Case
 --   + As discussed below, all Map KeyField names are INDIRECTLY referenced
 --     via descriptive variables that map to a single character (to save
 --     space when the entire map is msg-packed into a record bin).
 --   + All Record Field access is done using brackets, with either a
 --     variable or a constant (in single quotes).
---     (e.g. topRec[binName] or ldrRec[LDR_CTRL_BIN]);
+--     (e.g. topRec[ldtBinName] or ldrRec[LDR_CTRL_BIN]);
 --
 -- <+> Recent Change in LdtMap Use: (6/21/2013 tjl)
 --   + In order to maintain a common access mechanism to all LDTs, AND to
 --     limit the amount of data that must be "un-msg-packed" when accessed,
 --     we will use a common property map and a type-specific property map.
---     That means that the "lsoMap" that was the primary value in the LsoBin
---     is now a list, where lsoList[1] will always be the propMap and
---     lsoList[2] will always be the lsoMap.  In the server code, using "C",
---     we will sometimes read the lsoList[1] (the property map) in order to
+--     That means that the "ldtMap" that was the primary value in the LdtBin
+--     is now a list, where ldtCtrl[1] will always be the propMap and
+--     ldtCtrl[2] will always be the ldtMap.  In the server code, using "C",
+--     we will sometimes read the ldtCtrl[1] (the property map) in order to
 --     perform some LDT management operations.
 --   + Since Lua wraps up the LDT Control map as a self-contained object,
 --     we are paying for storage in EACH LDT Bin for the map field names. 
 --     Thus, even though we like long map field names for readability:
---     e.g.  lsoMap.HotEntryListItemCount, we don't want to spend the
+--     e.g.  ldtMap.HotEntryListItemCount, we don't want to spend the
 --     space to store the large names in each and every LDT control map.
 --     So -- we do another Lua Trick.  Rather than name the key of the
 --     map value with a large name, we instead use a single character to
 --     be the key value, but define a descriptive variable name to that
 --     single character.  So, instead of using this in the code:
---     lsoMap.HotEntryListItemCount = 50;
+--     ldtMap.HotEntryListItemCount = 50;
 --            123456789012345678901
 --     (which would require 21 bytes of storage); We instead do this:
 --     local HotEntryListItemCount='H';
---     lsoMap[HotEntryListItemCount] = 50;
+--     ldtMap[HotEntryListItemCount] = 50;
 --     Now, we're paying the storage cost for 'H' (1 byte) and the value.
 --
 --     So -- we have converted all of our LDT lua code to follow this
@@ -186,7 +256,7 @@ local RPM_SelfDigest           = 'D';  -- Digest of this record
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local PM_ItemCount             = 'I'; -- (Top): # of items in LDT
-local PM_SubRecCount           = 'S'; -- (Top): # of subrecs in the LDT
+local PM_SubRecCount           = 'S'; -- (Top): # of subRecs in the LDT
 local PM_Version               = 'V'; -- (Top): Code Version
 local PM_LdtType               = 'T'; -- (Top): Type: stack, set, map, list
 local PM_BinName               = 'B'; -- (Top): LDT Bin Name
@@ -194,253 +264,955 @@ local PM_Magic                 = 'Z'; -- (All): Special Sauce
 local PM_CreateTime            = 'C'; -- (All): Creation time of this rec
 local PM_EsrDigest             = 'E'; -- (All): Digest of ESR
 local PM_RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
-local PM_LogInfo               = 'L'; -- (All): Log Info (currently unused)
-local PM_ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
-local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
+-- local PM_LogInfo               = 'L'; -- (All): Log Info (currently unused)
+local PM_ParentDigest          = 'P'; -- (SubRec): Digest of TopRec
+local PM_SelfDigest            = 'D'; -- (SubRec): Digest of THIS Record
+
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- LDT Map Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+local M_UserModule          = 'P';-- User's Lua file for overrides
+local M_KeyFunction         = 'F';-- Function to compute Key from Object
+local M_KeyType             = 'k'; -- Key Type: Atomic or Complex
+local M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
+local M_StoreLimit          = 'L';-- Storage Capacity Limit
+local M_Transform           = 't';-- Transform Object (from User to bin store)
+local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
+--
+-- ======================================================================
+-- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
+-- ======================================================================
+-- We have several different situations where we need to look up a user
+-- defined function:
+-- (*) Object Transformation (e.g. compression)
+-- (*) Object UnTransformation
+-- (*) Predicate Filter (perform additional predicate tests on an object)
+--
+-- These functions are passed in by name (UDF name, Module Name), so we
+-- must check the existence/validity of the module and UDF each time we
+-- want to use them.  Furthermore, we want to centralize the UDF checking
+-- into one place -- so on entry to those LDT functions that might employ
+-- these UDFs (e.g. insert, filter), we'll set up either READ UDFs or
+-- WRITE UDFs and then the inner routines can call them if they are
+-- non-nil.
+-- ======================================================================
+-- These values cannot be global to this module -- they must be passed in
+-- from the outer LDT Library functions.
+-- =======================
+-- local G_Filter = nil;
+-- local G_Transform = nil;
+-- local G_UnTransform = nil;
+-- local G_FunctionArgs = nil;
+-- local G_KeyFunction = nil;
+
+-- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
+-- -----------------------------------------------------------------------
+-- resetPtrs()
+-- -----------------------------------------------------------------------
+-- Reset the UDF Ptrs to nil.
+-- NOTE that this function must stay in the outer LDT Library Modules.
+-- -----------------------------------------------------------------------
+-- local function resetUdfPtrs()
+--   G_Filter = nil;
+--   G_Transform = nil;
+--   G_UnTransform = nil;
+--   G_FunctionArgs = nil;
+--   G_KeyFunction = nil;
+-- end -- resetPtrs()
+
+-- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
+-- -----------------------------------------------------------------------
+-- setKeyFunction()
+-- -----------------------------------------------------------------------
+-- The function that extracts a key value from a complex object can
+-- be in the user's "creation" module, or it can be in the FunctionTable.
+-- The "Key" Function may be slightly misleading, depending on the LDT
+-- that is being used.
+-- (*) LSET: The KeyFunction extracts a unique subset from a complex object
+--           that can be compared (equals only). For LSET, a KeyFunction is
+--           not required, as a complex object can always be converted to a
+--           string for an equals compare.
+-- (*) LMAP: The KeyFunction is not used, since values are found with "name",
+--           which must be an atomic (number or string) value.
+-- (*) LLIST: The KeyFunction extracts an atomic value from a complex object
+--            that can be ordered.  For LLIST, if the object being stored is
+--            complex, then it is REQUIRED that there is a valid KeyFunction
+--            to extract an atomic value that can be compared and ordered.
+--            The type of the FIRST INSERT determines the type of the LLIST.
+-- (*) LSTACK: For regular LSTACK, there is no need for a KeyFunction.
+--            However, for TIMESTACK, a special flavor of LSTACK, the 
+--            KeyFunction extracts a TIME value from the object, which must
+--            be a number that can be used in an ordered compare.
+-- Parms:
+-- (*) ldtMap: The basic control info
+-- (*) required: True when we must have a valid KeyFunction, e.g. LLIST.
+-- (*) currentFunctionPtr: The caller's existing Key Function Ptr.  We bother
+--     with this work ONLY if the existing Key Function Ptr is empty.
+-- Results:
+-- OK: Return located KeyFunctionPtr
+-- ERROR: 
+-- -----------------------------------------------------------------------
+function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
+  local meth = "setKeyFunction()";
+  GP=E and trace("[ENTER]<%s:%s>Looking for Key Function", MOD, meth );
+
+  -- If there is ALREADY a non-NULL Key Function Ptr (passed in by the
+  -- caller who apparently forgot to check), then just give that ptr
+  -- back to her.  Careful coding suggests that this should not happen.
+  if( currentFunctionPtr ~= nil ) then
+      return currentFunctionPtr;
+  end
+
+  -- Look in the Create Module first, then check the Function Table.
+  -- The Name of the key function is stored in the ldtMap -- get that name
+  -- and then look for where it is located.
+  local createModule = ldtMap[M_UserModule];
+  local keyFunctionName = ldtMap[M_KeyFunction];
+  local keyFunctionPtr = nil;
+  if( keyFunctionName ~= nil ) then
+    if( type(keyFunctionName) ~= "string" or keyFunctionName == "" ) then
+      warn("[ERROR]<%s:%s> Bad KeyFunction Name: type(%s) KeyFunction(%s)",
+        MOD, meth, type(keyFunctionName), tostring(keyFunctionName) );
+      error( ldte.ERR_KEY_FUN_BAD );
+    else
+      -- Ok -- so far, looks like we have a valid key function name, 
+      -- Look in the Create Module, and if that's not found, then look
+      -- in the system function table.
+      if( createModule ~= nil ) then
+        local createModuleRef = require(createModule);
+        if(createModuleRef ~= nil and createModuleRef[keyFunctionName] ~= nil)
+        then
+          keyFunctionPtr = createModuleRef[keyFunctionName];
+        end
+      end
+
+      -- Last we try the UdfFunctionTable, In case the user wants to employ
+      -- one of the standard Key Functions.
+      if( keyFunctionPtr == nil and functionTable ~= nil ) then
+        keyFunctionPtr = functionTable[keyFunctionName];
+      end
+
+      -- If we didn't find anything, BUT the user supplied a function name,
+      -- then we have a problem.  We have to complain.
+      if( keyFunctionPtr == nil ) then
+        warn("[ERROR]<%s:%s> KeyFunction not found: type(%s) KeyFunction(%s)",
+          MOD, meth, type(keyFunctionName), tostring(keyFunctionName) );
+        error( ldte.ERR_KEY_FUN_NOT_FOUND );
+      end
+    end
+  elseif( ldtMap[M_KeyType] == KT_COMPLEX and required == true ) then
+    warn("[ERROR]<%s:%s> Key Function is Required for this LDT Complex Object",
+      MOD, meth );
+    error( ldte.ERR_KEY_FUN_NOT_FOUND );
+  end
+  GP=E and trace("[EXIT]<%s:%s>Key Function Result(%s)", MOD, meth,
+    tostring(keyFunctionName) );
+  return keyFunctionPtr;
+
+end -- setKeyFunction()
+
+-- -----------------------------------------------------------------------
+-- setReadFunctions()()
+-- -----------------------------------------------------------------------
+-- Set the Filter and UnTransform Function pointers for Reading values.
+-- We follow this hierarchical lookup pattern for the read filter function:
+-- (*) User Supplied Module (might be different from create module)
+-- (*) Create Module
+-- (*) UdfFunctionTable
+--
+-- We follow this lookup pattern for the UnTransform function:
+-- (*) Create Module
+-- (*) UdfFunctionTable
+-- Notice that it would be generally dangerous to use some sort of ad hoc
+-- UnTransform filter -- the Transform/UnTransform should be defined at
+-- the LDT Instance Creation, and then left alone.
+-- Parms:
+-- (*) ldtMap:
+-- (*) userModule:
+-- (*) filter:
+-- RETURN: L_Filter, L_UnTransform, to be assigned to G_Filter, G_UnTransform
+-- -----------------------------------------------------------------------
+function ldt_common.setReadFunctions(ldtMap, userModule, filter )
+  local meth = "setReadFunctions()";
+  GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
+    MOD, meth, tostring(filter));
+
+  -- Do the Filter First. If not nil, then process.  Complain if things
+  -- go badly.
+  local createModule = ldtMap[M_UserModule];
+  local L_Filter = nil;
+  
+  if( filter ~= nil ) then
+    if( type(filter) ~= "string" or filter == "" ) then
+      warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
+        MOD, meth, type(filter), tostring(filter) );
+      error( ldte.ERR_FILTER_BAD );
+    else
+      -- Ok -- so far, looks like we have a valid filter name, 
+      if( userModule ~= nil and type(userModule) == "string" ) then
+        local userModuleRef = require(userModule);
+        if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
+          L_Filter = userModuleRef[filter];
+        end
+      end
+      -- If we didn't find a good filter, keep looking.  Try the createModule.
+      if( L_Filter == nil and createModule ~= nil ) then
+        local createModuleRef = require(createModule);
+        if( createModuleRef ~= nil and createModuleRef[filter] ~= nil ) then
+          L_Filter = createModuleRef[filter];
+        end
+      end
+      -- Last we try the UdfFunctionTable, In case the user wants to employ
+      -- one of the standard Functions.
+      if( L_Filter == nil and functionTable ~= nil ) then
+        L_Filter = functionTable[filter];
+      end
+
+      -- If we didn't find anything, BUT the user supplied a function name,
+      -- then we have a problem.  We have to complain.
+      if( L_Filter == nil ) then
+        warn("[ERROR]<%s:%s> filter not found: type(%s) filter(%s)",
+          MOD, meth, type(filter), tostring(filter) );
+        error( ldte.ERR_FILTER_NOT_FOUND );
+      end
+    end
+  end -- if filter not nil
+
+  -- That wraps up the Filter handling.  Now do  the UnTransform Function.
+  local untrans = ldtMap[M_UnTransform];
+  local L_UnTransform = nil;
+  if( untrans ~= nil ) then
+    if( type(untrans) ~= "string" or untrans == "" ) then
+      warn("[ERROR]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
+        MOD, meth, type(untrans), tostring(untrans) );
+      error( ldte.ERR_UNTRANS_FUN_BAD );
+    else
+      -- Ok -- so far, looks like we have a valid untransformation func name, 
+      if( createModule ~= nil ) then
+        local createModuleRef = require(createModule);
+        if( createModuleRef ~= nil and createModuleRef[untrans] ~= nil ) then
+          L_UnTransform = createModuleRef[untrans];
+        end
+      end
+      -- Last we try the UdfFunctionTable, In case the user wants to employ
+      -- one of the standard Functions.
+      if( L_UnTransform == nil and functionTable ~= nil ) then
+        L_UnTransform = functionTable[untrans];
+      end
+
+      -- If we didn't find anything, BUT the user supplied a function name,
+      -- then we have a problem.  We have to complain.
+      if( L_UnTransform == nil ) then
+        warn("[ERROR]<%s:%s> UnTransform Func not found: type(%s) Func(%s)",
+          MOD, meth, type(untrans), tostring(untrans) );
+        error( ldte.ERR_UNTRANS_FUN_NOT_FOUND );
+      end
+    end
+  end -- if untransform not nil
+
+  GP=E and trace("[EXIT]<%s:%s> Filter(%s) UnTransform(%s)", MOD, meth,
+    tostring(L_Filter), tostring(L_UnTransform));
+
+  return L_Filter, L_UnTransform;
+end -- setReadFunctions()
+
+
+-- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
+-- -----------------------------------------------------------------------
+-- setWriteFunctions()()
+-- -----------------------------------------------------------------------
+-- Set the Transform Function pointer for Writing values.
+-- We follow a hierarchical lookup pattern for the transform function.
+-- (*) Create Module
+-- (*) UdfFunctionTable
+-- PARMS:
+-- RETURN: L_Transform, to be assigned to G_Transform
+-- -----------------------------------------------------------------------
+function ldt_common.setWriteFunctions( ldtMap )
+  local meth = "setWriteFunctions()";
+  GP=E and trace("[ENTER]<%s:%s> ldtMap(%s)", MOD, meth, tostring(ldtMap));
+
+  -- Look in the create module first, then the UdfFunctionTable to find
+  -- the transform function (if there is one).
+  local createModule = ldtMap[M_UserModule];
+  local trans = ldtMap[M_Transform];
+  local L_Transform;
+  if( trans ~= nil ) then
+    if( type(trans) ~= "string" or trans == "" ) then
+      warn("[ERROR]<%s:%s> Bad Transformation Name: type(%s) function(%s)",
+        MOD, meth, type(trans), tostring(trans) );
+      error( ldte.ERR_TRANS_FUN_BAD );
+    else
+      -- Ok -- so far, looks like we have a valid transformation func name, 
+      if( createModule ~= nil ) then
+        local createModuleRef = require(createModule);
+        if( createModuleRef ~= nil and createModuleRef[trans] ~= nil ) then
+          L_Transform = createModuleRef[trans];
+        end
+      end
+      -- Last we try the UdfFunctionTable, In case the user wants to employ
+      -- one of the standard Functions.
+      if( L_Transform == nil and functionTable ~= nil ) then
+        L_Transform = functionTable[trans];
+      end
+
+      -- If we didn't find anything, BUT the user supplied a function name,
+      -- then we have a problem.  We have to complain.
+      if( L_Transform == nil ) then
+        warn("[ERROR]<%s:%s> Transform Func not found: type(%s) Func(%s)",
+          MOD, meth, type(trans), tostring(trans) );
+        error( ldte.ERR_TRANS_FUN_NOT_FOUND );
+      end
+    end
+  end
+
+  GP=E and trace("[EXIT]<%s:%s> Transform(%s)",
+    MOD, meth, tostring(L_Transform));
+
+  return L_Transform;
+end -- setWriteFunctions()
+
+-- ======================================================================
+-- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
+-- ======================================================================
+
+
+-- ======================================================================
+-- propMapSummary( resultMap, propMap )
+-- ======================================================================
+-- Add the propMap properties to the supplied resultMap.
+-- ======================================================================
+function ldt_common.propMapSummary( resultMap, propMap )
+
+  -- Fields common for all LDT's
+  resultMap.PropItemCount        = propMap[PM_ItemCount];
+  resultMap.PropVersion          = propMap[PM_Version];
+  resultMap.PropSubRecCount      = propMap[PM_SubRecCount];
+  resultMap.PropLdtType          = propMap[PM_LdtType];
+  resultMap.PropBinName          = propMap[PM_BinName];
+  resultMap.PropMagic            = propMap[PM_Magic];
+  resultMap.PropCreateTime       = propMap[PM_CreateTime];
+  resultMap.PropEsrDigest        = propMap[PM_EsrDigest];
+  resultMap.RecType              = propMap[PM_RecType];
+  resultMap.ParentDigest         = propMap[PM_ParentDigest];
+  resultMap.SelfDigest           = propMap[PM_SelfDigest];
+end -- function propMapSummary()
+
 
 -- =============================
 -- Begin SubRecord Function Area
 -- =============================
 -- ======================================================================
+-- Aerospike Server Functions:
+-- ======================================================================
+-- Aerospike Record Functions:
+-- status = aerospike:create( topRec )
+-- status = aerospike:update( topRec )
+-- status = aerospike:remove( rec ) (not currently used)
+--
+-- Aerospike SubRecord Functions:
+-- newRec = aerospike:create_subrec( topRec )
+-- rec    = aerospike:open_subrec( topRec, childRecDigest)
+-- status = aerospike:update_subrec( childRec )
+-- status = aerospike:close_subrec( childRec )
+-- status = aerospike:remove_subrec( subRec )  
+--
+-- Record Functions:
+-- digest = record.digest( childRec )
+-- status = record.set_type( rec, recType )
+-- status = record.set_flags( topRec, ldtBinName, binFlags )
+-- ======================================================================
+-- Notes on the SubRec functions:
+-- (*) The underlying Aerospike SubRec mechanism actually manages most
+--     aspects of SubRecs:  
+--     + Update of dirty subRecs is automatic at Lua Context Close.
+--     + Close of all subRecs is automatic at Lua Context Close.
+-- (*) We cannot close a dirty subRec explicit (we can make the call, but
+--     it will not take effect).  We must leave the closing of all dirty
+--     SubRecs to the end -- and we'll make that IMPLICIT, because an
+--     EXPLICIT call is just more work and makes no difference.
+-- (*) It is an ERROR to try to open (with an open_subrec() call) a SubRec
+--     that is ALREADY OPEN.  Thus, we use our "SubRecContext" functions
+--     that manage a pool of open SubRecs -- which prevents us from making
+--     that mistake.
+-- (*) We have a LIMITED number of SubRecs that can be open at one time.
+--     LDT Operations, such as Scan, that open ALL of the SubRecs are
+--     REQUIRED to close the READ-ONLY SubRecs when they are done so that
+--     we can open a new one.  We actually have two options here:
+--     + We can make close implicit -- and just close clean SubRecs to 
+--       free up slots in the SubRecContext (SRC: our pool of open SubRecs).
+--       Note that this requires that we mark SubRecs dirty if we have
+--       updated them (touched a bin).
+--       The only downside is that this makes the SubRec library a little
+--       more complicated.
+--     + We can make it explicit -- but this means we must be sure to
+--       actively close SubRecs, which makes coding more error-prone.
+--
+-- ======================================================================
 -- SUB RECORD CONTEXT DESIGN NOTE:
 -- All "outer" functions, will employ the "subrecContext" object, which
--- will hold all of the subrecords that were opened during processing. 
--- Note that some operations can potentially involve many subrec
+-- will hold all of the subRecords that were opened during processing. 
+-- Note that some operations can potentially involve many subRec
 -- operations -- and can also potentially revisit pages.
 --
 -- SubRecContext Design:
--- The Subrec Object is a list of two maps.
--- The first map is always the Record map, where a digestString maps to
--- a subrec pointer.
--- The second map is the "DirtyMap", where a digestString maps a boolean
--- that reveals "True" or "False".
---
--- It's not clear if we should have a list of two maps, or a map of maps,
--- where each digest==>RecMap, and the rec map has the rec ptr and dirty
--- status.  We'll have to see if one has a higher management cost than the
--- other (it's a Chris question);
--- TODO: @TOBY: Ask Chris the Map Management Question.
---
--- At the end of an outer call, we will iterate thru the subrec
--- context and close all open subrecords, although, given the design of
--- the subrec mechanism, closing may not actually be needed.
+-- The key will be the DigestString, and the value will be the subRec
+-- pointer.  At the end of an outer call, we will iterate thru the subRec
+-- context and close all open subRecords.  Note that we may also need
+-- to mark them dirty -- but for now we'll update them in place (as needed),
+-- but we won't close them until the end.
 -- ======================================================================
-function createSubrecContext()
-  local meth = "createSubrecContext()";
-  GP=F and trace("[ENTER]<%s:%s>", MOD, meth );
+function ldt_common.createSubRecContext()
+  local meth = "createSubRecContext()";
+  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
 
-  -- We need to track BOTH the Open Records and their Dirty State.
-  -- Do this with a LIST of maps:
-  -- recMap   = srcList[1]
-  -- dirtyMap = srcList[2]
-
-  -- Create the two maps and the SRC LIST.
-  local srcList = list();
+  -- Create the Sub-Rec Context Control Structure -- a List of 2 maps.
+  -- Map [1] is the Record Map (name: DigestString, Value: Rec Ptr)
+  -- Map [2] is the Dirty String (name: DigestString, Value: Dirty/Clean)
+  local srcCtrl = list();
   local recMap = map();
   local dirtyMap = map();
+
   recMap.ItemCount = 0;
-  list.append( srcList, recMap ); -- recMap
-  list.append( srcList, dirtyMap ); -- dirtyMap
+  list.append( srcCtrl, recMap ); -- recMap
+  list.append( srcCtrl, dirtyMap ); -- dirtyMap
 
-  GP=F and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcList));
-  return srcList;
-end -- createSubrecContext()
+  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcCtrl));
+  return srcCtrl;
+end -- createSubRecContext()
 
 -- ======================================================================
--- createSubrec( srcList, topRec )
+-- cleanSRC(): Clean the Sub-Rec Context, flushing any clean Sub-Recs
+-- so that we can have more slots to read new Sub-Recs.
+-- We expect that we may have MANY open clean pages (from things like
+-- an LDT Scan), but we should NOT have over 20 dirty Sub-Recs.
 -- ======================================================================
--- Create a subrec and add it to the subrec context, then return the new
--- subrec to the caller.
--- ======================================================================
-function createSubrec( srcList, topRec )
-  local meth = "createSubrec()";
-  GP=F and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring( srcList));
+local function cleanSRC( srcCtrl )
+  local meth = "cleanSRC()";
+  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
-  if( srcList == nil ) then
-    error("[BAD SUB REC CONTEXT] src is nil");
+
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
+
+  -- Iterate thru the SubRecContext and close all CLEAN Sub-Records.
+  -- Keep track of the count as we close them.
+  local digestString;
+  local subRec;
+  local rc = 0;
+  local closeCount = 0;
+  for name, value in map.pairs( recMap ) do
+    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
+      MOD, meth, tostring( name ), tostring( value ));
+    if( name == "ItemCount" ) then
+      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
+    else
+      digestString = name;
+      subRec = value;
+      -- If this guy is CLEAN (not dirty) then we can close it and free up
+      -- a slot for a NEW Sub-Rec to come in.
+      if( dirtyMap[digestString] == DM_DIRTY or dirtyMap[digestString] == true )
+      then
+        info("[DEBUG]<%s:%s> Can't close a Dirty Sub-Rec: Dig(%s)", MOD, meth,
+          digestString );
+      else
+        rc = aerospike:close_subrec( subRec );
+        if( rc ~= nil and rc < 0 ) then
+          warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
+          MOD, meth, tostring(rc), tostring( digestString ));
+        else
+          -- We're ok.  It's closed.  Decrement the count and free up the
+          -- slot.
+
+          dirtyMap[digestString] = nil;
+          recMap[digestString] = nil;
+          local itemCount = recMap.ItemCount;
+          recMap.ItemCount = itemCount - 1;
+          closeCount = closeCount + 1;
+
+          GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
+          MOD, meth, digestString, tostring(recMap[digestString]),
+          recMap.ItemCount, closeCount );
+        end
+      end -- else we have something to close
+    end -- else it's a Sub-Rec Field in recMap
+  end -- for all fields in SRC
+
+  GP=E and trace("[EXIT]<%s:%s> POST CLEAN: CloseCnt(%d) ItemCount(%d)",
+  MOD, meth, closeCount, recMap.ItemCount );
+
+end -- cleanSRC()
+
+-- ======================================================================
+-- Given an already opened subRec (probably one that was recently created),
+-- add it to the subRec context.  As assume, for now, that the SubRec
+-- is already Dirty (most will be).
+-- Parms:
+-- (*) srcCtrl: The
+-- (*) digest: The actual digest of the record.  We will "stringify" it.
+-- (*) dirty: Boolean that says if this SubRec is already Dirty.
+-- ======================================================================
+function ldt_common.addSubRecToContext( srcCtrl, subRec, dirty )
+  local meth = "addSubRecContext()";
+  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring( srcCtrl));
+
+  if( srcCtrl == nil ) then
+    warn("[ERROR]<%s:%s> Bad SubRec Context: SRC is NIL", MOD, meth );
+    error( ldte.ERR_INTERNAL );
   end
 
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
 
-  local digest = record.digest( subrec );
+  local digest = record.digest( subRec );
   local digestString = tostring( digest );
-  recMap[digestString] = subrec;
+  recMap[digestString] = subRec;
+  if( dirty ~= nil and dirty == true ) then
+    dirtyMap[digestString] = DM_DIRTY;
+  end
 
   local itemCount = recMap.ItemCount;
   recMap.ItemCount = itemCount + 1;
 
-  GP=F and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcList));
+  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcCtrl));
   return 0;
-end -- addSubrecToContext()
+end -- addSubRecToContext()
 
 -- ======================================================================
--- Given an already opened subrec (probably one that was recently created),
--- add it to the subrec context.
+-- Create and Init ESR
 -- ======================================================================
-function addSubrecToContext( srcList, subrec )
-  local meth = "addSubrecContext()";
-  GP=F and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring( srcList));
+-- The Existence SubRecord is the synchronization point for the lDTs that
+-- have multiple records (one top rec and many children).  It's a little
+-- like the baby sitter for the children -- it helps keeps track of them.
+-- And, when the ESR is gone, we kill the children. (BRUA-HAHAHAH!!!)
+--
+-- All LDT Sub-Recs have a properties bin that describes the Sub-Rec.  This
+-- bin contains a map that is "un-msg-packed" by the C code on the server
+-- and read.  It must be the same for all LDT recs.
+--
+-- ======================================================================
+function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
+  local meth = "createAndInitESR()";
+  GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
 
-  if( srcList == nil ) then
-    error("[BAD SUB REC CONTEXT] src is nil");
+  local rc = 0;
+
+  -- Since this function is called from "createSubRec()" we need to
+  -- "bare-hand" this Special SubRec create.
+  -- Create the ESR, then Remember to add this to the SRC after it is
+  -- initialized.
+  info("[DEBUG]: <%s:%s> Calling CREATE", MOD, meth );
+  local esrRec    = aerospike:create_subrec( topRec );
+
+  if( esrRec == nil ) then
+    warn("[ERROR]<%s:%s> Problems Creating ESR", MOD, meth );
+    error( ldte.ERR_SUBREC_CREATE );
   end
 
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  info("[DEBUG]: <%s:%s> Setting ESR TYPE ", MOD, meth );
 
-  local digest = record.digest( subrec );
-  local digestString = tostring( digest );
-  recMap[digestString] = subrec;
+  -- Set the record type as "ESR"
+  record.set_type( esrRec, RT_ESR );
 
-  local itemCount = recMap.ItemCount;
-  recMap.ItemCount = itemCount + 1;
+  info("[DEBUG]: <%s:%s> Setting ESR BINS ", MOD, meth );
 
-  GP=F and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcList));
-  return 0;
-end -- addSubrecToContext()
+  local esrDigest = record.digest( esrRec);
+  local topDigest = record.digest( topRec );
+  local topPropMap = ldtCtrl[1];
+
+  info("[DEBUG]: <%s:%s> topPropMap(%s) ", MOD, meth, tostring(topPropMap));
+
+  -- Set the Property ControlMap for the ESR, and assign the parent Digest
+  -- Note that we use our standard convention for property maps - all Sub-Recs
+  -- have a property map.
+  -- Init the properties map for this ESR. Note that esrDigest is in here
+  -- twice -- once for "self" and once for "esrRec".
+  local esrPropMap = map();
+
+  -- Remember the ESR in the Top Record
+  topPropMap[PM_EsrDigest] = esrDigest;
+
+  info("[DEBUG]: <%s:%s> ESR DG(%s) ", MOD, meth, tostring(esrDigest));
+
+  -- Initialize the PropertyMap in the new ESR
+  esrPropMap[PM_EsrDigest]    = esrDigest;
+  esrPropMap[PM_RecType]      = RT_ESR;
+  esrPropMap[PM_Magic]        = MAGIC;
+  esrPropMap[PM_ParentDigest] = topDigest;
+  esrPropMap[PM_SelfDigest]   = esrDigest;
+
+  -- Even though the ESR is really IMPLICIT, we'll add it to the total
+  -- SubRec Count.  Also, this SHOULD be the FIRST SubRec, and as a result,
+  -- the SubRec count might be nil.  Double check that.
+  local subRecCount = topPropMap[PM_SubRecCount];
+  if ( subRecCount == nil ) then
+    subRecCount = 0;
+  end
+  topPropMap[PM_SubRecCount] = subRecCount + 1;
+
+  -- NOTE: We have to make sure that the TopRec propMap also gets saved.
+  esrRec[SUBREC_PROP_BIN] = esrPropMap;
+
+  -- NOTE: We no longer Update the ESR early.  It gets written and closed
+  -- when the Lua Context closes.
+  --
+  -- Update and close the ESR.  We're done with it.
+  -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
+  info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
+  rc = aerospike:update_subrec( esrRec );
+  if( rc == nil or rc == 0 ) then
+    -- aerospike:close_subrec( esrRec );
+  else
+    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
+ 
+  -- Add this open ESR SubRec to our SubRec Context.
+  ldt_common.addSubRecToContext( srcCtrl, esrRec, true );
+
+
+  GP=E and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
+    MOD, meth, tostring(esrDigest));
+  return esrDigest;
+
+end -- createAndInitESR()
 
 -- ======================================================================
--- openSubrec()
+-- createSubRec(): 
 -- ======================================================================
-function openSubrec( srcList, topRec, digestString )
-  local meth = "openSubrec()";
-  GP=F and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(srcList));
+-- Create and initialize a new SubRec. This function covers the general
+-- function needed for ALL subRecs.  Any specific data management, such
+-- as use-specific items (e.g. LStack Cold Dir, LList Root Node) are 
+-- handled by the caller.  We just do the common stuff here, and we also
+-- plug the new SubRec into the SRC.
+-- ======================================================================
+function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
+  local meth = "createSubRec()";
+  GP=E and info("[ENTER]<%s:%s> ", MOD, meth );
 
-  -- We have a global limit on the number of subrecs that we can have
+  -- We have a global limit on the number of subRecs that we can have
   -- open at a time.  If we're at (or above) the limit, then we must
-  -- exit with an error (better here than in the subrec code).
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  -- exit with an error (better here than in the subRec code).
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
+  local itemCount = recMap.ItemCount;
+  local rc = 0;
+
+  -- Access the TopRec Control Maps
+  local propMap = ldtCtrl[1];
+  local ldtMap = ldtCtrl[2];
+
+  -- Set up the SubRec Control Maps
+  local subRecPropMap = map();
+
+  local esrDigest;
+
+  -- If this is the FIRST SubRec (i.e. There is NOT already an ESR), then
+  -- we will create the ESR first, then create this first SubRec.
+  -- There is one ESR created per LMAP bin, not per Sub-Rec.
+  if( propMap[PM_EsrDigest] == nil or propMap[PM_EsrDigest] == 0 ) then
+    GP=F and trace("[DEBUG]<%s:%s> First ESR creation for LDT bin",MOD, meth);
+    esrDigest = ldt_common.createAndInitESR( srcCtrl, topRec,ldtCtrl);
+    propMap[PM_EsrDigest] = esrDigest;
+  else
+    esrDigest = propMap[PM_EsrDigest];
+  end
+  subRecPropMap[PM_EsrDigest] = esrDigest;
+
+  -- Check our counts -- if we don't have room for another open rec,
+  -- we should try a "CLEAN" to free up some slots.  If that fails, then
+  -- we're screwed.  Notice that "createESR" doesn't need to check the
+  -- counts because by definition it's the FIRST SUB-REC.
+  GD=DEBUG and info("[DEBUG]<%s:%s> SR Limit: IC(%d)", MOD, meth, itemCount);
+  if( itemCount >= G_OPEN_SR_LIMIT ) then
+    cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
+    -- Not sure if I need to do this, but just in case.
+    -- Reaccess the srcCtrl structure from the top.
+    GD=DEBUG and info("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
+
+    -- recMap = srcCtrl[1];
+    if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
+      warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
+        recMap.ItemCount, G_OPEN_SR_LIMIT );
+      error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
+    end
+  end
+
+  local newSubRec = aerospike:create_subrec( topRec );
+  if( newSubRec == nil ) then
+    warn("[ERROR]<%s:%s>Problems Creating New Subrec (%s)", MOD,meth );
+    error( ldte.ERR_SUBREC_CREATE );
+  end
+  record.set_type( newSubRec, RT_SUB ); -- Always RT_SUB.
+
+  local subRecDigest = record.digest( newSubRec );
+  local topRecDigest = record.digest( topRec );
+  local subRecDigestString = tostring( subRecDigest );
+  
+  -- Recalc ItemCount after the clean.
+  itemCount = recMap.ItemCount;
+  recMap.ItemCount = itemCount + 1;
+
+  GP=F and trace("[CREATE SUBREC]<%s:%s>New SRC.ItemCount(%d) DigStr(%s)",
+    MOD, meth, recMap.ItemCount, subRecDigestString );
+
+  -- topRec's digest is the parent digest for this new Sub-Rec 
+  subRecPropMap[PM_ParentDigest] = topRecDigest;
+
+  -- Subrec's (its own) digest is the selfDigest :)
+  -- I think we need to STOP saving SELF DIGEST (Verify Raj doesn't need it)
+  subRecPropMap[PM_SelfDigest]   = subRecDigest;
+  subRecPropMap[PM_Magic]        = MAGIC;
+  subRecPropMap[PM_RecType]      = recType; -- This might always be RT_SUB
+  subRecPropMap[PM_CreateTime]   = aerospike:get_current_time();
+  subRecPropMap[PM_EsrDigest]    = esrDigest;
+
+  newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
+
+  info("[REMEMBER]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
+  rc = aerospike:update_subrec( newSubRec );
+  if( rc ~= nil and rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
+
+  -- Update the LDT sub-rec count.  Remember that any changes to a record
+  -- are remembered until the final Lua Close, then the record(s) will be
+  -- flushed to storage.
+  local subRecCount = propMap[PM_SubRecCount];
+  propMap[PM_SubRecCount] = subRecCount + 1;
+  local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
+
+  GP=E and info("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
+    tostring(subRecDigest) );
+  return newSubRec;
+end --  createSubRec()
+
+-- ======================================================================
+-- openSubRec()
+-- ======================================================================
+-- Return a ptr to the Open Sub-Rec.  We either find the Sub-Rec in our
+-- table of open Sub-Recs, or we Open a new one.  If we reach the limit
+-- of open Sub-Recs (last known size of the limit was 20), then we try
+-- to find a CLEAN Sub-Rec and close it.  Note that we cannot close
+-- a dirty Sub-Rec -- that is an error.  Also, it is an error to try
+-- to open an existing open Sub-Rec, so that's why we have this pool
+-- in the first place.
+-- Parms:
+-- srcCtrl: the Sub-Record Control Structure
+-- topRec: The Aerospike Record holding the LDT that uses Sub-Recs.
+-- digestString: The identifier of the Sub-Rec.
+--
+-- ======================================================================
+function ldt_common.openSubRec( srcCtrl, topRec, digestString )
+  local meth = "openSubRec()";
+  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
+    MOD, meth, tostring(topRec), tostring(digestString), tostring(srcCtrl));
+
+  -- Do some checks while we're in DEBUG mode.
+  if( digestString == nil ) then
+    warn("[ERROR]<%s:%s> NIL DigestString", MOD, meth );
+    error( ldte.ERR_INTERNAL );
+  end
+  if( type(digestString) ~= "string" ) then
+    warn("[ERROR]<%s:%s> Parm DigestString is NOT a string. It is(%s)",
+        MOD, meth, type(digestString));
+    error( ldte.ERR_INTERNAL );
+  end
+  -- We have a global limit on the number of subRecs that we can have
+  -- open at a time.  If we're at (or above) the limit, then we must
+  -- exit with an error (better here than in the subRec code).
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
   local itemCount = recMap.ItemCount;
 
-  local subrec = recMap[digestString];
-  if( subrec == nil ) then
+  local rc = 0;
+
+  -- First, look to see if the Sub-Rec is already open.  If so, then
+  -- return the Sub-Rec ptr.
+  -- If not, see if we can open a new Sub-Rec easily.
+  -- If we are at the limit, then 
+  GP=F and trace("[DEBUG]<%s:%s> Looking for DG(%s) in SRC(%s)", MOD, meth,
+    tostring(digestString), tostring(srcCtrl));
+
+  local subRec = recMap[digestString];
+  if( subRec == nil ) then
+    GD=DEBUG and
+      info("[DEBUG]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
+      tostring(digestString), tostring( recMap ));
+
     if( itemCount >= G_OPEN_SR_LIMIT ) then
-      warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-        itemCount, G_OPEN_SR_LIMIT );
-      error("[SUBREC OPEN LIMIT]: Exceeded Open Subrec Limit");
+      cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
+      if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
+        warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
+          itemCount, G_OPEN_SR_LIMIT );
+        error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
+      end
     end
 
+    -- Recalc ItemCount after the (possible) clean.
+    itemCount = recMap.ItemCount;
     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
       MOD, meth, recMap.ItemCount, tostring(topRec), digestString );
-    subrec = aerospike:open_subrec( topRec, digestString );
+    subRec = aerospike:open_subrec( topRec, digestString );
     GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)", 
-      MOD,meth,tostring(subrec));
-    if( subrec == nil ) then
-      warn("[ERROR]<%s:%s> Subrec Open Failure: Digest(%s)", MOD, meth,
+      MOD,meth,tostring(subRec));
+    if( subRec == nil ) then
+      warn("[ERROR]<%s:%s> SubRec Open Failure: Digest(%s)", MOD, meth,
         digestString );
-      error("[SUBREC OPEN FAILURE]: Couldn't open Subrec");
+      error( ldte.ERR_SUBREC_OPEN );
     end
   else
-    GP=F and trace("[FOUND REC]<%s:%s>Rec(%s)", MOD, meth, tostring(subrec));
+    GP=F and trace("[FOUND REC]<%s:%s>Rec DG(%s)", MOD, meth, digestString);
   end
 
-  GP=F and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
-    MOD, meth, tostring(subrec), digestString );
-  return subrec;
-end -- openSubrec()
+  -- Add this open SubRec to our SubRec Context.
+  local rc = ldt_common.addSubRecToContext( srcCtrl, subRec, false);
+
+  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
+    MOD, meth, tostring(subRec), digestString );
+  return subRec;
+end -- openSubRec()
 
 -- ======================================================================
--- closeSubrec()
+-- closeSubRecDigestString()
 -- ======================================================================
--- Close the subrecord -- providing it is NOT dirty.  For all dirty
--- subrecords, we have to wait until the end of the UDF call, as THAT is
--- when all dirty subrecords get written out and closed.
+-- Close the sub-Record -- providing it is NOT dirty.  For all dirty
+-- sub-Records, we have to wait until the end of the UDF call, as THAT is
+-- when all dirty sub-Records get written out and closed.
+-- ALSO, for PRODUCTION USE, we will not bother to actually close the
+-- records here, but we MAY mark them as no longer needed -- which will
+-- make it easier to find one to close later if we run out of
+-- buffer pool space.
 -- ======================================================================
-function closeSubrec( srcList, digestString )
-  local meth = "closeSubrec()";
-  GP=F and trace("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
-    MOD, meth, digestString, tostring(srcList));
+function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
+  local meth = "closeSubRecDigestString()";
+  GP=E and trace("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
+    MOD, meth, tostring(digestString), tostring(srcCtrl));
 
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
   local itemCount = recMap.ItemCount;
   local rc = 0;
 
-  local subrec = recMap[digestString];
-  local dirtyStatus = dirtyMap[digestString];
-  if( subrec == nil ) then
-    warn("[INTERNAL ERROR]<%s:%s> Rec not found for Digest(%s)", MOD, meth,
-      digestString );
-    error("[INTERNAL ERROR]: Rec not found ");
+  local subRec = recMap[digestString];
+  if( subRec == nil ) then
+    warn("[INTERNAL ERROR]<%s:%s> Rec not found for Digest(%s) in map(%s)",
+      MOD, meth, tostring(digestString), tostring(recMap));
+    error( ldte.ERR_INTERNAL );
   end
 
-  info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth, digestString);
+  info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth,
+    tostring(digestString));
 
+  local dirtyStatus = dirtyMap[digestString] == DM_DIRTY or dirty == true;
   if( dirtyStatus == true ) then
-    warn("[WARNING]<%s:%s> Can't close Dirty Record: Digest(%s)",
-      MOD, meth, digestString);
+    info("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
+      MOD, meth, tostring(digestString));
   else
-    rc = aerospike:close_subrec( subrec );
+    rc = aerospike:close_subrec( subRec );
     GP=F and trace("[STATUS]<%s:%s>Closed Rec: Digest(%s) rc(%s)", MOD, meth,
-      digestString, tostring( rc ));
+      tostring(digestString), tostring( rc ));
   end
 
-  GP=F and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
-    MOD, meth, tostring(subrec), digestString, tostring(rc));
+  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
+    MOD, meth, tostring(subRec), tostring(digestString), tostring(rc));
   return rc;
-end -- closeSubrec()
-
+end -- closeSubRecDigestString()
 
 -- ======================================================================
--- updateSubrec()
+-- closeSubRec(): Given a Sub-Rec ptr, close the subRec.
 -- ======================================================================
--- Update the subrecord -- and then mark it dirty.
--- ======================================================================
-function updateSubrec( srcList, subrec, digest )
-  local meth = "updateSubrec()";
-  GP=F and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(srcList));
+function ldt_common.closeSubRec( srcCtrl, subRec, dirty )
+  if( subRec == nil ) then
+    warn("[ERROR]<%s:%s> NULL subRec", MOD, meth );
+    error( ldte.ERR_INTERNAL );
+  end
 
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  local digest = record.digest( subRec );
+  local digestString = tostring( digest );
+  if( digestString == nil ) then
+    warn("[ERROR]<%s:%s> INVALID subRec", MOD, meth );
+    error( ldte.ERR_INTERNAL );
+  end
+
+  return ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty );
+end -- closeSubRec()
+
+-- ======================================================================
+-- updateSubRec()
+-- ======================================================================
+-- Update the subRecord -- and then mark it dirty.
+-- ======================================================================
+function ldt_common.updateSubRec( srcCtrl, subRec )
+  local meth = "updateSubRec()";
+  GP=E and trace("[ENTER]<%s:%s> SRC(%s) subRec(%s)",
+    MOD, meth, tostring(srcCtrl), tostring(subRec));
+
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
   local rc = 0;
 
-  if( digest == nil or digest == 0 ) then
-    digest = record.digest( subrec );
+  if( subRec == nil ) then
+    warn("[ERROR]<%s:%s> Unexpected nil value for subRec", MOD, meth);
+    error( ldte.ERR_INTERNAL );
   end
+
+  local digest = record.digest( subRec );
   local digestString = tostring( digest );
 
-  aerospike:update_subrec( subrec );
-  dirtyMap[digestString] = true;
+  -- Note that we DO NOT want to update the SubRec before the END of the
+  -- Lua Call Context.  However, we DO have to mark the record as DIRTY
+  -- so that we don't try to close it when we're looking for available
+  -- slots when trying to close a clean Sub-Rec.
+  info("[REMEMBER]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
+  rc = aerospike:update_subrec( subRec );
 
-  GP=F and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
-    MOD, meth, tostring(subrec), digestString, tostring(rc));
+  dirtyMap[digestString] = DM_DIRTY;
+
+  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
+    MOD, meth, tostring(subRec), digestString, tostring(rc));
   return rc;
-end -- updateSubrec()
+end -- updateSubRec()
 
 -- ======================================================================
--- markSubrecDirty()
+-- markSubRecDirty()
 -- ======================================================================
-function markSubrecDirty( srcList, digestString )
-  local meth = "markSubrecDirty()";
-  GP=F and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcList));
+function ldt_common.markSubRecDirty( srcCtrl, digestString )
+  local meth = "markSubRecDirty()";
+  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
   -- Pull up the dirtyMap, find the entry for this digestString and
   -- mark it dirty.  We don't even care what the existing value used to be.
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
 
-  dirtyMap[digestString] = true;
+  dirtyMap[digestString] = DM_DIRTY;
   
-  GP=F and trace("[EXIT]<%s:%s> SRC(%s)", MOD, meth, tostring(srcList) );
+  GP=E and trace("[EXIT]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl) );
   return 0;
-end -- markSubrecDirty()
+end -- markSubRecDirty()
 
 -- ======================================================================
--- closeAllSubrecs()
+-- closeAllSubRecs()
 -- ======================================================================
-function closeAllSubrecs( srcList )
-  local meth = "closeAllSubrecs()";
-  GP=F and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcList));
+-- Ok -- so we no longer actually call "close all" because it is not
+-- needed in the current Sub-Record infrastructure.  Currently, the
+-- Sub-Recs are all closed by the Aerospike Sub-Record management code.
+-- ======================================================================
+function ldt_common.closeAllSubRecs( srcCtrl )
+  local meth = "closeAllSubRecs()";
+  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
 
-  -- Iterate thru the SubRecContext and close all subrecords.
+  -- Iterate thru the SubRecContext and close all Sub-Records.
   local digestString;
   local rec;
   local rc = 0;
@@ -461,55 +1233,47 @@ function closeAllSubrecs( srcList )
     end
   end -- for all fields in SRC
 
-  GP=F and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
+  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
   -- return rc;
   return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
-end -- closeAllSubrecs()
+end -- closeAllSubRecs()
 
 -- ===========================
 -- End SubRecord Function Area
 -- ===========================
 
-
 -- ======================================================================
--- ldtInitPropMap( propMap, subDigest, topDigest, rtFlag, lsoMap )
+-- listAppendList()
 -- ======================================================================
--- Set up the LDR Property Map (one PM per LDT).  This function will move
--- into the ldtCommon module.
--- Parms:
--- (*) propMap: 
--- (*) esrDigest:
--- (*) subDigest:
--- (*) topDigest:
--- (*) rtFlag:
--- (*) topPropMap;
+-- General tool to append one list to another.   At the point that we
+-- find a better/cheaper way to do this, then we change THIS method and
+-- all of the LDT calls to handle lists will get better as well.
 -- ======================================================================
-function
-ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
-  local meth = "ldtInitPropMap()";
-  GP=F and trace("[ENTER]: <%s:%s>", MOD, meth );
+function ldt_common.listAppendList( baseList, additionalList )
+  local returnList;
+  if( baseList == nil ) then
+    warn("[INTERNAL ERROR] Null baselist in listAppend()" );
+    -- error( ldte.ERR_INTERNAL );
+    returnList = additionalList;
+  end
 
-  -- Remember the ESR in the Top Record
-  topPropMap[PM_EsrDigest] = esrDigest;
+  local listSize = list.size( additionalList );
+  for i = 1, listSize, 1 do
+    list.append( baseList, additionalList[i] );
+  end -- for each element of additionalList
+  returnList = baseList;
 
-  -- Initialize the PropertyMap in the new ESR
-  propMap[PM_EsrDigest]    = esrDigest;
-  propMap[PM_RecType  ]    = rtFlag;
-  propMap[PM_Magic]        = MAGIC;
-  propMap[PM_ParentDigest] = topDigest;
-  propMap[PM_SelfDigest]   = selfDigest;
-
-end -- ldtInitPropMap()
+  return returnList;
+end -- listAppendList()
 
 -- ======================================================================
 -- When we create the initial LDT Control Bin for the entire record (the
 -- first time ANY LDT is initialized in a record), we create a property
 -- map in it with various values.
--- TODO: Move this to LDT_COMMON (7/21/2013)
 -- ======================================================================
-function setLdtRecordType( topRec )
+function ldt_common.setLdtRecordType( topRec )
   local meth = "setLdtRecordType()";
-  GP=F and trace("[ENTER]<%s:%s>", MOD, meth );
+  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
 
   local rc = 0;
   local recPropMap;
@@ -520,15 +1284,23 @@ function setLdtRecordType( topRec )
   -- another miracle LDT birth.
   if( topRec[REC_LDT_CTRL_BIN] == nil ) then
     GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
+
+    -- If this record doesn't even exist yet -- then create it now.
+    -- Otherwise, things break.
+    if( not aerospike:exists( topRec ) ) then
+      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
+      rc = aerospike:create( topRec );
+      if( rc ~= 0 ) then
+        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
+        error( ldte.ERR_TOPREC_CREATE );
+      end
+    end
+
     record.set_type( topRec, RT_LDT );
     recPropMap = map();
     -- vinfo will be a 5 byte value, but it will be easier for us to store
-    -- 6 bytes -- and just leave the high order one at zero.
-    -- Initialize the VINFO value to all zeros.
-    local vinfo = bytes(6);
-    bytes.put_int16(vinfo, 1, 0 );
-    bytes.put_int16(vinfo, 3, 0 );
-    bytes.put_int16(vinfo, 5, 0 );
+    -- a FULL NUMBER (8 bytes) of value ZERO.
+    local vinfo = 0;
     recPropMap[RPM_VInfo] = vinfo; 
     recPropMap[RPM_LdtCount] = 1; -- this is the first one.
     recPropMap[RPM_Magic] = MAGIC;
@@ -540,719 +1312,124 @@ function setLdtRecordType( topRec )
     GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
       MOD, meth, ldtCount + 1 );
   end
+
   topRec[REC_LDT_CTRL_BIN] = recPropMap;
+  -- Set this control bin as HIDDEN
+  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
 
   -- Now that we've changed the top rec, do the update to make sure the
   -- changes are saved.
   rc = aerospike:update( topRec );
+  if( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
+    error( ldte.ERR_TOPREC_UPDATE );
+  end
 
-  GP=F and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
+  GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
   return rc;
 end -- setLdtRecordType()
-
 -- ======================================================================
--- Create and Init ESR
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- LDT Utility Functions
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
--- The Existence SubRecord is the synchronization point for the lDTs that
--- have multiple records (one top rec and many children).  It's a little
--- like the baby sitter for the children -- it helps keeps track of them.
--- And, when the ESR is gone, we kill the children. (BRUA-HAHAHAH!!!)
---
--- All LDT subrecs have a properties bin that describes the subrec.  This
--- bin contains a map that is "un-msg-packed" by the C code on the server
--- and read.  It must be the same for all LDT recs.
+-- ======================================================================
+-- These are all utility functions that perform various useful tasks.
+-- ======================================================================
 --
 -- ======================================================================
-function createAndInitESR( topRec, lsoList )
-  local meth = "createAndInitESR()";
-  GP=F and trace("[ENTER]: <%s:%s>", MOD, meth );
+-- adjustLdtMap:
+-- ======================================================================
+-- Using the settings supplied by the caller in the stackCreate call,
+-- we adjust the values in the LdtMap:
+-- Parms:
+-- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
+-- (*) argListMap: Map of LDT Settings 
+-- (*) ldtSpecificPackage: The LDT-Specific package of settings
+-- Return: The updated LsoList
+-- ======================================================================
+function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
+  local meth = "adjustLdtMap()";
+  local propMap = ldtCtrl[1];
+  local ldtMap = ldtCtrl[2];
 
-  local rc = 0;
-  local esrRec    = aerospike:create_subrec( topRec );
-  if( esrRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating ESR", MOD, meth );
-    error("[Create_ESR] Error: createAndInitESR()");
-  end
+  GP=E and trace("[ENTER]<%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
+    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
 
-  local esrDigest = record.digest( esrRec);
-  local topDigest = record.digest( topRec );
-  local topPropMap = lsoList[1];
-  local lsoMap  = lsoList[2];
+  -- Iterate thru the argListMap and adjust (override) the map settings 
+  -- based on the settings passed in during the stackCreate() call.
+  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
+    MOD, meth, tostring(argListMap));
 
-  -- Set the Property ControlMap for the ESR, and assign the parent Digest
-  -- Note that we use our standard convention for property maps - all subrecs
-  -- have a property map.
-  -- Init the properties map for this ESR. Note that esrDigest is in here
-  -- twice -- once for "self" and once for "esrRec".
-  local esrPropMap = map();
-  ldtInitPropMap(esrPropMap,esrDigest,esrDigest,topDigest,RT_ESR,topPropMap);
-
-  -- NOTE: We have to make sure that the TopRec propMap also gets saved.
-  esrRec[SUBREC_PROP_BIN] = esrPropMap;
-
-  -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
-  -- then we know that the main LDT record type has already been set.
-  -- Otherwise, we should set it. This function will check, and if necessary,
-  -- set the control bin.
-  setLdtRecordType( topRec );
+  -- For the old style -- we'd iterate thru ALL arguments and change
+  -- many settings.  Now we process only packages this way.
+  for name, value in map.pairs( argListMap ) do
+    GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
+    MOD, meth, tostring( name ), tostring( value ));
   
-  -- Set the record type as "ESR"
-  trace("[TRACE]<%s:%s> SETTING RECORD TYPE(%s)", MOD, meth, tostring(RT_ESR));
-  record.set_type( esrRec, RT_ESR );
-  trace("[TRACE]<%s:%s> DONE SETTING RECORD TYPE", MOD, meth );
-
-  GP=F and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
-    MOD, meth, tostring(esrDigest));
-
-  rc = aerospike:update_subrec( esrRec );
-  if( rc == nil or rc == 0 ) then
-      aerospike:close_subrec( esrRec );
-  else
-    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
-    error("[ESR CREATE] Error Creating System Subrecord");
-  end
-
-  return esrDigest;
-
-end -- createAndInitESR()
-
--- LIST FUNCTIONS
---
---
--- ======================================================================
--- listAppend()
--- ======================================================================
--- General tool to append one list to another.   At the point that we
--- find a better/cheaper way to do this, then we change THIS method and
--- all of the LDT calls to handle lists will get better as well.
--- ======================================================================
-function listAppend( baseList, additionalList )
-  if( baseList == nil ) then
-    warn("[INTERNAL ERROR] Null baselist in listAppend()" );
-    error("[INTERNAL ERROR] Null baselist in listAppend()" );
-  end
-  local listSize = list.size( additionalList );
-  for i = 1, listSize, 1 do
-    list.append( baseList, additionalList[i] );
-  end -- for each element of additionalList
-
-  return baseList;
-end -- listAppend()
-
--- ======================================================================
--- Summarize the List (usually ResultList) so that we don't create
--- huge amounts of crap in the console.
--- Show Size, First Element, Last Element
--- ======================================================================
-function summarizeList( myList )
-  if( myList == nil ) then return "NULL LIST"; end;
-
-  local resultMap = map();
-  resultMap.Summary = "Summary of the List";
-  local listSize  = list.size( myList );
-  resultMap.ListSize = listSize;
-  if resultMap.ListSize == 0 then
-    resultMap.FirstElement = "List Is Empty";
-    resultMap.LastElement = "List Is Empty";
-  else
-    resultMap.FirstElement = tostring( myList[1] );
-    resultMap.LastElement =  tostring( myList[ listSize ] );
-  end
-
-  return tostring( resultMap );
-end -- summarizeList()
-
--- ======================================================================
--- ======================================================================
-
--- ======================================================================
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- General LIST Read/Write(entry list, digest list) and LDR FUNCTIONS
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- ======================================================================
--- The same mechanisms are used in different LDT contexts.
--- LSET Compact List and Bin List.
--- LSTACK HotList
--- LMAP Compact List and LDR List.
--- LLIST Leaf List
--- LLIIST Node List
---
--- Each LDT basically has to search lists, insert into lists, delete
--- (Collapse) lists.  We provide general purpose methods here for
--- working with Object and Key Lists.  The difference between an ObjectList
--- and a KeyList is that the ObjectList must first undergo a "Key Extraction"
--- in order to do the key compare.
-
--- ======================================================================
--- readEntryList()
--- ======================================================================
--- This method reads the entry list from Hot, Warm and Cold Lists.
--- It examines each entry, applies the inner UDF function (if applicable)
--- and appends viable candidates to the result list.
--- As always, since we are doing a stack, everything is in LIFO order, 
--- which means we always read back to front.
--- Parms:
---   (*) resultList:
---   (*) lsoList:
---   (*) entryList:
---   (*) count:
---   (*) func:
---   (*) fargs:
---   (*) all:
--- Return:
---   Implicit: entries are added to the result list
---   Explicit: Number of Elements Read.
--- ======================================================================
-local function readEntryList( resultList, lsoList, entryList, count,
-    func, fargs, all)
-
-  local meth = "readEntryList()";
-  GP=F and trace("[ENTER]: <%s:%s> Count(%s) func(%s) fargs(%s) all(%s)",
-      MOD,meth,tostring(count), tostring(func), tostring(fargs),tostring(all));
-
-  -- Extract the property map and lso control map from the lso bin list.
-  local propMap = lsoList[1];
-  local lsoMap  = lsoList[2];
-
-  local doUnTransform = false; 
-  if( lsoMap[M_UnTransform] ~= nil ) then
-    doUnTransform = true; 
-  end
-
-  local applyFilter = false;
-  if func ~= nil and fargs ~= nil then
-    applyFilter = true;
-  end
-
-  -- Iterate thru the entryList, gathering up items in the result list.
-  -- There are two modes:
-  -- (*) ALL Mode: Read the entire list, return all that qualify
-  -- (*) Count Mode: Read <count> or <entryListSize>, whichever is smaller
-  local numRead = 0;
-  local numToRead = 0;
-  local listSize = list.size( entryList );
-  if all == true or count >= listSize then
-    numToRead = listSize;
-  else
-    numToRead = count;
-  end
-
-  -- Read back to front (LIFO order), up to "numToRead" entries
-  local readValue;
-  for i = listSize, 1, -1 do
-
-    -- Apply the transform to the item, if present
-    if doUnTransform == true then -- apply the transform
-      readValue = functionTable[lsoMap[M_UnTransform]]( entryList[i] );
-    else
-      readValue = entryList[i];
+    -- Process our "prepackaged" settings.  These now reside in the
+    -- settings file.  All of the packages are in a table, and thus are
+    -- looked up dynamically.
+    -- Notice that this is the old way to change settings.  The new way is
+    -- to use a "user module", which contains UDFs that control LDT settings.
+    if name == "Package" and type( value ) == "string" then
+      local ldtPackage = ldtSpecificPackage[value];
+      if( ldtPackage ~= nil ) then
+        ldtPackage( ldtMap );
+      end
     end
+  end -- for each argument
 
-    -- After the transform, we can apply the filter, if it is present.  If
-    -- the value passes the filter (or if there is no filter), then add it
-    -- to the resultList.
-    local resultValue;
-    if applyFilter == true then
-      resultValue = functionTable[func]( readValue, fargs );
-    else
-      resultValue = readValue;
-    end
-
-    list.append( resultList, readValue );
---    GP=F and trace("[DEBUG]:<%s:%s>Appended Val(%s) to ResultList(%s)",
---      MOD, meth, tostring( readValue ), tostring(resultList) );
-    
-    numRead = numRead + 1;
-    if numRead >= numToRead and all == false then
-      GP=F and trace("[Early EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s)",
-        MOD, meth, numRead, summarizeList( resultList ));
-      return numRead;
-    end
-  end -- for each entry in the list
-
-  GP=F and trace("[EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s) ",
-    MOD, meth, numRead, summarizeList( resultList ));
-  return numRead;
-end -- readEntryList()
+  GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
+    MOD,meth,tostring(ldtCtrl));
+  return ldtCtrl;
+end -- adjustLdtMap
 
 -- ======================================================================
--- readByteArray()
--- ======================================================================
--- This method reads the entry list from Warm and Cold List Pages.
--- In each LSO Data Record (LDR), there are three Bins:  A Control Bin,
--- a List Bin (a List() of entries), and a Binary Bin (Compacted Bytes).
--- Similar to its sibling method (readEntryList), readByteArray() pulls a Byte
--- entry from the compact Byte array, applies the (assumed) UDF, and then
--- passes the resulting value back to the caller via the resultList.
---
--- As always, since we are doing a stack, everything is in LIFO order, 
--- which means we always read back to front.
--- Parms:
---   (*) resultList:
---   (*) lsoList
---   (*) LDR Chunk Page:
---   (*) count:
---   (*) func:
---   (*) fargs:
---   (*) all:
--- Return:
---   Implicit: entries are added to the result list
---   Explicit: Number of Elements Read.
--- ======================================================================
-local function readByteArray( resultList, lsoList, ldrChunk, count,
-                              func, fargs, all)
-  local meth = "readByteArray()";
-  GP=F and trace("[ENTER]: <%s:%s> Count(%s) func(%s) fargs(%s) all(%s)",
-    MOD,meth,tostring(count), tostring(func), tostring(fargs), tostring(all));
-            
-  local lsoMap = lsoList[2];
-
-  local doUnTransform = false;
-  if( lsoMap[M_UnTransform] ~= nil ) then
-    doUnTransform = true;
-  end
-
-  local applyFilter = false;
-  if func ~= nil and fargs ~= nil then
-    applyFilter = true;
-  end
-
-  -- Note: functionTable is "global" to this module, defined at top of file.
-
-  -- Iterate thru the BYTE structure, gathering up items in the result list.
-  -- There are two modes:
-  -- (*) ALL Mode: Read the entire list, return all that qualify
-  -- (*) Count Mode: Read <count> or <entryListSize>, whichever is smaller
-  local ldrMap = ldrChunk[LDR_CTRL_BIN];
-  local byteArray = ldrChunk[LDR_BNRY_BIN];
-  local numRead = 0;
-  local numToRead = 0;
-  local listSize = ldrMap[LDR_ByteEntryCount]; -- Number of Entries
-  local entrySize = lsoMap[M_LdrByteEntrySize]; -- Entry Size in Bytes
-  -- When in binary mode, we rely on the LDR page control structure to track
-  -- the ENTRY COUNT and the ENTRY SIZE.  Just like walking a list, we
-  -- move thru the BYTE value by "EntrySize" amounts.  We will try as much
-  -- as possible to treat this as a list, even though we access it directly
-  -- as an array.
-  --
-  if all == true or count >= listSize then
-    numToRead = listSize;
-  else
-    numToRead = count;
-  end
-
-  -- Read back to front (LIFO order), up to "numToRead" entries
-  -- The BINARY information is held in the page's control info
-  -- Current Item Count
-  -- Current Size (items must be a fixed size)
-  -- Max bytes allowed in the ByteBlock.
-  -- Example: EntrySize = 10
-  -- Address of Entry 1: 0
-  -- Address of Entry 2: 10
-  -- Address of Entry N: (N - 1) * EntrySize
-  -- WARNING!!!  Unlike C Buffers, which start at ZERO, this byte type
-  -- starts at ONE!!!!!!
-  --
-  -- 12345678901234567890 ...  01234567890
-  -- +---------+---------+------+---------+
-  -- | Entry 1 | Entry 2 | .... | Entry N | 
-  -- +---------+---------+------+---------+
-  --                            A
-  -- To Read:  Start Here ------+  (at the beginning of the LAST entry)
-  --           and move BACK towards the front.
-  local readValue;
-  local byteValue;
-  local byteIndex = 0; -- our direct position in the byte array.
-  GP=F and trace("[DEBUG]:<%s:%s>Starting loop Byte Array(%s) ListSize(%d)",
-      MOD, meth, tostring(byteArray), listSize );
-  for i = (listSize - 1), 0, -1 do
-
-    byteIndex = 1 + (i * entrySize);
-    byteValue = bytes.get_bytes( byteArray, byteIndex, entrySize );
-
---  GP=F and trace("[DEBUG]:<%s:%s>: In Loop: i(%d) BI(%d) BV(%s)",
---    MOD, meth, i, byteIndex, tostring( byteValue ));
-
-    -- Apply the UDF to the item, if present, and if result NOT NULL, then
-    if doUnTransform == true then -- apply the "UnTransform" function
-      readValue = functionTable[lsoMap[M_UnTransform]]( byteValue );
-    else
-      readValue = byteValue;
-    end
-
-    -- After the transform, we can apply the filter, if it is present.  If
-    -- the value passes the filter (or if there is no filter), then add it
-    -- to the resultList.
-    local resultValue;
-    if applyFilter == true then
-      resultValue = functionTable[func]( readValue, fargs );
-    else
-      resultValue = readValue;
-    end
-
-    -- If the value passes the filter (or if there is no filter), then add
-    -- it to the result list.
-    if( resultValue ~= nil ) then
-      list.append( resultList, resultValue );
-    end
-
-    GP=F and trace("[DEBUG]:<%s:%s>Appended Val(%s) to ResultList(%s)",
-      MOD, meth, tostring( readValue ), tostring(resultList) );
-    
-    numRead = numRead + 1;
-    if numRead >= numToRead and all == false then
-      GP=F and trace("[Early EXIT]: <%s:%s> NumRead(%d) resultList(%s)",
-        MOD, meth, numRead, tostring( resultList ));
-      return numRead;
-    end
-  end -- for each entry in the list (packed byte array)
-
-  GP=F and trace("[EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s) ",
-    MOD, meth, numRead, summarizeList( resultList ));
-  return numRead;
-end -- readByteArray()
-
--- ======================================================================
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- LSO Data Record (LDR) FUNCTIONS
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- ======================================================================
--- LDR routines act specifically on the LDR "Data Chunk" records.
-
--- ======================================================================
--- ldrInsertList( ldrRec, lsoMap, listIndex,  insertList )
--- ======================================================================
--- Insert (append) the LIST of values (overflow from the HotList) 
--- to this chunk's value list.  We start at the position "listIndex"
--- in "insertList".  Note that this call may be a second (or Nth) call,
--- so we are starting our insert in "insertList" from "listIndex", and
--- not implicitly from "1".
--- Parms:
--- (*) ldrRec: Hotest of the Warm Chunk Records
--- (*) lsoMap: the LSO control information
--- (*) listIndex: Index into <insertList> from where we start copying.
--- (*) insertList: The list of elements to be copied in
--- Return: Number of items written
--- ======================================================================
-local function ldrInsertList(ldrRec,lsoMap,listIndex,insertList )
-  local meth = "ldrInsertList()";
-  GP=F and trace("[ENTER]: <%s:%s> Index(%d) List(%s)",
-    MOD, meth, listIndex, tostring( insertList ) );
-
-  GP=F and trace("[DEBUG]<%s:%s> LSO MAP(%s)", MOD, meth, tostring(lsoMap));
-
-  local ldrMap = ldrRec[LDR_CTRL_BIN];
-  local ldrValueList = ldrRec[LDR_LIST_BIN];
-  local chunkIndexStart = list.size( ldrValueList ) + 1;
-  local ldrByteArray = ldrRec[LDR_BNRY_BIN]; -- might be nil
-
-  GP=F and trace("[DEBUG]: <%s:%s> Chunk: CTRL(%s) List(%s)",
-    MOD, meth, tostring( ldrMap ), tostring( ldrValueList ));
-
-  -- Note: Since the index of Lua arrays start with 1, that makes our
-  -- math for lengths and space off by 1. So, we're often adding or
-  -- subtracting 1 to adjust.
-  local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
-  local itemSlotsAvailable = (lsoMap[M_LdrEntryCountMax] - chunkIndexStart) + 1;
-
-  -- In the unfortunate case where our accounting is bad and we accidently
-  -- opened up this page -- and there's no room -- then just return ZERO
-  -- items written, and hope that the caller can deal with that.
-  if itemSlotsAvailable <= 0 then
-    warn("[ERROR]: <%s:%s> INTERNAL ERROR: No space available on chunk(%s)",
-      MOD, meth, tostring( ldrMap ));
-    return 0; -- nothing written
-  end
-
-  -- If we EXACTLY fill up the chunk, then we flag that so the next Warm
-  -- List Insert will know in advance to create a new chunk.
-  if totalItemsToWrite == itemSlotsAvailable then
-    lsoMap[M_WarmTopFull] = true; -- Now, remember to reset on next update.
-    GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d)::SpaceAvail(%d):WTop FULL!!",
-      MOD, meth, totalItemsToWrite, itemSlotsAvailable );
-  end
-
-  GP=F and trace("[DEBUG]: <%s:%s> TotalItems(%d) SpaceAvail(%d)",
-    MOD, meth, totalItemsToWrite, itemSlotsAvailable );
-
-  -- Write only as much as we have space for
-  local newItemsStored = totalItemsToWrite;
-  if totalItemsToWrite > itemSlotsAvailable then
-    newItemsStored = itemSlotsAvailable;
-  end
-
-  -- This is List Mode.  Easy.  Just append to the list.
-  GP=F and trace("[DEBUG]<%s:%s>ListMode:Copying From(%d) to (%d) Amount(%d)",
-    MOD, meth, listIndex, chunkIndexStart, newItemsStored );
-
-  -- Special case of starting at ZERO -- since we're adding, not
-  -- directly indexing the array at zero (Lua arrays start at 1).
-  for i = 0, (newItemsStored - 1), 1 do
-    list.append( ldrValueList, insertList[i+listIndex] );
-  end -- for each remaining entry
-
-  GP=F and trace("[DEBUG]: <%s:%s>: Post Chunk Copy: Ctrl(%s) List(%s)",
-    MOD, meth, tostring(ldrMap), tostring(ldrValueList));
-
-  -- Store our modifications back into the Chunk Record Bins
-  ldrRec[LDR_CTRL_BIN] = ldrMap;
-  ldrRec[LDR_LIST_BIN] = ldrValueList;
-
-  GP=F and trace("[EXIT]: <%s:%s> newItemsStored(%d) List(%s) ",
-    MOD, meth, newItemsStored, tostring( ldrValueList) );
-  return newItemsStored;
-end -- ldrInsertList()
-
-
--- ======================================================================
--- ldrInsertBytes( topWarmChunk, lsoMap, listIndex,  insertList )
--- ======================================================================
--- Insert (append) the LIST of values (overflow from the HotList) 
--- to this chunk's Byte Array.  We start at the position "listIndex"
--- in "insertList".  Note that this call may be a second (or Nth) call,
--- so we are starting our insert in "insertList" from "listIndex", and
--- not implicitly from "1".
--- This method is similar to its sibling "ldrInsertList()", but rather
--- than add to the entry list in the chunk's LDR_LIST_BIN, it adds to the
--- byte array in the chunk's LDR_BNRY_BIN.
--- Parms:
--- (*) ldrChunkRec: Hotest of the Warm Chunk Records
--- (*) lsoMap: the LSO control information
--- (*) listIndex: Index into <insertList> from where we start copying.
--- (*) insertList: The list of elements to be copied in
--- Return: Number of items written
--- ======================================================================
-local function ldrInsertBytes( ldrChunkRec, lsoMap, listIndex, insertList )
-  local meth = "ldrInsertBytes()";
-  GP=F and trace("[ENTER]: <%s:%s> Index(%d) List(%s)",
-    MOD, meth, listIndex, tostring( insertList ) );
-
-  local ldrMap = ldrChunkRec[LDR_CTRL_BIN];
-  GP=F and trace("[DEBUG]: <%s:%s> Check LDR CTRL MAP(%s)",
-    MOD, meth, tostring( ldrMap ) );
-
-  local entrySize = lsoMap[M_LdrByteEntrySize];
-  if( entrySize <= 0 ) then
-    warn("[ERROR]: <%s:%s>: Internal Error:. Negative Entry Size", MOD, meth);
-    -- Let the caller handle the error.
-    return -1; -- General Badness
-  end
-
-  local entryCount = 0;
-  if( ldrMap[LDR_ByteEntryCount] ~= nil and
-      ldrMap[LDR_ByteEntryCount] ~= 0 )
-  then
-    entryCount = ldrMap[LDR_ByteEntryCount];
-  end
-  GP=F and trace("[DEBUG]<%s:%s>Using EntryCount(%d)", MOD, meth, entryCount);
-
-  -- Note: Since the index of Lua arrays start with 1, that makes our
-  -- math for lengths and space off by 1. So, we're often adding or
-  -- subtracting 1 to adjust.
-  -- Calculate how much space we have for items.  We could do this in bytes
-  -- or items.  Let's do it in items.
-  local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
-  local maxEntries = math.floor(lsoMap[M_LdrByteCountMax] / entrySize );
-  local itemSlotsAvailable = maxEntries - entryCount;
-  GP=F and
-    trace("[DEBUG]: <%s:%s>:MaxEntries(%d) SlotsAvail(%d) #Total ToWrite(%d)",
-    MOD, meth, maxEntries, itemSlotsAvailable, totalItemsToWrite );
-
-  -- In the unfortunate case where our accounting is bad and we accidently
-  -- opened up this page -- and there's no room -- then just return ZERO
-  -- items written, and hope that the caller can deal with that.
-  if itemSlotsAvailable <= 0 then
-    warn("[DEBUG]: <%s:%s> INTERNAL ERROR: No space available on chunk(%s)",
-    MOD, meth, tostring( ldrMap ));
-    return 0; -- nothing written
-  end
-
-  -- If we EXACTLY fill up the chunk, then we flag that so the next Warm
-  -- List Insert will know in advance to create a new chunk.
-  if totalItemsToWrite == itemSlotsAvailable then
-    lsoMap[M_WarmTopFull] = true; -- Remember to reset on next update.
-    GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d)::SpaceAvail(%d):WTop FULL!!",
-      MOD, meth, totalItemsToWrite, itemSlotsAvailable );
-  end
-
-  -- Write only as much as we have space for
-  local newItemsStored = totalItemsToWrite;
-  if totalItemsToWrite > itemSlotsAvailable then
-    newItemsStored = itemSlotsAvailable;
-  end
-
-  -- Compute the new space we need in Bytes and either extend existing or
-  -- allocate it fresh.
-  local totalSpaceNeeded = (entryCount + newItemsStored) * entrySize;
-  if ldrChunkRec[LDR_BNRY_BIN] == nil then
-    ldrChunkRec[LDR_BNRY_BIN] = bytes( totalSpaceNeeded );
-    GP=F and trace("[DEBUG]<%s:%s>Allocated NEW BYTES: Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
-  else
-    GP=F and
-    trace("[DEBUG]:<%s:%s>Before: Extending BYTES: New Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
-
-    -- The API for this call changed (July 2, 2013).  Now use "ensure"
-    -- bytes.set_len(ldrChunkRec[LDR_BNRY_BIN], totalSpaceNeeded );
-    bytes.ensure(ldrChunkRec[LDR_BNRY_BIN], totalSpaceNeeded, 1);
-
-    GP=F and
-    trace("[DEBUG]:<%s:%s>AFTER: Extending BYTES: New Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
-  end
-  local chunkByteArray = ldrChunkRec[LDR_BNRY_BIN];
-
-  -- We're packing bytes into a byte array. Put each one in at a time,
-  -- incrementing by "entrySize" for each insert value.
-  -- Special case of starting at ZERO -- since we're adding, not
-  -- directly indexing the array at zero (Lua arrays start at 1).
-  -- Compute where we should start inserting in the Byte Array.
-  -- WARNING!!! Unlike a C Buffer, This BYTE BUFFER starts at address 1,
-  -- not zero.
-  local chunkByteStart = 1 + (entryCount * entrySize);
-
-  GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d) SpaceAvail(%d) ByteStart(%d)",
-    MOD, meth, totalItemsToWrite, itemSlotsAvailable, chunkByteStart );
-
-  local byteIndex;
-  local insertItem;
-  for i = 0, (newItemsStored - 1), 1 do
-    byteIndex = chunkByteStart + (i * entrySize);
-    insertItem = insertList[i+listIndex];
-
-    GP=F and
-    trace("[DEBUG]:<%s:%s>ByteAppend:Array(%s) Entry(%d) Val(%s) Index(%d)",
-      MOD, meth, tostring( chunkByteArray), i, tostring( insertItem ),
-      byteIndex );
-
-    bytes.put_bytes( chunkByteArray, byteIndex, insertItem );
-
-    GP=F and trace("[DEBUG]: <%s:%s> Post Append: ByteArray(%s)",
-      MOD, meth, tostring(chunkByteArray));
-  end -- for each remaining entry
-
-  -- Update the ctrl map with the new count
-  ldrMap[LDR_ByteEntryCount] = entryCount + newItemsStored;
-
-  GP=F and trace("[DEBUG]: <%s:%s>: Post Chunk Copy: Ctrl(%s) List(%s)",
-    MOD, meth, tostring(ldrMap), tostring( chunkByteArray ));
-
-  -- Store our modifications back into the Chunk Record Bins
-  ldrChunkRec[LDR_CTRL_BIN] = ldrMap;
-  ldrChunkRec[LDR_BNRY_BIN] = chunkByteArray;
-
-  GP=F and trace("[EXIT]: <%s:%s> newItemsStored(%d) List(%s) ",
-    MOD, meth, newItemsStored, tostring( chunkByteArray ));
-  return newItemsStored;
-end -- ldrInsertBytes()
-
-
--- ======================================================================
--- hotListInsert()
--- ======================================================================
--- Insert a value at the end of the Hot Entry List.  The caller has 
--- already verified that space exists, so we can blindly do the insert.
---
--- The MODE of storage depends on what we see in the valueMap.  If the
--- valueMap holds a BINARY type, then we are going to store it in a special
--- binary bin.  Here are the cases:
--- (1) Warm List: The Chunk Record employs a List Bin and Binary Bin, where
---    the individual entries are packed.  In the Chunk Record, there is a
---    Map (control information) showing the status of the packed Binary bin.
--- (2) Cold List: Same Chunk format as the Warm List Chunk Record.
---
--- Change in plan -- All items go on the HotList, regardless of type.
--- Only when we transfer to Warm/Cold do we employ the COMPACT STORAGE
--- trick of packing bytes contiguously in the Binary Bin.
---
--- The Top LSO page (and the individual LDR chunk pages) have the control
--- data about the byte entries (entry size, entry count).
--- Parms:
--- (*) lsoList: the control structure for the LSO Bin
--- (*) newStorageValue: the new value to be pushed on the stack
-local function hotListInsert( lsoList, newStorageValue  )
-  local meth = "hotListInsert()";
-  GP=F and trace("[ENTER]: <%s:%s> : Insert Value(%s)",
-    MOD, meth, tostring(newStorageValue) );
-
-  local propMap = lsoList[1];
-  local lsoMap  = lsoList[2];
-
-  -- Update the hot list with a new element (and update the map)
-  local hotList = lsoMap[M_HotEntryList];
-  GP=F and trace("[HEY!!]<%s:%s> Appending to Hot List(%s)", 
-    MOD, meth,tostring(hotList));
-  -- list.append( lsoMap[M_HotEntryList], newStorageValue );
-  list.append( hotList, newStorageValue );
-  lsoMap[M_HotEntryList] = hotList;
-  --
-  -- Update the count (overall count and hot list count)
-  local itemCount = propMap[PM_ItemCount];
-  propMap[PM_ItemCount] = (itemCount + 1);
-
-  local hotCount = lsoMap[M_HotEntryListItemCount];
-  lsoMap[M_HotEntryListItemCount] = (hotCount + 1);
-
-  GP=F and trace("[EXIT]: <%s:%s> : LSO List Result(%s)",
-    MOD, meth, tostring( lsoList ) );
-
-  return 0;  -- all is well
-end -- hotListInsert()
-
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
--- ======================================================================
---
+-- validateBinName()
 -- ======================================================================
 -- validateBinName(): Validate that the user's bin name for this large
 -- object complies with the rules of Aerospike. Currently, a bin name
 -- cannot be larger than 14 characters (a seemingly low limit).
 -- ======================================================================
-local function validateBinName( binName )
-  local meth = "validateBinName()";
-  GP=F and trace("[ENTER]: <%s:%s> validate Bin Name(%s)",
-      MOD, meth, tostring(binName));
+function ldt_common.validateBinName( ldtBinName )
+  local meth = "ldt_common.validateBinName()";
+  GP=E and trace("[ENTER]: <%s:%s> validate Bin Name(%s)",
+      MOD, meth, tostring(ldtBinName));
 
-  if binName == nil  then
-    error('Bin Name Validation Error: Null BinName');
-  elseif type( binName ) ~= "string"  then
-    error('Bin Name Validation Error: BinName must be a string');
-  elseif string.len( binName ) > 14 then
-    error('Bin Name Validation Error: Exceeds 14 characters');
+  if ldtBinName == nil  then
+    warn("[ERROR EXIT]:<%s:%s> Null Bin Name", MOD, meth );
+    error( ldte.ERR_NULL_BIN_NAME );
+  elseif type( ldtBinName ) ~= "string"  then
+    warn("[ERROR EXIT]:<%s:%s> Bin Name Not a String", MOD, meth );
+    error( ldte.ERR_BIN_NAME_NOT_STRING );
+  elseif string.len( ldtBinName ) > 14 then
+    warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
+    error( ldte.ERR_BIN_NAME_TOO_LONG );
   end
-end -- validateBinName
+  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
+end -- ldt_common.validateBinName
 
 -- ======================================================================
--- validateRecBinAndMap():
+-- ldt_common.validateRecBinAndMap():
 -- Check that the topRec, the BinName and CrtlMap are valid, otherwise
 -- jump out with an error() call. Notice that we look at different things
 -- depending on whether or not "mustExist" is true.
 -- Parms:
 -- (*) topRec:
 -- ======================================================================
-local function validateRecBinAndMap( topRec, lsoBinName, mustExist )
-  local meth = "validateRecBinAndMap()";
-  GP=F and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
-    MOD, meth, tostring( lsoBinName ), tostring( mustExist ));
+function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+  local meth = "ldt_common.validateRecBinAndMap()";
+  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
+    MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
 
   -- Start off with validating the bin name -- because we might as well
   -- flag that error first if the user has given us a bad name.
-  validateBinName( lsoBinName );
+  ldt_common.validateBinName( ldtBinName );
+
+  local ldtCtrl;
+  local propMap;
+  local ldtMap;
 
   -- If "mustExist" is true, then several things must be true or we will
   -- throw an error.
@@ -1266,174 +1443,183 @@ local function validateRecBinAndMap( topRec, lsoBinName, mustExist )
     -- Check Top Record Existence.
     if( not aerospike:exists( topRec ) and mustExist == true ) then
       warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
-      error('Base Record Does NOT exist');
+      error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
 
     -- Control Bin Must Exist
-    if( topRec[lsoBinName] == nil ) then
-      warn("[ERROR EXIT]: <%s:%s> LSO BIN (%s) DOES NOT Exists",
-            MOD, meth, tostring(lsoBinName) );
-      error('LSO BIN Does NOT exist');
+    if( topRec[ldtBinName] == nil ) then
+      warn("[ERROR EXIT]: <%s:%s> LDT BIN (%s) DOES NOT Exists",
+            MOD, meth, tostring(ldtBinName) );
+      error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
     -- check that our bin is (mostly) there
-    local lsoList = topRec[lsoBinName]; -- The main lsoMap structure
-    -- Extract the property map and lso control map from the lso bin list.
-    local propMap = lsoList[1];
-    local lsoMap  = lsoList[2];
+    ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
+    -- Extract the property map and LDT Map from the LDT Control.
+    propMap = ldtCtrl[1];
+    ldtMap  = ldtCtrl[2];
 
     if propMap[PM_Magic] ~= MAGIC then
-      GP=F and warn("[ERROR EXIT]:<%s:%s>LSO BIN(%s) Corrupted (no magic)",
-            MOD, meth, tostring( lsoBinName ) );
-      error('LSO BIN Is Corrupted (No Magic::1)');
+      GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
+            MOD, meth, tostring( ldtBinName ) );
+      error( ldte.ERR_BIN_DAMAGED );
     end
     -- Ok -- all done for the Must Exist case.
   else
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
-    if topRec ~= nil and topRec[lsoBinName] ~= nil then
-      local lsoList = topRec[lsoBinName]; -- The main lsoMap structure
-      -- Extract the property map and lso control map from the lso bin list.
-      local propMap = lsoList[1];
-      local lsoMap  = lsoList[2];
+    if topRec ~= nil and topRec[ldtBinName] ~= nil then
+      ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
+      -- Extract the property map and LDT Map from the LDT Control.
+      propMap = ldtCtrl[1];
+      ldtMap  = ldtCtrl[2];
       if propMap[PM_Magic] ~= MAGIC then
-        GP=F and warn("[ERROR EXIT]:<%s:%s> LSO BIN(%s) Corrupted (no magic)",
-              MOD, meth, tostring( lsoBinName ) );
-        error('LSO BIN Is Corrupted (No Magic::2)');
+        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)2",
+              MOD, meth, tostring( ldtBinName ) );
+        error( ldte.ERR_BIN_DAMAGED );
       end
     end -- if worth checking
   end -- else for must exist
+  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
 
-end -- validateRecBinAndMap()
+  return ldtCtrl; -- to be trusted ONLY in the mustExist == true case;
 
--- ========================================================================
--- lstack_size() -- return the number of elements (item count) in the stack.
--- Parms:
--- (1) topRec: the user-level record holding the LSO Bin
--- (2) lsoBinName: The name of the LSO Bin
--- Result:
---   rc >= 0  (the size)
---   rc < 0: Aerospike Errors
--- NOTE: Any parameter that might be printed (for trace/debug purposes)
--- must be protected with "tostring()" so that we do not encounter a format
--- error if the user passes in nil or any other incorrect value/type.
--- ========================================================================
-function lstack_size( topRec, lsoBinName )
-  local meth = "lstack_size()";
+end -- ldt_common.validateRecBinAndMap()
 
-  GP=F and trace("[ENTER1]: <%s:%s> lsoBinName(%s)",
-    MOD, meth, tostring(lsoBinName));
+-- ======================================================================
+-- Summarize the List (usually ResultList) so that we don't create
+-- huge amounts of crap in the console.
+-- Show Size, First Element, Last Element
+-- ======================================================================
+function ldt_common.summarizeList( myList )
+  if( myList == nil ) then return "NULL LIST"; end;
 
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, lsoBinName, true );
-
-  local lsoList = topRec[ lsoBinName ];
-  -- Extract the property map and lso control map from the lso bin list.
-  local propMap = lsoList[1];
-  local itemCount = propMap[PM_ItemCount];
-
-  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
-
-  return itemCount;
-end -- function lstack_size()
-
--- ========================================================================
--- lstack_config() -- return the config settings
--- Parms:
--- (1) topRec: the user-level record holding the LSO Bin
--- (2) lsoBinName: The name of the LSO Bin
--- Result:
---   res = (when successful) config Map 
---   res = (when error) nil
--- NOTE: Any parameter that might be printed (for trace/debug purposes)
--- must be protected with "tostring()" so that we do not encounter a format
--- error if the user passes in nil or any other incorrect value/type.
--- ========================================================================
-function lstack_config( topRec, lsoBinName )
-  local meth = "lstack_config()";
-
-  GP=F and trace("[ENTER1]: <%s:%s> lsoBinName(%s)",
-    MOD, meth, tostring(lsoBinName));
-
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, lsoBinName, true );
-
-  local lsoList = topRec[ lsoBinName ];
-  local config = lsoSummary( lsoList );
-
-  GP=F and trace("[EXIT]: <%s:%s> : config(%s)", MOD, meth, tostring(config));
-
-  return config;
-end -- function lstack_config()
-
-
--- ========================================================================
--- ldt_remove() -- Remove the LDT entirely from the record.
--- Remove the ESR, Null out the topRec bin.
--- ========================================================================
--- Release all of the storage associated with this LDT and remove the
--- control structure of the bin.  If this is the LAST LDT in the record,
--- then ALSO remove the HIDDEN LDT CONTROL BIN.
---
--- Question  -- Reset the record[binName] to NIL (does that work??)
--- Parms:
--- (1) topRec: the user-level record holding the LSO Bin
--- (2) binName: The name of the LDT Bin
--- Result:
---   res = 0: all is well
---   res = -1: Some sort of error
--- ========================================================================
-function ldt_remove( topRec, binName )
-  local meth = "ldt_remove()";
-
-  GP=F and trace("[ENTER]<%s:%s> binName(%s)", MOD, meth, tostring(binName));
-  local rc = 0; -- start off optimistic
-
-  -- Validate the binName before moving forward
-  validateRecBinAndMap( topRec, binName, true );
-
-  -- Extract the property map and lso control map from the lso bin list.
-  local ldtList = topRec[ binName ];
-  local propMap = ldtList[1];
-
-  -- Get the ESR and delete it.
-  local esrDigest = propMap[PM_EsrDigest];
-  local esrDigestString = tostring(esrDigest);
-  local esrRec = aerospike:open_subrec( topRec, esrDigestString );
-  rc = aerospike:delete( esrRec );
-  if( rc < 0 ) then
-    warn("[ESR DELETE ERROR]: Can't Delete: Bin(%s)", MOD, meth, binName);
-    error("[ESR DELETE ERROR] Cannot Delete Subrec");
-  end
-
-  topRec[binName] = nil;
-
-  -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
-  -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
-  local recPropMap = topRec[REC_LDT_CTRL_BIN];
-  if( recPropMap == nil or recPropMap[RPM_Magic] ~= MAGIC ) then
-    warn("[INTERNAL ERROR]<%s:%s> Prop Map for LDT Hidden Bin invalid",
-    MOD, meth );
-    error("[INTERNAL ERROR]: Invalid Record LDT Control Bin");
-  end
-  local ldtCount = recPropMap[RPM_LdtCount];
-  if( ldtCount <= 1 ) then
-    -- Remove this bin
-    topRec[REC_LDT_CTRL_BIN] = nil;
+  local resultMap = map();
+  resultMap.Summary = "Summary of the List";
+  local listSize  = list.size( myList );
+  resultMap.ListSize = listSize;
+  if resultMap.ListSize == 0 then
+    resultMap.ListStatus = "List Is Empty";
   else
-    recPropMap[RPM_LdtCount] = ldtCount - 1;
-    topRec[REC_LDT_CTRL_BIN] = recPropMap;
+    resultMap.FirstElement = tostring( myList[1] );
+    resultMap.LastElement =  tostring( myList[ listSize ] );
   end
 
-  rc = aerospike:update( topRec );
+  return tostring( resultMap );
+end -- summarizeList()
 
-  return rc;
-end -- ldt_remove()
 
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
+-- ======================================================================
+-- Dump the List (usually ResultList) with multiple prints so that we
+-- can see the whole thing (regular Logging limits each print to something
+-- like 1k or 2k per info/trace line).
+-- ======================================================================
+function ldt_common.dumpList( myList )
+  if( myList == nil ) then
+     info("NULL LIST");
+     return;
+  end
+
+  -- Iterate thru the list (myList) and print items out 10 (or so) at a time.
+  local subSize = 10;
+  local count = 0;
+  local remainderList = myList;
+  local takeSize;
+  local frontList;
+  while ( list.size( remainderList ) > 0 ) do
+    if( list.size( remainderList ) > subSize ) then
+      takeSize = subSize;
+    else
+      takeSize = list.size( remainderList );
+    end
+    frontList = list.take( remainderList, takeSize );
+    info("\n<LIST:[%d : %d] %s", count, count + takeSize, tostring(frontList));
+    remainderList = list.drop( remainderList, takeSize );
+  end
+
+end -- ldt_common.dumpList()
+
+
+-- ======================================================================
+-- Summarize the MAP (usually ResultMap) so that we don't create
+-- huge amounts of crap in the console.
+-- Show Size and two Name/Values.  Unlike Summarize List, we really can't
+-- make much sense of "first and last" items.
+-- ======================================================================
+function ldt_common.summarizeMap( myMap )
+  if( myMap == nil ) then return "NULL MAP"; end;
+
+  local resultMap = map();
+  local summaryMap = map;
+  resultMap.Summary = "Summary of the MAP";
+  local mapSize  = map.size( myMap );
+  resultMap.MapSize = mapSize;
+  if resultMap.MapSize == 0 then
+    resultMap.MapStatus = "Map Is Empty";
+  else
+    local limit = 5;
+    for name, value in map.pairs( myMap ) do
+      summaryMap[name] = value;
+      limit = limit - 1;
+      if( limit < 1 ) then
+        resultMap.Summary = summaryMap;
+      end
+    end
+  end
+
+  return tostring( resultMap );
+end -- summarizeMap()
+
+
+-- ======================================================================
+-- Dump the MAP (usually ResultMAP) with multiple prints so that we
+-- can see the whole thing (regular Logging limits each print to something
+-- like 1k or 2k per info/trace line).
+-- ======================================================================
+function ldt_common.dumpMap( myMap, msg )
+  if( myMap == nil ) then
+     info("NULL MAP");
+     return;
+  end
+
+  info("\n <<<<> DUMP MAP [%s]<>>>>", tostring(msg));
+
+  -- Iterate thru the map (myMap) and print items out 10 (or so) at a time.
+  local subSize = 10;
+  local count = 0;
+  local subCount = 0;
+  local subMap = map();
+  for name, value in map.pairs( myMap ) do
+    subMap[name] = value;
+    subCount = subCount + 1;
+    count = count + 1;
+    if( subCount > subSize ) then
+      info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
+      subMap = map(); -- start a new map for the next round.
+      subCount = 0;
+    end
+  end
+  -- Print anything remaining -- after we fall out of the for loop.
+  if( map.size( subMap ) ) then
+      info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
+  end
+  info("\n<>>>>> END OF MAP <<<<>");
+
+end -- ldt_common.dumpMap()
+
+-- ========================================================================
+-- Return the ldt_commonm MAP (or table) that contains all of the functions
+-- that we're exporting from this module.
+-- ========================================================================
+return ldt_common;
+
+-- ========================================================================
+--  _     ____ _____    ____                                      
+-- | |   |  _ |_   _|  / ___|___  _ __ ___  _ __ ___   ___  _ __  
+-- | |   | | | || |   | |   / _ \| '_ ` _ \| '_ ` _ \ / _ \| '_ \ 
+-- | |___| |_| || |   | |__| (_) | | | | | | | | | | | (_) | | | |
+-- |_____|____/ |_|    \____\___/|_| |_| |_|_| |_| |_|\___/|_| |_| (LIB)
+--
+-- ========================================================================
 -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --

@@ -20,6 +20,7 @@
 -- ======================================================================
 -- Reference the LMAP LDT Library Module:
 local lmap = require('ldt/lib_lmap');
+local ldt_common = require('ldt/ldt_common');
 
 -- ======================================================================
 -- create() ::  (deprecated)
@@ -69,7 +70,7 @@ function get( topRec, ldtBinName, searchName )
 end -- get()
 
 function scan( topRec, ldtBinName )
-  return lmap.scan(topRec, ldtBinName, nil, nil)
+  return lmap.scan(topRec, ldtBinName, nil, nil);
 end -- scan()
 
 -- ========================================================================
@@ -154,7 +155,10 @@ end
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
 function dump( topRec, ldtBinName )
-  return lmap.dump( topRec, ldtBinName );
+    -- Set up the Sub-Rec Context to track open Sub-Records.
+    local src = ldt_common.createSubRecContext();
+
+  return lmap.dump( src, topRec, ldtBinName );
 end
 
 -- ========================================================================

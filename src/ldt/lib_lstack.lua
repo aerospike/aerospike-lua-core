@@ -1,11 +1,11 @@
 -- Large Stack Object (LSTACK) Operations Library
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_03_10.c";
+local MOD="lib_lstack_2014_04_04.A";
 
 -- This variable holds the version of the code (Major.Minor).
 -- We'll check this for Major design changes -- and try to maintain some
 -- amount of inter-version compatibility.
-local G_LDT_VERSION = 1.1;
+local G_LDT_VERSION = 2.1;
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -21,11 +21,11 @@ local G_LDT_VERSION = 1.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSTACK Main Functions >>
@@ -56,7 +56,6 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- status = aerospike:update( topRec )
 -- status = aerospike:remove( rec ) (not currently used)
 --
---
 -- Aerospike SubRecord Functions:
 -- newRec = aerospike:create_subrec( topRec )
 -- rec    = aerospike:open_subrec( topRec, childRecDigest)
@@ -66,8 +65,35 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 --
 -- Record Functions:
 -- digest = record.digest( childRec )
--- status = record.set_type( topRec, recType )
+-- status = record.set_type( rec, recType )
 -- status = record.set_flags( topRec, ldtBinName, binFlags )
+-- ======================================================================
+-- Notes on the SubRec functions:
+-- (*) The underlying Aerospike SubRec mechanism actually manages most
+--     aspects of SubRecs:  
+--     + Update of dirty subrecs is automatic at Lua Context Close.
+--     + Close of all subrecs is automatic at Lua Context Close.
+-- (*) We cannot close a dirty subrec explicit (we can make the call, but
+--     it will not take effect).  We must leave the closing of all dirty
+--     SubRecs to the end -- and we'll make that IMPLICIT, because an
+--     EXPLICIT call is just more work and makes no difference.
+-- (*) It is an ERROR to try to open (with an open_subrec() call) a SubRec
+--     that is ALREADY OPEN.  Thus, we use our "SubRecContext" functions
+--     that manage a pool of open SubRecs -- which prevents us from making
+--     that mistake.
+-- (*) We have a LIMITED number of SubRecs that can be open at one time.
+--     LDT Operations, such as Scan, that open ALL of the SubRecs are
+--     REQUIRED to close the READ-ONLY SubRecs when they are done so that
+--     we can open a new one.  We actually have two options here:
+--     + We can make close implicit -- and just close clean SubRecs to 
+--       free up slots in the SubRecContext (SRC: our pool of open SubRecs).
+--       Note that this requires that we mark SubRecs dirty if we have
+--       updated them (touched a bin).
+--       The only downside is that this makes the SubRec library a little
+--       more complicated.
+--     + We can make it explicit -- but this means we must be sure to
+--       actively close SubRecs, which makes coding more error-prone.
+--
 -- ======================================================================
 
 -- ++==================++
@@ -76,12 +102,16 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 -- Get addressability to the Function Table: Used for compress and filter
 local functionTable = require('ldt/UdfFunctionTable');
 
--- Common LDT functions that are used by ALL of the LDTs.
--- local LDTC = require('ldt/ldt_common');
+-- Common LDT Errors that are used by all of the LDT files.
 local ldte=require('ldt/ldt_errors');
 
 -- We have a set of packaged settings for each LDT
 local lstackPackage = require('ldt/settings_lstack');
+
+-- We have recently moved a number of COMMON functions into the "ldt_common"
+-- module, namely the subrec routines and some list management routines.
+-- We will likely move some other functions in there as they become common.
+local ldt_common = require('ldt/ldt_common');
 
 -- ++==================++
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
@@ -268,7 +298,7 @@ local PM_ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
 local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- Note: The TopRec keeps this in the single LDT Bin (RPM).
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
--- Lso Data Record (LDR) Control Map Fields (Recall that each Map ALSO has
+-- LDT Data Record (LDR) Control Map Fields (Recall that each Map ALSO has
 -- the PM (general property map) fields.
 -- local LDR_StoreMode            = 'M'; !! Use Top LDT Entry
 -- local LDR_ListEntryMax         = 'L'; !! Use top LDT entry
@@ -284,16 +314,22 @@ local CDM_DigestCount          = 'C';-- Current Digest Count
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LSTACK Map Field Name Mapping
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-local M_StoreMode              = 'M'; -- List or Binary Mode
-local M_StoreLimit             = 'S'; -- Max Item Count for stack
+-- These fields are common across all LDTs:
+-- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
 local M_UserModule             = 'P'; -- Name of the User Module
+local M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
+local M_KeyType                = 'k'; -- Key Type: Atomic or Complex
+local M_StoreMode              = 'M'; -- List or Binary Mode
+local M_StoreLimit             = 'L'; -- Max Item Count for stack
 local M_Transform              = 't'; -- User's Transform function
 local M_UnTransform            = 'u'; -- User's UNTransform function
+
+-- These fields are specific to LSTACK
 local M_LdrEntryCountMax       = 'e'; -- Max # of entries in an LDR
 local M_LdrByteEntrySize       = 's'; -- Fixed Size of a binary Object in LDR
 local M_LdrByteCountMax        = 'b'; -- Max # of bytes in an LDR
 local M_HotEntryList           = 'H'; -- The Hot Entry List
-local M_HotEntryListItemCount  = 'L'; -- The Hot List Count
+local M_HotEntryListItemCount  = 'i'; -- The Hot List Count
 local M_HotListMax             = 'h'; -- Max Size of the Hot List
 local M_HotListTransfer        = 'X'; -- Amount to transfer from Hot List
 local M_WarmDigestList         = 'W'; -- The Warm Digest List
@@ -303,7 +339,7 @@ local M_WarmListTransfer       = 'x'; -- Amount to Transfer from the Warm List
 -- Note that WarmTopXXXXCount will eventually replace the need to show if
 -- the Warm Top is FULL -- because we'll always know the count (and "full"
 -- will be self-evident).
-local M_WarmTopFull            = 'F'; -- AS_Boolean: Shows if Warm Top is full
+local M_WarmTopFull            = 'g'; -- AS_Boolean: Shows if Warm Top is full
 local M_WarmTopEntryCount      = 'A'; -- # of Objects in the Warm Top (LDR)
 local M_WarmTopByteCount       = 'a'; -- # Bytes in the Warm Top (LDR)
 
@@ -332,19 +368,21 @@ local M_ColdDirRecCount        = 'r';-- # of Cold Dir sub-Records
 -- collision: Obviously -- only one name can be associated with a character.
 -- We won't need to do this for the smaller maps, as we can see by simple
 -- inspection that we haven't reused a character.
---
+-- ----------------------------------------------------------------------
+---- >>> Be Mindful of the LDT Common Fields that ALL LDTs must share <<<
+-- ----------------------------------------------------------------------
 -- A:M_WarmTopEntryCount      a:M_WarmTopByteCount      0:
 -- B:                         b:M_LdrByteCountMax       1:
 -- C:M_ColdDirRecMax          c:M_ColdListMax           2:
 -- D:                         d:                        3:
 -- E:                         e:M_LdrEntryCountMax      4:
--- F:M_WarmTopFull            f:M_ColdTopFull           5:
--- G:                         g:                        6:
+-- F:M_KeyFunction            f:M_ColdTopFull           5:
+-- G:                         g:M_WarmTopFull           6:
 -- H:M_HotEntryList           h:M_HotListMax            7:
--- I:                         i:                        8:
+-- I:                         i:M_HotEntryListItemCount 8:
 -- J:                         j:                        9:
--- K:                         k:                  
--- L:M_HotEntryListItemCount  l:M_WarmListDigestCount
+-- K:                         k:M_KeyType         
+-- L:M_StoreLimit             l:M_WarmListDigestCount
 -- M:M_StoreMode              m:
 -- N:                         n:
 -- O:                         o:
@@ -432,7 +470,13 @@ end -- resetPtrs()
 -- (*) required: True when we must have a valid KeyFunction, such as for
 --               LLIST.
 -- -----------------------------------------------------------------------
+-- Now Using:
+-- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+-- -----------------------------------------------------------------------
 local function setKeyFunction( ldtMap, required )
+
+  error("DO NOT USE");
+
   local meth = "setKeyFunction()";
   -- Look in the Create Module first, then check the Function Table.
   local createModule = ldtMap[M_UserModule];
@@ -476,7 +520,7 @@ local function setKeyFunction( ldtMap, required )
 end -- setKeyFunction()
 
 -- -----------------------------------------------------------------------
--- setReadFunctions()()
+-- setReadFunctions()
 -- -----------------------------------------------------------------------
 -- Set the Filter and UnTransform Function pointers for Reading values.
 -- We follow this hierarchical lookup pattern for the read filter function:
@@ -493,6 +537,8 @@ end -- setKeyFunction()
 --
 -- -----------------------------------------------------------------------
 local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
+  error("DO NOT USE");
+
   local meth = "setReadFunctions()";
   GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
     MOD, meth, tostring(filter));
@@ -502,6 +548,7 @@ local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
   local createModule = ldtMap[M_UserModule];
   G_Filter = nil;
   G_FunctionArgs = filterArgs;
+  error("DO NOT USE");
   if( filter ~= nil ) then
     if( type(filter) ~= "string" or filter == "" ) then
       warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
@@ -585,6 +632,7 @@ end -- setReadFunctions()
 --
 -- -----------------------------------------------------------------------
 local function setWriteFunctions( ldtMap )
+  error("DO NOT USE");
   local meth = "setWriteFunctions()";
   GP=E and trace("[ENTER]<%s:%s> ldtMap(%s)", MOD, meth, tostring(ldtMap));
 
@@ -631,48 +679,43 @@ end -- setWriteFunctions()
 
 
 -- ======================================================================
+-- propMapSummary( resultMap, propMap )
 -- ======================================================================
--- local function ldtSummary( ldtCtrl ) (DEBUG/Trace Function)
+-- Add the propMap properties to the supplied resultMap.
 -- ======================================================================
--- For easier debugging and tracing, we will summarize the ldtMap
--- contents -- without printing out the entire thing -- and return it
--- as a string that can be printed.
--- Note that for THIS purpose -- the summary map has the full long field
--- names in it -- so that we can more easily read the values.
--- ======================================================================
-local function ldtSummary( ldtCtrl )
-  if ( ldtCtrl == nil ) then
-    warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
-    return "EMPTY LDT BIN VALUE";
-  end
+local function propMapSummary( resultMap, propMap )
 
-  local propMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-  if( propMap[PM_Magic] ~= MAGIC ) then
-    return "BROKEN MAP--No Magic";
-  end;
-
-  -- Return a map to the caller, with descriptive field names
-  local resultMap                = map();
-
-  -- Properties
-  resultMap.SUMMARY              = "LStack Summary";
-  resultMap.PropBinName          = propMap[PM_BinName];
+  -- Fields common for all LDT's
   resultMap.PropItemCount        = propMap[PM_ItemCount];
-  resultMap.PropSubRecCount      = propMap[PM_SubRecCount];
   resultMap.PropVersion          = propMap[PM_Version];
+  resultMap.PropSubRecCount      = propMap[PM_SubRecCount];
   resultMap.PropLdtType          = propMap[PM_LdtType];
-  resultMap.PropEsrDigest        = propMap[PM_EsrDigest];
+  resultMap.PropBinName          = propMap[PM_BinName];
+  resultMap.PropMagic            = propMap[PM_Magic];
   resultMap.PropCreateTime       = propMap[PM_CreateTime];
-  
+  resultMap.PropEsrDigest        = propMap[PM_EsrDigest];
+  resultMap.RecType              = propMap[PM_RecType];
+  resultMap.ParentDigest         = propMap[PM_ParentDigest];
+  resultMap.SelfDigest           = propMap[PM_SelfDigest];
+end -- function propMapSummary()
+
+
+-- ======================================================================
+-- ldtMapSummary( resultMap, ldtMap )
+-- ======================================================================
+-- Add the LDT Map properties to the supplied resultMap.
+-- ======================================================================
+local function ldtMapSummary( resultMap, ldtMap )
+
   -- General LDT Parms:
   resultMap.StoreMode            = ldtMap[M_StoreMode];
   resultMap.StoreLimit           = ldtMap[M_StoreLimit];
   resultMap.UserModule           = ldtMap[M_UserModule];
   resultMap.Transform            = ldtMap[M_Transform];
   resultMap.UnTransform          = ldtMap[M_UnTransform];
+  resultMap.KeyType              = ldtMap[M_KeyType];
 
-  -- LDT Data Record Chunk Settings:
+  -- LDT Data Record (LDR) Settings:
   resultMap.LdrEntryCountMax     = ldtMap[M_LdrEntryCountMax];
   resultMap.LdrByteEntrySize     = ldtMap[M_LdrByteEntrySize];
   resultMap.LdrByteCountMax      = ldtMap[M_LdrByteCountMax];
@@ -696,15 +739,107 @@ local function ldtSummary( ldtCtrl )
   resultMap.ColdTopFull           = ldtMap[M_ColdTopFull];
   resultMap.ColdTopListCount      = ldtMap[M_ColdTopListCount];
 
+end -- function ldtMapSummary
+
+-- ======================================================================
+-- local function ldtSummary( ldtCtrl ) (DEBUG/Trace Function)
+-- ======================================================================
+-- For easier debugging and tracing, we will summarize the ldtCtrl 
+-- contents -- without printing out the entire thing -- and return it
+-- as a string that can be printed.
+-- Note that for THIS purpose -- the summary map has the full long field
+-- names in it -- so that we can more easily read the values.
+-- ======================================================================
+local function ldtSummary( ldtCtrl )
+  local meth = "ldtSummary()";
+
+  -- Return a map to the caller, with descriptive field names
+  local resultMap                = map();
+  resultMap.SUMMARY              = "LSTACK Summary";
+
+  if ( ldtCtrl == nil ) then
+    warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
+    resultMap.ERROR =  "EMPTY LDT BIN VALUE";
+    return resultMap;
+  end
+
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  if( propMap[PM_Magic] ~= MAGIC ) then
+    resultMap.ERROR =  "BROKEN MAP--No Magic";
+    return resultMap;
+  end;
+
+  -- Load the common properties
+  propMapSummary( resultMap, propMap );
+
+  -- Load the LMAP-specific properties
+  ldtMapSummary( resultMap, ldtMap );
+
   return resultMap;
 end -- ldtSummary()
 
+-- ======================================================================
+-- ldtDebugDump()
+-- ======================================================================
+-- To aid in debugging, dump the entire contents of the ldtCtrl object
+-- for LMAP.  Note that this must be done in several prints, as the
+-- information is too big for a single print (it gets truncated).
+-- ======================================================================
+local function ldtDebugDump( ldtCtrl )
+
+  -- Print MOST of the "TopRecord" contents of this LMAP object.
+  local resultMap                = map();
+  resultMap.SUMMARY              = "LSTACK Summary";
+
+  info("\n\n <><><><><><><><><> [ LDT LSTACK SUMMARY ] <><><><><><><><><> \n");
+
+  if ( ldtCtrl == nil ) then
+    warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
+    resultMap.ERROR =  "EMPTY LDT BIN VALUE";
+    info("<<<%s>>>", tostring(resultMap));
+    return 0;
+  end
+
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  if( propMap[PM_Magic] ~= MAGIC ) then
+    resultMap.ERROR =  "BROKEN MAP--No Magic";
+    info("<<<%s>>>", tostring(resultMap));
+    return 0;
+  end;
+
+  -- Load the common properties
+  propMapSummary( resultMap, propMap );
+  info("\n<<<%s>>>\n", tostring(resultMap));
+  resultMap = nil;
+
+  -- Reset for each section, otherwise the result would be too much for
+  -- the info call to process, and the information would be truncated.
+  resultMap2 = map();
+  resultMap2.SUMMARY              = "LSTACK-SPECIFIC Values";
+
+  -- Load the LMAP-specific properties
+  ldtMapSummary( resultMap2, ldtMap );
+  info("\n<<<%s>>>\n", tostring(resultMap2));
+  resultMap2 = nil;
+
+  -- Print the Hash Directory
+  resultMap3 = map();
+  resultMap3.SUMMARY              = "LSTACK Hot List";
+  resultMap3.HotEntryList         = ldtMap[M_HotEntryList];
+  info("\n<<<%s>>>\n", tostring(resultMap3));
+
+end -- function ldtDebugDump()
 -- ======================================================================
 -- Make it easier to use ldtSummary(): Have a String version.
 -- ======================================================================
 local function ldtSummaryString( ldtCtrl )
   return tostring( ldtSummary( ldtCtrl ) );
 end
+
 -- ======================================================================
 -- Switch to this name:  ldtSummaryString().  It's the new standard
 -- ======================================================================
@@ -712,9 +847,8 @@ local function ldtSummaryString( ldtCtrl )
   return tostring( ldtSummary( ldtCtrl ) );
 end
 
--- =============================
--- Begin SubRecord Function Area (MOVE THIS TO LDT_COMMON)
--- =============================
+-- ======================================================================
+-- NOTE: All Sub-Record routines have been moved to ldt_common.
 -- ======================================================================
 -- SUB RECORD CONTEXT DESIGN NOTE:
 -- All "outer" functions, will employ the "subrecContext" object, which
@@ -729,224 +863,6 @@ end
 -- to mark them dirty -- but for now we'll update them in place (as needed),
 -- but we won't close them until the end.
 -- ======================================================================
-local function createSubrecContext()
-  local meth = "createSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  -- We need to track BOTH the Open Records and their Dirty State.
-  -- Do this with a LIST of maps:
-  -- recMap   = srcList[1]
-  -- dirtyMap = srcList[2]
-
-  -- Code not yet changed.
-  local srcList = list();
-  local recMap = map();
-  local dirtyMap = map();
-  recMap.ItemCount = 0;
-  list.append( srcList, recMap ); -- recMap
-  list.append( srcList, dirtyMap ); -- dirtyMap
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcList));
-  return srcList;
-end -- createSubrecContext()
-
--- ======================================================================
--- Given an already opened subrec (probably one that was recently created),
--- add it to the subrec context.
--- ======================================================================
-local function addSubrecToContext( srcList, subrec )
-  local meth = "addSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring( srcList));
-
-  if( srcList == nil ) then
-    warn("[ERROR]<%s:%s> Bad Subrec Context: SRC is NIL", MOD, meth );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-
-  local digest = record.digest( subrec );
-  local digestString = tostring( digest );
-  recMap[digestString] = subrec;
-
-  local itemCount = recMap.ItemCount;
-  recMap.ItemCount = itemCount + 1;
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(srcList));
-  return 0;
-end -- addSubrecToContext()
-
--- ======================================================================
--- openSubrec()
--- ======================================================================
-local function openSubrec( srcList, topRec, digestString )
-  local meth = "openSubrec()";
-  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(srcList));
-
-  -- We have a global limit on the number of subrecs that we can have
-  -- open at a time.  If we're at (or above) the limit, then we must
-  -- exit with an error (better here than in the subrec code).
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-  local itemCount = recMap.ItemCount;
-
-  local subrec = recMap[digestString];
-  if( subrec == nil ) then
-    if( itemCount >= G_OPEN_SR_LIMIT ) then
-      warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-        itemCount, G_OPEN_SR_LIMIT );
-      error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
-    end
-
-    recMap.ItemCount = itemCount + 1;
-    GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
-      MOD, meth, recMap.ItemCount, tostring(topRec), digestString );
-    subrec = aerospike:open_subrec( topRec, digestString );
-    GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)", 
-      MOD,meth,tostring(subrec));
-    if( subrec == nil ) then
-      warn("[ERROR]<%s:%s> Subrec Open Failure: Digest(%s)", MOD, meth,
-        digestString );
-      error( ldte.ERR_SUBREC_OPEN );
-    end
-  else
-    GP=F and trace("[FOUND REC]<%s:%s>Rec(%s)", MOD, meth, tostring(subrec));
-  end
-
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
-    MOD, meth, tostring(subrec), digestString );
-  return subrec;
-end -- openSubrec()
-
-
--- ======================================================================
--- closeSubrec()
--- ======================================================================
--- Close the subrecord -- providing it is NOT dirty.  For all dirty
--- subrecords, we have to wait until the end of the UDF call, as THAT is
--- when all dirty subrecords get written out and closed.
--- ======================================================================
-local function closeSubrec( srcList, digestString )
-  local meth = "closeSubrec()";
-  GP=E and trace("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
-    MOD, meth, digestString, tostring(srcList));
-
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-  local itemCount = recMap.ItemCount;
-  local rc = 0;
-
-  local subrec = recMap[digestString];
-  local dirtyStatus = dirtyMap[digestString];
-  if( subrec == nil ) then
-    warn("[INTERNAL ERROR]<%s:%s> Rec not found for Digest(%s)", MOD, meth,
-      digestString );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth, digestString);
-
-  if( dirtyStatus == true ) then
-    warn("[WARNING]<%s:%s> Can't close Dirty Record: Digest(%s)",
-      MOD, meth, digestString);
-  else
-    rc = aerospike:close_subrec( subrec );
-    GP=F and trace("[STATUS]<%s:%s>Closed Rec: Digest(%s) rc(%s)", MOD, meth,
-      digestString, tostring( rc ));
-  end
-
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
-    MOD, meth, tostring(subrec), digestString, tostring(rc));
-  return rc;
-end -- closeSubrec()
-
-
--- ======================================================================
--- updateSubrec()
--- ======================================================================
--- Update the subrecord -- and then mark it dirty.
--- ======================================================================
-local function updateSubrec( srcList, subrec, digest )
-  local meth = "updateSubrec()";
-  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(srcList));
-
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-  local rc = 0;
-
-  if( digest == nil or digest == 0 ) then
-    digest = record.digest( subrec );
-  end
-  local digestString = tostring( digest );
-
-  rc = aerospike:update_subrec( subrec );
-  dirtyMap[digestString] = true;
-
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
-    MOD, meth, tostring(subrec), digestString, tostring(rc));
-  return rc;
-end -- updateSubrec()
-
--- ======================================================================
--- markSubrecDirty()
--- ======================================================================
-local function markSubrecDirty( srcList, digestString )
-  local meth = "markSubrecDirty()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcList));
-
-  -- Pull up the dirtyMap, find the entry for this digestString and
-  -- mark it dirty.  We don't even care what the existing value used to be.
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-
-  dirtyMap[digestString] = true;
-  
-  GP=E and trace("[EXIT]<%s:%s> SRC(%s)", MOD, meth, tostring(srcList) );
-  return 0;
-end -- markSubrecDirty()
-
--- ======================================================================
--- closeAllSubrecs()
--- ======================================================================
-local function closeAllSubrecs( srcList )
-  local meth = "closeAllSubrecs()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcList));
-
-  local recMap = srcList[1];
-  local dirtyMap = srcList[2];
-
-  -- Iterate thru the SubRecContext and close all subrecords.
-  local digestString;
-  local rec;
-  local rc = 0;
-  for name, value in map.pairs( recMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-    if( name == "ItemCount" ) then
-      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
-    else
-      digestString = name;
-      rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Would have closed SubRec(%s) Rec(%s)",
-      MOD, meth, digestString, tostring(rec) );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
-      --   MOD, meth, digestString, tostring(rec) );
-      -- rc = aerospike:close_subrec( rec );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing Results(%d)", MOD, meth, rc );
-    end
-  end -- for all fields in SRC
-
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  -- return rc;
-  return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
-end -- closeAllSubrecs()
-
--- ===========================
--- End SubRecord Function Area
--- ===========================
 
 -- ======================================================================
 -- listAppend()
@@ -968,67 +884,7 @@ local function listAppend( baseList, additionalList )
   return baseList;
 end -- listAppend()
 
-
 -- ======================================================================
--- When we create the initial LDT Control Bin for the entire record (the
--- first time ANY LDT is initialized in a record), we create a property
--- map in it with various values.
--- TODO: Move this to LDT_COMMON (7/21/2013)
--- ======================================================================
-local function setLdtRecordType( topRec )
-  local meth = "setLdtRecordType()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  local rc = 0;
-  local recPropMap;
-
-  -- Check for existence of the main record control bin.  If that exists,
-  -- then we're already done.  Otherwise, we create the control bin, we
-  -- set the topRec record type (to LDT) and we praise the lord for yet
-  -- another miracle LDT birth.
-  if( topRec[REC_LDT_CTRL_BIN] == nil ) then
-    GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
-
-    -- If this record doesn't even exist yet -- then create it now.
-    -- Otherwise, things break.
-    if( not aerospike:exists( topRec ) ) then
-      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
-      rc = aerospike:create( topRec );
-    end
-
-    record.set_type( topRec, RT_LDT );
-    recPropMap = map();
-    -- vinfo will be a 5 byte value, but it will be easier for us to store
-    -- 6 bytes -- and just leave the high order one at zero.
-    -- Initialize the VINFO value to all zeros.
-    -- local vinfo = bytes(6);
-    -- bytes.put_int16(vinfo, 1, 0 );
-    -- bytes.put_int16(vinfo, 3, 0 );
-    -- bytes.put_int16(vinfo, 5, 0 );
-    local vinfo = 0;
-    recPropMap[RPM_VInfo] = vinfo; 
-    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
-    recPropMap[RPM_Magic] = MAGIC;
-  else
-    -- Not much to do -- increment the LDT count for this record.
-    recPropMap = topRec[REC_LDT_CTRL_BIN];
-    local ldtCount = recPropMap[RPM_LdtCount];
-    recPropMap[RPM_LdtCount] = ldtCount + 1;
-    GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
-      MOD, meth, ldtCount + 1 );
-  end
-  topRec[REC_LDT_CTRL_BIN] = recPropMap;
-  -- Set this control bin as HIDDEN
-  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update( topRec );
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
-  return rc;
-end -- setLdtRecordType()
-
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <><><><> <Initialize Control Maps> <Initialize Control Maps> <><><><>
@@ -1055,11 +911,17 @@ end -- setLdtRecordType()
 -- Set up the LDT Map with the standard (default) values.
 -- These values may later be overridden by the user.
 -- The structure held in the Record's "LDT BIN" is this map.  This single
--- structure contains ALL of the settings/parameters that drive the LSO
+-- structure contains ALL of the settings/parameters that drive the LDT
 -- behavior.  Thus this function represents the "type" LDT MAP -- all
 -- LDT control fields are defined here.
--- The LdtMap is obtained using the user's LDT Bin Name:
--- ldtMap = 
+-- The LdtMap is obtained using the user's LDT Bin Name.
+--
+-- Parms:
+-- (*) topRec: The Aerospike Server record on which we operate
+-- (*) ldtBinName: The name of the bin for the LDT
+--
+-- ======================================================================
+-- Additional Notes:
 -- local RT_REG = 0; -- 0x0: Regular Record (Here only for completeneness)
 -- local RT_LDT = 1; -- 0x1: Top Record (contains an LDT)
 -- local RT_SUB = 2; -- 0x2: Regular Sub Record (LDR, CDIR, etc)
@@ -1071,11 +933,13 @@ local function initializeLdtCtrl( topRec, ldtBinName )
     MOD, meth, tostring(ldtBinName));
 
   -- Create the two maps and fill them in.  There's the General Property Map
-  -- and the LDT specific Lso Map.
+  -- and the LDT specific LDT Map.
   -- Note: All Field Names start with UPPER CASE.
   local propMap = map();
   local ldtMap = map();
   local ldtCtrl = list();
+  list.append( ldtCtrl, propMap );
+  list.append( ldtCtrl, ldtMap );
 
   -- General LDT Parms(Same for all LDTs): Held in the Property Map
   propMap[PM_ItemCount] = 0; -- A count of all items in the stack
@@ -1086,18 +950,17 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
   propMap[PM_EsrDigest]    = 0; -- not set yet.
   propMap[PM_CreateTime] = aerospike:get_current_time();
-  -- warn("WARNING:: Please Fix GET CURRENT TIME");
-  -- propMap[PM_CreateTime] = 0;
   propMap[PM_SelfDigest] = record.digest( topRec );
 
   -- Specific LDT Parms: Held in LdtMap
   ldtMap[M_StoreMode]   = SM_LIST; -- SM_LIST or SM_BINARY:
   ldtMap[M_StoreLimit]  = G_STORE_LIMIT;  -- Store no more than this.
+  ldtMap[M_KeyType]     = KT_ATOMIC;      -- for lstack, everything is a blob
 
-  -- LDT Data Record Chunk Settings: Passed into "Chunk Create"
-  ldtMap[M_LdrEntryCountMax]= 100;  -- Max # of Data Chunk items (List Mode)
+  -- LDT Data Record Settings: Passed into "LDR Create"
+  ldtMap[M_LdrEntryCountMax]= 100;  -- Max # of Data LDR items (List Mode)
   ldtMap[M_LdrByteEntrySize]=  0;  -- Byte size of a fixed size Byte Entry
-  ldtMap[M_LdrByteCountMax] =   0; -- Max # of Data Chunk Bytes (binary mode)
+  ldtMap[M_LdrByteCountMax] =   0; -- Max # of Data LDR Bytes (binary mode)
 
   -- Hot Entry List Settings: List of User Entries
   ldtMap[M_HotEntryList]         = list(); -- the list of data entries
@@ -1117,27 +980,23 @@ end
 
   -- Warm Digest List Settings: List of Digests of LDT Data Records
   ldtMap[M_WarmDigestList]       = list(); -- the list of digests for LDRs
-  ldtMap[M_WarmTopFull] = AS_FALSE; --true when top chunk is full(for next write)
-  ldtMap[M_WarmListDigestCount]  = 0; -- Number of Warm Data Record Chunks
-  ldtMap[M_WarmListMax]          = 100; -- Number of Warm Data Record Chunks
-  ldtMap[M_WarmListTransfer]     = 2; -- Number of Warm Data Record Chunks
-  ldtMap[M_WarmTopEntryCount]    = 0; -- Count of entries in top warm chunk
-  ldtMap[M_WarmTopByteCount]     = 0; -- Count of bytes used in top warm Chunk
+  ldtMap[M_WarmTopFull] = AS_FALSE; --true when top LDR is full(for next write)
+  ldtMap[M_WarmListDigestCount]  = 0; -- Number of Warm Data Record LDRs
+  ldtMap[M_WarmListMax]          = 100; -- Number of Warm Data Record LDRs
+  ldtMap[M_WarmListTransfer]     = 2; -- Number of Warm Data Record LDRs
+  ldtMap[M_WarmTopEntryCount]    = 0; -- Count of entries in top warm LDR
+  ldtMap[M_WarmTopByteCount]     = 0; -- Count of bytes used in top warm LDR
 
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[M_ColdDirListHead]= 0; -- Head (Rec Digest) of the Cold List Dir Chain
   ldtMap[M_ColdTopFull]    = AS_FALSE; -- true when cold head is full (next write)
-  ldtMap[M_ColdDataRecCount]= 0; -- # of Cold DATA Records (data chunks)
+  ldtMap[M_ColdDataRecCount]= 0; -- # of Cold DATA Records (data LDRs)
   ldtMap[M_ColdDirRecCount] = 0; -- # of Cold DIRECTORY Records
   ldtMap[M_ColdDirRecMax]   = 5; -- Max# of Cold DIRECTORY Records
   ldtMap[M_ColdListMax]     = 100; -- # of list entries in a Cold list dir node
 
-  -- Put our new maps in a list, in the record, then store the record.
-  list.append( ldtCtrl, propMap );
-  list.append( ldtCtrl, ldtMap );
-  topRec[ldtBinName]            = ldtCtrl;
 
-  GP=F and trace("[DEBUG]: <%s:%s> : Lso Summary after Init(%s)",
+  GP=F and trace("[DEBUG]: <%s:%s> : LDT Summary after Init(%s)",
       MOD, meth , ldtSummaryString(ldtCtrl));
 
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
@@ -1145,13 +1004,15 @@ end
   -- Otherwise, we should set it. This function will check, and if necessary,
   -- set the control bin.
   -- This method will also call record.set_type().
-  setLdtRecordType( topRec );
+  ldt_common.setLdtRecordType( topRec );
 
   -- Set the BIN Flag type to show that this is an LDT Bin, with all of
   -- the special priviledges and restrictions that go with it.
   GP=F and trace("[DEBUG]:<%s:%s>About to call record.set_flags(Bin(%s)F(%s)",
     MOD, meth, ldtBinName, tostring(BF_LDT_BIN) );
 
+  -- Put our new maps in a list, in the record, then store the record.
+  topRec[ldtBinName]    = ldtCtrl;
   record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
 
   GP=F and trace("[DEBUG]: <%s:%s> Back from calling record.set_flags()",
@@ -1162,98 +1023,6 @@ end
 end -- initializeLdtCtrl()
 
 -- ======================================================================
--- ldtInitPropMap( propMap, subDigest, topDigest, rtFlag, ldtMap )
--- ======================================================================
--- Set up the LDR Property Map (one PM per LDT).  This function will move
--- into the ldtCommon module.
--- Parms:
--- (*) propMap: 
--- (*) esrDigest:
--- (*) subDigest:
--- (*) topDigest:
--- (*) rtFlag:
--- (*) topPropMap;
--- ======================================================================
-local function
-ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
-  local meth = "ldtInitPropMap()";
-  GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
-
-  -- Remember the ESR in the Top Record
-  topPropMap[PM_EsrDigest] = esrDigest;
-
-  -- Initialize the PropertyMap in the new ESR
-  propMap[PM_EsrDigest]    = esrDigest;
-  propMap[PM_RecType  ]    = rtFlag;
-  propMap[PM_Magic]        = MAGIC;
-  propMap[PM_ParentDigest] = topDigest;
-  propMap[PM_SelfDigest]   = selfDigest;
-
-end -- ldtInitPropMap()
--- ======================================================================
--- Create and Init ESR
--- ======================================================================
--- The Existence SubRecord is the synchronization point for the lDTs that
--- have multiple records (one top rec and many children).  It's a little
--- like the baby sitter for the children -- it helps keeps track of them.
--- And, when the ESR is gone, we kill the children. (BRUA-HAHAHAH!!!)
---
--- All LDT subrecs have a properties bin that describes the subrec.  This
--- bin contains a map that is "un-msg-packed" by the C code on the server
--- and read.  It must be the same for all LDT recs.
---
--- ======================================================================
-local function createAndInitESR(src, topRec, ldtCtrl )
-  local meth = "createAndInitESR()";
-  GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
-
-  local rc = 0;
-
-  -- Remember to add this to the SRC after it is initialized.
-  local esrRec    = aerospike:create_subrec( topRec );
-
-  if( esrRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating ESR", MOD, meth );
-    error( ldte.ERR_SUBREC_CREATE );
-  end
-
-  local esrDigest = record.digest( esrRec);
-  local topDigest = record.digest( topRec );
-  local topPropMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Set the Property ControlMap for the ESR, and assign the parent Digest
-  -- Note that we use our standard convention for property maps - all subrecs
-  -- have a property map.
-  -- Init the properties map for this ESR. Note that esrDigest is in here
-  -- twice -- once for "self" and once for "esrRec".
-  local esrPropMap = map();
-  ldtInitPropMap(esrPropMap,esrDigest,esrDigest,topDigest,RT_ESR,topPropMap);
-
-  -- NOTE: We have to make sure that the TopRec propMap also gets saved.
-  esrRec[SUBREC_PROP_BIN] = esrPropMap;
-
-  
-  -- Set the record type as "ESR"
-  record.set_type( esrRec, RT_ESR );
-
-  GP=E and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
-    MOD, meth, tostring(esrDigest));
-
-  -- Now that it's initialized, add the ESR to the SRC.
-  addSubrecToContext( src, esrRec );
-
-  rc = aerospike:update_subrec( esrRec );
-  if( rc == nil or rc == 0 ) then
-      aerospike:close_subrec( esrRec );
-  else
-    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
-  end
-
-  return esrDigest;
-
-end -- createAndInitESR()
 
 -- ======================================================================
 -- initializeLdrMap()
@@ -1277,14 +1046,14 @@ local function initializeLdrMap(src,topRec,ldrRec,ldrPropMap,ldrMap,ldtCtrl)
   GP=E and trace("[ENTER]: <%s:%s> src(%s) ldtCtrl(%s)", MOD, meth,
     tostring( src ), ldtSummaryString( ldtCtrl ));
 
-  local lsoPropMap = ldtCtrl[1];
+  local ldtPropMap = ldtCtrl[1];
   local ldtMap     = ldtCtrl[2];
 
   ldrPropMap[PM_RecType]      = RT_SUB;
   ldrPropMap[PM_ParentDigest] = record.digest( topRec );
   ldrPropMap[PM_SelfDigest]   = record.digest( ldrRec );
   --  Not doing Log stuff yet
-  --  ldrPropMap[PM_LogInfo]      = lsoPropMap[M_LogInfo];
+  --  ldrPropMap[PM_LogInfo]      = ldtPropMap[M_LogInfo];
 
   --  Use Top level LDT entry for mode and max values
   ldrMap[LDR_ByteEntrySize]   = ldtMap[M_LdrByteEntrySize];
@@ -1292,63 +1061,20 @@ local function initializeLdrMap(src,topRec,ldrRec,ldrPropMap,ldrMap,ldtCtrl)
 
   -- If this is the first LDR, then it's time to create an ESR for this
   -- LDT.
-  if( lsoPropMap[PM_EsrDigest] == nil or lsoPropMap[PM_EsrDigest] == 0 ) then
-    lsoPropMap[PM_EsrDigest] = createAndInitESR(src,topRec, ldtCtrl );
+  if( ldtPropMap[PM_EsrDigest] == nil or ldtPropMap[PM_EsrDigest] == 0 ) then
+    ldtPropMap[PM_EsrDigest] = createAndInitESR(src,topRec, ldtCtrl );
   end
 
-  local lsopropMap = ldtCtrl[1];
-  ldrPropMap[PM_EsrDigest] = lsoPropMap[PM_EsrDigest];
+  local ldtPropMap = ldtCtrl[1];
+  ldrPropMap[PM_EsrDigest] = ldtPropMap[PM_EsrDigest];
   GP=F and trace("LDR MAP: [%s:%s:%s]", tostring(ldrPropMap[PM_SelfDigest]),
     tostring(ldrPropMap[PM_EsrDigest]), tostring(ldrPropMap[PM_ParentDigest]));
 
-  -- Set the type of this record to LDT (it might already be set by another
+  -- Set the type of this record to LDT SUB(it might already be set by another
   -- LDT in this same record).
-  record.set_type( ldrRec, RT_SUB ); -- LDT Type Rec
+  record.set_type( ldrRec, RT_SUB ); -- LDT Type Sub-Record
 
 end -- initializeLdrMap()
-
-
--- ======================================================================
--- initializeColdDirMap()
--- ======================================================================
--- Set the default values in a Cold Directory Record. ColdDir records
--- contain a list of digests that reference LDRs (above).
--- This function represents the "type" ColdDir MAP -- all fields are
--- defined here.
--- There are two bins in a ColdDir Record:
--- (1) ldrRec[COLD_DIR_CTRL_BIN]: The control Map (defined here)
--- (2) ldrRec[COLD_DIR_LIST_BIN]: The Digest List
--- Parms:
--- (*) topRec
--- (*) coldDirRec
--- (*) coldDirPropMap
--- (*) coldDirMap
--- (*) ldtCtrl
--- ======================================================================
-local function initializeColdDirMap( topRec, cdRec, cdPropMap, cdMap, ldtCtrl )
-  local meth = "initializeColdDirMap()";
-  GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
-
-  local lsoPropMap = ldtCtrl[1];
-  local ldtMap     = ldtCtrl[2];
-  
-  cdPropMap[PM_RecType]      = RT_SUB;
-  cdPropMap[PM_ParentDigest] = record.digest( topRec );
-  cdPropMap[PM_SelfDigest] = record.digest( cdRec );
-
-  cdMap[CDM_NextDirRec] = 0; -- no other Dir Records (yet).
-  cdMap[CDM_PrevDirRec] = 0; -- no other Dir Records (yet).
-  cdMap[CDM_DigestCount] = 0; -- no digests in the list -- yet.
-  local lsopropMap = ldtCtrl[1];
-  cdPropMap[PM_EsrDigest] = lsoPropMap[PM_EsrDigest];
-  GP = F and trace("CD MAP: [%s:%s:%s]", tostring(cdPropMap[PM_SelfDigest]),
-  tostring(cdPropMap[PM_EsrDigest]), tostring(cdPropMap[PM_ParentDigest]));
-
-  -- Set the type of this record to LDT (it might already be set by another
-  -- LDT in this same record).
-  record.set_type( cdRec, RT_SUB ); -- LDT Type Rec
-end -- initializeColdDirMap()
-
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1368,45 +1094,44 @@ end -- initializeColdDirMap()
 -- Parms:
 -- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
 -- (*) argListMap: Map of LDT Settings 
--- Return: The updated LsoList
--- ======================================================================
-local function adjustLdtMap( ldtCtrl, argListMap )
-  local meth = "adjustLdtMap()";
-  local propMap = ldtCtrl[1];
-  local ldtMap = ldtCtrl[2];
-
-  GP=E and trace("[ENTER]: <%s:%s>:: LsoList(%s)::\n ArgListMap(%s)",
-    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
-
-  -- Iterate thru the argListMap and adjust (override) the map settings 
-  -- based on the settings passed in during the stackCreate() call.
-  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
-    MOD, meth, tostring(argListMap));
-
-  -- For the old style -- we'd iterate thru ALL arguments and change
-  -- many settings.  Now we process only packages this way.
-  for name, value in map.pairs( argListMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
-    MOD, meth, tostring( name ), tostring( value ));
-  
-    -- Process our "prepackaged" settings.  These now reside in the
-    -- settings file.  All of the packages are in a table, and thus are
-    -- looked up dynamically.
-    -- Notice that this is the old way to change settings.  The new way is
-    -- to use a "user module", which contains UDFs that control LDT settings.
-    if name == "Package" and type( value ) == "string" then
-      local ldtPackage = lstackPackage[value];
-      if( ldtPackage ~= nil ) then
-        ldtPackage( ldtMap );
-      end
-    end
-  end -- for each argument
-
-  GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
-    MOD,meth,tostring(ldtCtrl));
-  return ldtCtrl;
-end -- adjustLdtMap
-
+-- Return: The updated LDT Control.
+-- -- ======================================================================
+-- local function adjustLdtMap( ldtCtrl, argListMap )
+--   local meth = "adjustLdtMap()";
+--   local propMap = ldtCtrl[1];
+--   local ldtMap = ldtCtrl[2];
+-- 
+--   GP=E and trace("[ENTER]: <%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
+--     MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
+-- 
+--   -- Iterate thru the argListMap and adjust (override) the map settings 
+--   -- based on the settings passed in during the stackCreate() call.
+--   GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
+--     MOD, meth, tostring(argListMap));
+-- 
+--   -- For the old style -- we'd iterate thru ALL arguments and change
+--   -- many settings.  Now we process only packages this way.
+--   for name, value in map.pairs( argListMap ) do
+--     GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
+--     MOD, meth, tostring( name ), tostring( value ));
+--   
+--     -- Process our "prepackaged" settings.  These now reside in the
+--     -- settings file.  All of the packages are in a table, and thus are
+--     -- looked up dynamically.
+--     -- Notice that this is the old way to change settings.  The new way is
+--     -- to use a "user module", which contains UDFs that control LDT settings.
+--     if name == "Package" and type( value ) == "string" then
+--       local ldtPackage = lstackPackage[value];
+--       if( ldtPackage ~= nil ) then
+--         ldtPackage( ldtMap );
+--       end
+--     end
+--   end -- for each argument
+-- 
+--   GP=E and trace("[EXIT]:<%s:%s>:LDT Ctrl after Init(%s)",
+--     MOD,meth,tostring(ldtCtrl));
+--   return ldtCtrl;
+-- end -- adjustLdtMap
 
 -- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
@@ -1434,11 +1159,11 @@ end -- summarizeList()
 -- ======================================================================
 -- ldrSummary( ldrRec )
 -- ======================================================================
--- Print out interesting stats about this LDR Chunk Record
+-- Print out interesting stats about this LDR Record
 -- ======================================================================
 local function  ldrSummary( ldrRec ) 
   if( ldrRec  == nil ) then
-    return "NULL Data Chunk (LDR) RECORD";
+    return "NULL Data (LDR) RECORD";
   end;
   if( ldrRec[LDR_CTRL_BIN]  == nil ) then
     return "NULL LDR CTRL BIN";
@@ -1512,7 +1237,7 @@ local function readEntryList( resultList, ldtCtrl, entryList, count, all)
       MOD,meth,tostring(count), tostring(G_Filter), tostring(G_FunctionArgs),
       tostring(all));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT map from the LDT Ctrl.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -1593,14 +1318,14 @@ end -- readEntryList()
 -- Parms:
 --   (*) resultList:
 --   (*) ldtCtrl
---   (*) LDR Chunk Page:
+--   (*) LDR Page:
 --   (*) count:
 --   (*) all:
 -- Return:
 --   Implicit: entries are added to the result list
 --   Explicit: Number of Elements Read.
 -- ======================================================================
-local function readByteArray( resultList, ldtCtrl, ldrChunk, count, all)
+local function readByteArray( resultList, ldtCtrl, ldrSubRec, count, all)
   local meth = "readByteArray()";
   GP=E and trace("[ENTER]: <%s:%s> Count(%s) func(%s) fargs(%s) all(%s)",
     MOD,meth,tostring(count), tostring(func), tostring(fargs), tostring(all));
@@ -1613,8 +1338,8 @@ local function readByteArray( resultList, ldtCtrl, ldrChunk, count, all)
   -- There are two modes:
   -- (*) ALL Mode: Read the entire list, return all that qualify
   -- (*) Count Mode: Read <count> or <entryListSize>, whichever is smaller
-  local ldrMap = ldrChunk[LDR_CTRL_BIN];
-  local byteArray = ldrChunk[LDR_BNRY_BIN];
+  local ldrMap = ldrSubRec[LDR_CTRL_BIN];
+  local byteArray = ldrSubRec[LDR_BNRY_BIN];
   local numRead = 0;
   local numToRead = 0;
   local listSize = ldrMap[LDR_ByteEntryCount]; -- Number of Entries
@@ -1707,55 +1432,58 @@ end -- readByteArray()
 -- LDT Data Record (LDR) FUNCTIONS
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
--- LDR routines act specifically on the LDR "Data Chunk" records.
+-- LDR routines act specifically on the LDR Sub-Records.
 
 -- ======================================================================
--- ldrInsertList( ldrRec, ldtMap, listIndex,  insertList )
+-- ldrInsertList()
 -- ======================================================================
 -- Insert (append) the LIST of values (overflow from the HotList) 
--- to this chunk's value list.  We start at the position "listIndex"
+-- to this Sub-Rec's value list.  We start at the position "listIndex"
 -- in "insertList".  Note that this call may be a second (or Nth) call,
 -- so we are starting our insert in "insertList" from "listIndex", and
 -- not implicitly from "1".
 -- Parms:
--- (*) ldrRec: Hotest of the Warm Chunk Records
+-- (*) ldrSubRec: Hotest of the Warm Sub Records
 -- (*) ldtMap: the LDT control information
 -- (*) listIndex: Index into <insertList> from where we start copying.
 -- (*) insertList: The list of elements to be copied in
 -- Return: Number of items written
 -- ======================================================================
-local function ldrInsertList(ldrRec,ldtMap,listIndex,insertList )
+local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
   local meth = "ldrInsertList()";
   GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s)",
     MOD, meth, listIndex, tostring( insertList ) );
 
   GP=F and trace("[DEBUG]<%s:%s> LDT MAP(%s)", MOD, meth, tostring(ldtMap));
 
-  local ldrMap = ldrRec[LDR_CTRL_BIN];
-  local ldrValueList = ldrRec[LDR_LIST_BIN];
-  local chunkIndexStart = list.size( ldrValueList ) + 1;
-  local ldrByteArray = ldrRec[LDR_BNRY_BIN]; -- might be nil
+  GP=F and trace("[DEBUG]<%s:%s> LDR Rec Summary(%s)", MOD, meth,
+   ldrSummary( ldrSubRec ));
 
-  GP=F and trace("[DEBUG]: <%s:%s> Chunk: CTRL(%s) List(%s)",
+  local ldrMap = ldrSubRec[LDR_CTRL_BIN];
+  local ldrValueList = ldrSubRec[LDR_LIST_BIN];
+  local ldrIndexStart = list.size( ldrValueList ) + 1;
+  local ldrByteArray = ldrSubRec[LDR_BNRY_BIN]; -- might be nil
+
+  GP=F and trace("[DEBUG]: <%s:%s> ldr: CTRL(%s) List(%s)",
     MOD, meth, tostring( ldrMap ), tostring( ldrValueList ));
 
   -- Note: Since the index of Lua arrays start with 1, that makes our
   -- math for lengths and space off by 1. So, we're often adding or
   -- subtracting 1 to adjust.
   local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
-  local itemSlotsAvailable = (ldtMap[M_LdrEntryCountMax] - chunkIndexStart) + 1;
+  local itemSlotsAvailable = (ldtMap[M_LdrEntryCountMax] - ldrIndexStart) + 1;
 
   -- In the unfortunate case where our accounting is bad and we accidently
   -- opened up this page -- and there's no room -- then just return ZERO
   -- items written, and hope that the caller can deal with that.
   if itemSlotsAvailable <= 0 then
-    warn("[ERROR]: <%s:%s> INTERNAL ERROR: No space available on chunk(%s)",
+    warn("[ERROR]: <%s:%s> INTERNAL ERROR: No space available on ldr(%s)",
       MOD, meth, tostring( ldrMap ));
     return 0; -- nothing written
   end
 
-  -- If we EXACTLY fill up the chunk, then we flag that so the next Warm
-  -- List Insert will know in advance to create a new chunk.
+  -- If we EXACTLY fill up the ldr, then we flag that so the next Warm
+  -- List Insert will know in advance to create a new ldr.
   if totalItemsToWrite == itemSlotsAvailable then
     ldtMap[M_WarmTopFull] = AS_TRUE; -- Now, remember to reset on next update.
     GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d)::SpaceAvail(%d):WTop FULL!!",
@@ -1773,7 +1501,7 @@ local function ldrInsertList(ldrRec,ldtMap,listIndex,insertList )
 
   -- This is List Mode.  Easy.  Just append to the list.
   GP=F and trace("[DEBUG]<%s:%s>ListMode:Copying From(%d) to (%d) Amount(%d)",
-    MOD, meth, listIndex, chunkIndexStart, newItemsStored );
+    MOD, meth, listIndex, ldrIndexStart, newItemsStored );
 
   -- Special case of starting at ZERO -- since we're adding, not
   -- directly indexing the array at zero (Lua arrays start at 1).
@@ -1781,12 +1509,12 @@ local function ldrInsertList(ldrRec,ldtMap,listIndex,insertList )
     list.append( ldrValueList, insertList[i+listIndex] );
   end -- for each remaining entry
 
-  GP=F and trace("[DEBUG]: <%s:%s>: Post Chunk Copy: Ctrl(%s) List(%s)",
+  GP=F and trace("[DEBUG]: <%s:%s>: Post ldr Copy: Ctrl(%s) List(%s)",
     MOD, meth, tostring(ldrMap), tostring(ldrValueList));
 
-  -- Store our modifications back into the Chunk Record Bins
-  ldrRec[LDR_CTRL_BIN] = ldrMap;
-  ldrRec[LDR_LIST_BIN] = ldrValueList;
+  -- Store our modifications back into the ldr Record Bins
+  ldrSubRec[LDR_CTRL_BIN] = ldrMap;
+  ldrSubRec[LDR_LIST_BIN] = ldrValueList;
 
   GP=E and trace("[EXIT]: <%s:%s> newItemsStored(%d) List(%s) ",
     MOD, meth, newItemsStored, tostring( ldrValueList) );
@@ -1795,29 +1523,29 @@ end -- ldrInsertList()
 
 
 -- ======================================================================
--- ldrInsertBytes( topWarmChunk, ldtMap, listIndex,  insertList )
+-- ldrInsertBytes()
 -- ======================================================================
 -- Insert (append) the LIST of values (overflow from the HotList) 
--- to this chunk's Byte Array.  We start at the position "listIndex"
+-- to this LDR Byte Array.  We start at the position "listIndex"
 -- in "insertList".  Note that this call may be a second (or Nth) call,
 -- so we are starting our insert in "insertList" from "listIndex", and
 -- not implicitly from "1".
 -- This method is similar to its sibling "ldrInsertList()", but rather
--- than add to the entry list in the chunk's LDR_LIST_BIN, it adds to the
--- byte array in the chunk's LDR_BNRY_BIN.
+-- than add to the entry list in the LDR LDR_LIST_BIN, it adds to the
+-- byte array in the LDR LDR_BNRY_BIN.
 -- Parms:
--- (*) ldrChunkRec: Hotest of the Warm Chunk Records
+-- (*) ldrSubRec: Hotest of the Warm LDR Records
 -- (*) ldtMap: the LDT control information
 -- (*) listIndex: Index into <insertList> from where we start copying.
 -- (*) insertList: The list of elements to be copied in
 -- Return: Number of items written
 -- ======================================================================
-local function ldrInsertBytes( ldrChunkRec, ldtMap, listIndex, insertList )
+local function ldrInsertBytes( ldrSubRec, ldtMap, listIndex, insertList )
   local meth = "ldrInsertBytes()";
   GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s)",
     MOD, meth, listIndex, tostring( insertList ) );
 
-  local ldrMap = ldrChunkRec[LDR_CTRL_BIN];
+  local ldrMap = ldrSubRec[LDR_CTRL_BIN];
   GP=F and trace("[DEBUG]: <%s:%s> Check LDR CTRL MAP(%s)",
     MOD, meth, tostring( ldrMap ) );
 
@@ -1852,13 +1580,13 @@ local function ldrInsertBytes( ldrChunkRec, ldtMap, listIndex, insertList )
   -- opened up this page -- and there's no room -- then just return ZERO
   -- items written, and hope that the caller can deal with that.
   if itemSlotsAvailable <= 0 then
-    warn("[DEBUG]: <%s:%s> INTERNAL ERROR: No space available on chunk(%s)",
+    warn("[DEBUG]: <%s:%s> INTERNAL ERROR: No space available on LDR(%s)",
     MOD, meth, tostring( ldrMap ));
     return 0; -- nothing written
   end
 
-  -- If we EXACTLY fill up the chunk, then we flag that so the next Warm
-  -- List Insert will know in advance to create a new chunk.
+  -- If we EXACTLY fill up the LDR, then we flag that so the next Warm
+  -- List Insert will know in advance to create a new LDR.
   if totalItemsToWrite == itemSlotsAvailable then
     ldtMap[M_WarmTopFull] = AS_TRUE; -- Remember to reset on next update.
     GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d)::SpaceAvail(%d):WTop FULL!!",
@@ -1874,24 +1602,24 @@ local function ldrInsertBytes( ldrChunkRec, ldtMap, listIndex, insertList )
   -- Compute the new space we need in Bytes and either extend existing or
   -- allocate it fresh.
   local totalSpaceNeeded = (entryCount + newItemsStored) * entrySize;
-  if ldrChunkRec[LDR_BNRY_BIN] == nil then
-    ldrChunkRec[LDR_BNRY_BIN] = bytes( totalSpaceNeeded );
+  if ldrSubRec[LDR_BNRY_BIN] == nil then
+    ldrSubRec[LDR_BNRY_BIN] = bytes( totalSpaceNeeded );
     GP=F and trace("[DEBUG]<%s:%s>Allocated NEW BYTES: Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
+      MOD, meth, totalSpaceNeeded, tostring(ldrSubRec[LDR_BNRY_BIN]));
   else
     GP=F and
     trace("[DEBUG]:<%s:%s>Before: Extending BYTES: New Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
+      MOD, meth, totalSpaceNeeded, tostring(ldrSubRec[LDR_BNRY_BIN]));
 
     -- The API for this call changed (July 2, 2013).  Now use "ensure"
-    -- bytes.set_len(ldrChunkRec[LDR_BNRY_BIN], totalSpaceNeeded );
-    bytes.ensure(ldrChunkRec[LDR_BNRY_BIN], totalSpaceNeeded, 1);
+    -- bytes.set_len(ldrSubRec[LDR_BNRY_BIN], totalSpaceNeeded );
+    bytes.ensure(ldrSubRec[LDR_BNRY_BIN], totalSpaceNeeded, 1);
 
     GP=F and
     trace("[DEBUG]:<%s:%s>AFTER: Extending BYTES: New Size(%d) ByteArray(%s)",
-      MOD, meth, totalSpaceNeeded, tostring(ldrChunkRec[LDR_BNRY_BIN]));
+      MOD, meth, totalSpaceNeeded, tostring(ldrSubRec[LDR_BNRY_BIN]));
   end
-  local chunkByteArray = ldrChunkRec[LDR_BNRY_BIN];
+  local ldrByteArray = ldrSubRec[LDR_BNRY_BIN];
 
   -- We're packing bytes into a byte array. Put each one in at a time,
   -- incrementing by "entrySize" for each insert value.
@@ -1900,45 +1628,45 @@ local function ldrInsertBytes( ldrChunkRec, ldtMap, listIndex, insertList )
   -- Compute where we should start inserting in the Byte Array.
   -- WARNING!!! Unlike a C Buffer, This BYTE BUFFER starts at address 1,
   -- not zero.
-  local chunkByteStart = 1 + (entryCount * entrySize);
+  local ldrByteStart = 1 + (entryCount * entrySize);
 
   GP=F and trace("[DEBUG]<%s:%s>TotalItems(%d) SpaceAvail(%d) ByteStart(%d)",
-    MOD, meth, totalItemsToWrite, itemSlotsAvailable, chunkByteStart );
+    MOD, meth, totalItemsToWrite, itemSlotsAvailable, ldrByteStart );
 
   local byteIndex;
   local insertItem;
   for i = 0, (newItemsStored - 1), 1 do
-    byteIndex = chunkByteStart + (i * entrySize);
+    byteIndex = ldrByteStart + (i * entrySize);
     insertItem = insertList[i+listIndex];
 
     GP=F and
     trace("[DEBUG]:<%s:%s>ByteAppend:Array(%s) Entry(%d) Val(%s) Index(%d)",
-      MOD, meth, tostring( chunkByteArray), i, tostring( insertItem ),
+      MOD, meth, tostring( ldrByteArray), i, tostring( insertItem ),
       byteIndex );
 
-    bytes.put_bytes( chunkByteArray, byteIndex, insertItem );
+    bytes.put_bytes( ldrByteArray, byteIndex, insertItem );
 
     GP=F and trace("[DEBUG]: <%s:%s> Post Append: ByteArray(%s)",
-      MOD, meth, tostring(chunkByteArray));
+      MOD, meth, tostring(ldrByteArray));
   end -- for each remaining entry
 
   -- Update the ctrl map with the new count
   ldrMap[LDR_ByteEntryCount] = entryCount + newItemsStored;
 
-  GP=F and trace("[DEBUG]: <%s:%s>: Post Chunk Copy: Ctrl(%s) List(%s)",
-    MOD, meth, tostring(ldrMap), tostring( chunkByteArray ));
+  GP=F and trace("[DEBUG]: <%s:%s>: Post ldr Copy: Ctrl(%s) List(%s)",
+    MOD, meth, tostring(ldrMap), tostring( ldrByteArray ));
 
-  -- Store our modifications back into the Chunk Record Bins
-  ldrChunkRec[LDR_CTRL_BIN] = ldrMap;
-  ldrChunkRec[LDR_BNRY_BIN] = chunkByteArray;
+  -- Store our modifications back into the ldr Record Bins
+  ldrSubRec[LDR_CTRL_BIN] = ldrMap;
+  ldrSubRec[LDR_BNRY_BIN] = ldrByteArray;
 
   GP=E and trace("[EXIT]: <%s:%s> newItemsStored(%d) List(%s) ",
-    MOD, meth, newItemsStored, tostring( chunkByteArray ));
+    MOD, meth, newItemsStored, tostring( ldrByteArray ));
   return newItemsStored;
 end -- ldrInsertBytes()
 
 -- ======================================================================
--- ldrInsert( topWarmChunk, ldtMap, listIndex,  insertList )
+-- ldrInsert()
 -- ======================================================================
 -- Insert (append) the LIST of values (overflow from the HotList) 
 -- Call the appropriate method "InsertList()" or "InsertBinary()" to
@@ -1946,44 +1674,44 @@ end -- ldrInsertBytes()
 -- SM_BINARY mode.
 --
 -- Parms:
--- (*) ldrChunkRec: Hotest of the Warm Chunk Records
+-- (*) ldrSubRec: Hotest of the Warm LDR Sub-Records
 -- (*) ldtMap: the LDT control information
 -- (*) listIndex: Index into <insertList> from where we start copying.
 -- (*) insertList: The list of elements to be copied in
 -- Return: Number of items written
 -- ======================================================================
-local function ldrInsert(ldrChunkRec,ldtMap,listIndex,insertList )
+local function ldrInsert(ldrSubRec,ldtMap,listIndex,insertList )
   local meth = "ldrInsert()";
-  GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s), ChunkSummary(%s)",
-    MOD, meth, listIndex, tostring( insertList ),ldrSummary(ldrChunkRec));
+  GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s), LDR Summary(%s)",
+    MOD, meth, listIndex, tostring( insertList ),ldrSummary(ldrSubRec));
 
   if ldtMap[M_StoreMode] == SM_LIST then
-    return ldrInsertList(ldrChunkRec,ldtMap,listIndex,insertList );
+    return ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList );
   else
-    return ldrInsertBytes(ldrChunkRec,ldtMap,listIndex,insertList );
+    return ldrInsertBytes(ldrSubRec,ldtMap,listIndex,insertList );
   end
 end -- ldrInsert()
 
 -- ======================================================================
 -- ldrRead()
 -- ======================================================================
--- Read ALL, or up to 'count' items from this chunk, process the inner UDF 
+-- Read ALL, or up to 'count' items from this LDR, process the inner UDF 
 -- function (if present) and, for those elements that qualify, add them
--- to the result list.  Read the chunk in FIFO order.
+-- to the result list.  Read the LDR in FIFO order.
 -- Parms:
--- (*) ldrChunk: Record object for the warm or cold LDT Data Record
+-- (*) ldrSubRec: Record object for the warm or cold LDT Data Record
 -- (*) resultList: What's been accumulated so far -- add to this
 -- (*) ldtCtrl: Main LDT Control info
 -- (*) count: Only used when "all" flag is false.  Return this many items
 -- (*) all: When true, read ALL.
--- Return: the NUMBER of items read from this chunk.
+-- Return: the NUMBER of items read from this LDR.
 -- ======================================================================
-local function ldrRead( ldrChunk, resultList, ldtCtrl, count, all )
+local function ldrRead( ldrSubRec, resultList, ldtCtrl, count, all )
   local meth = "ldrRead()";
   GP=E and trace("[ENTER]: <%s:%s> Count(%d) All(%s)",
       MOD, meth, count, tostring(all));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT Map from the LDT Control.
   -- local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
   local storeMode = ldtMap[M_StoreMode];
@@ -1992,13 +1720,13 @@ local function ldrRead( ldrChunk, resultList, ldtCtrl, count, all )
   -- LDR_BNRY_BIN, otherwise we're using the "List" Bin LDR_LIST_BIN.
   local numRead = 0;
   if ldtMap[M_StoreMode] == SM_LIST then
-    local ldrList = ldrChunk[LDR_LIST_BIN];
+    local ldrList = ldrSubRec[LDR_LIST_BIN];
 
     GP=E and trace("[DEBUG]<%s> LDR List(%s)", meth, tostring(ldrList));
 
     numRead = readEntryList(resultList, ldtCtrl, ldrList, count, all);
   else
-    numRead = readByteArray(resultList, ldtCtrl, ldrChunk, count, all);
+    numRead = readByteArray(resultList, ldtCtrl, ldrSubRec, count, all);
   end
 
   GP=E and trace("[EXIT]: <%s:%s> NumberRead(%d) ResultListSummary(%s) ",
@@ -2033,7 +1761,7 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   local ldtMap  = ldtCtrl[2];
 
   -- Process the DigestList bottom to top, pulling in each digest in
-  -- turn, opening the chunk and reading records (as necessary), until
+  -- turn, opening the ldrSubRec and reading records (as necessary), until
   -- we've read "count" items.  If the 'all' flag is true, then read 
   -- everything.
   -- NOTE: This method works for both the Warm and Cold lists.
@@ -2043,7 +1771,7 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   if all == true or count < 0 then count = 0; end
   local remaining = count;
   local totalAmountRead = 0;
-  local chunkItemsRead = 0;
+  local ldrItemsRead = 0;
   local dirCount = list.size( digestList );
   local ldrRec;
   local stringDigest;
@@ -2052,41 +1780,41 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   GP=F and trace("[DEBUG]:<%s:%s>:DirCount(%d)  Reading DigestList(%s)",
     MOD, meth, dirCount, tostring( digestList) );
 
-  -- Read each Data Chunk, adding to the resultList, until we either bypass
+  -- Read each Data ldr, adding to the resultList, until we either bypass
   -- the readCount, or we hit the end (either readCount is large, or the ALL
   -- flag is set).
   for dirIndex = dirCount, 1, -1 do
     -- Record Digest MUST be in string form
     stringDigest = tostring(digestList[ dirIndex ]);
-    GP=F and trace("[DEBUG]: <%s:%s>: Opening Data Chunk:Index(%d)Digest(%s):",
+    GP=F and trace("[DEBUG]: <%s:%s>: Opening Data ldr:Index(%d)Digest(%s):",
     MOD, meth, dirIndex, stringDigest );
-    ldrRec = aerospike:open_subrec( topRec, stringDigest );
+    ldrRec = ldt_common.openSubRec( src, topRec, stringDigest );
     
     -- resultList is passed by reference and we can just add to it.
-    chunkItemsRead = ldrRead(ldrRec, resultList, ldtCtrl, remaining, all);
-    totalAmountRead = totalAmountRead + chunkItemsRead;
+    ldrItemsRead = ldrRead(ldrRec, resultList, ldtCtrl, remaining, all);
+    totalAmountRead = totalAmountRead + ldrItemsRead;
 
     GP=F and
-    trace("[DEBUG]:<%s:%s>:after ChunkRead:NumRead(%d)DirIndex(%d)ResList(%s)", 
-      MOD, meth, chunkItemsRead, dirIndex, tostring( resultList ));
+    trace("[DEBUG]:<%s:%s>:after ldrRead:NumRead(%d)DirIndex(%d)ResList(%s)", 
+      MOD, meth, ldrItemsRead, dirIndex, tostring( resultList ));
     -- Early exit ONLY when ALL flag is not set.
     if( all == false and
-      ( chunkItemsRead >= remaining or totalAmountRead >= count ) )
+      ( ldrItemsRead >= remaining or totalAmountRead >= count ) )
     then
       GP=E and trace("[Early EXIT]:<%s:%s>totalAmountRead(%d) ResultList(%s) ",
         MOD, meth, totalAmountRead, tostring(resultList));
-      status = aerospike:close_subrec( ldrRec );
+      -- We're done with this Sub-Rec.
+      ldt_common.closeSubRec( src, ldrRec );
       return totalAmountRead;
     end
 
-    status = aerospike:close_subrec( ldrRec );
-    GP=F and trace("[DEBUG]: <%s:%s> as:close() status(%s) ",
-    MOD, meth, tostring( status ) );
+    -- Done with this SubRec.  Close it.
+    ldt_common.closeSubRec( src, ldrRec );
 
     -- Get ready for the next iteration.  Adjust our numbers for the
     -- next round
-    remaining = remaining - chunkItemsRead;
-  end -- for each Data Chunk Record
+    remaining = remaining - ldrItemsRead;
+  end -- for each Data ldr Record
 
   GP=E and trace("[EXIT]: <%s:%s> totalAmountRead(%d) ResultListSummary(%s) ",
   MOD, meth, totalAmountRead, summarizeList(resultList));
@@ -2111,7 +1839,7 @@ end -- digestListRead()
 -- ======================================================================
 -- Parms:
 -- (*) resultList: What's been accumulated so far -- add to this
--- (*) ldtCtrl: Main Lso Control Structure
+-- (*) ldtCtrl: Main LDT Control Structure
 -- (*) count: Only used when "all" flag is false.  Return this many items
 -- (*) all: Boolean: when true, read ALL
 -- Return 'count' items from the Hot List
@@ -2186,6 +1914,7 @@ end -- extractHotListTransferList()
 -- (*) insertValue: the new value to be pushed on the stack
 -- NOTE: This is in its own function because it is possible that we will
 -- want to add more sophistication in the future.
+-- ======================================================================
 local function hotListHasRoom( ldtMap, insertValue )
   local meth = "hotListHasRoom()";
   GP=E and trace("[ENTER]: <%s:%s> : ", MOD, meth );
@@ -2210,20 +1939,21 @@ end -- hotListHasRoom()
 -- The MODE of storage depends on what we see in the valueMap.  If the
 -- valueMap holds a BINARY type, then we are going to store it in a special
 -- binary bin.  Here are the cases:
--- (1) Warm List: The Chunk Record employs a List Bin and Binary Bin, where
---    the individual entries are packed.  In the Chunk Record, there is a
+-- (1) Warm List: The LDR Record employs a List Bin and Binary Bin, where
+--    the individual entries are packed.  In the LDR Record, there is a
 --    Map (control information) showing the status of the packed Binary bin.
--- (2) Cold List: Same Chunk format as the Warm List Chunk Record.
+-- (2) Cold List: Same LDR format as the Warm List LDR Record.
 --
 -- Change in plan -- All items go on the HotList, regardless of type.
 -- Only when we transfer to Warm/Cold do we employ the COMPACT STORAGE
 -- trick of packing bytes contiguously in the Binary Bin.
 --
--- The Top LDT page (and the individual LDR chunk pages) have the control
+-- The Top LDT page (and the individual LDR pages) have the control
 -- data about the byte entries (entry size, entry count).
 -- Parms:
 -- (*) ldtCtrl: the control structure for the LDT Bin
 -- (*) newStorageValue: the new value to be pushed on the stack
+-- ======================================================================
 local function hotListInsert( ldtCtrl, newStorageValue  )
   local meth = "hotListInsert()";
   GP=E and trace("[ENTER]: <%s:%s> : Insert Value(%s)",
@@ -2234,8 +1964,8 @@ local function hotListInsert( ldtCtrl, newStorageValue  )
 
   -- Update the hot list with a new element (and update the map)
   local hotList = ldtMap[M_HotEntryList];
-  GP=F and trace("[HEY!!]<%s:%s> Appending to Hot List(%s)", 
-    MOD, meth,tostring(hotList));
+  -- GD=DEBUG and trace("[HEY!!]<%s:%s> Appending to Hot List(%s)", 
+    -- MOD, meth,tostring(hotList));
   -- list.append( ldtMap[M_HotEntryList], newStorageValue );
   list.append( hotList, newStorageValue );
   ldtMap[M_HotEntryList] = hotList;
@@ -2260,71 +1990,67 @@ end -- hotListInsert()
 -- ======================================================================
 --
 -- ======================================================================
--- warmListChunkCreate()
+-- warmListSubRecCreate()
 -- Parms:
 -- (*) src: Subrec Context -- Manage the Open Subrec Pool
 -- (*) topRec: User-level Record holding the LDT Bin
 -- (*) ldtCtrl: The main structure of the LDT Bin.
 -- ======================================================================
--- Create and initialize a new LDR "chunk", load the new digest for that
--- new chunk into the ldtMap (the warm dir list), and return it.
-local function   warmListChunkCreate( src, topRec, ldtCtrl )
-  local meth = "warmListChunkCreate()";
+-- Create and initialize a new LDR, load the new digest for that
+-- new LDR into the ldtMap (the warm dir list), and return it.
+local function   warmListSubRecCreate( src, topRec, ldtCtrl )
+  local meth = "warmListSubRecCreate()";
   GP=E and trace("[ENTER]: <%s:%s> SRC(%s) ldtCtrl(%s)", MOD, meth,
     tostring( src ), ldtSummaryString( ldtCtrl ));
 
-  -- Create the Aerospike Record, initialize the bins: Ctrl, List
-  -- Note: All Field Names start with UPPER CASE.
-  --
-  -- Remember to add the newLdrChunkRecord to the SRC
-  local newLdrChunkRecord = aerospike:create_subrec( topRec );
-  local ldrPropMap = map();
-  local ldrMap = map();
-  local newChunkDigest = record.digest( newLdrChunkRecord );
-  local lsoPropMap = ldtCtrl[1];
+  -- Set up the TOP REC prop and ctrl maps
+  local propMap    = ldtCtrl[1];
   local ldtMap     = ldtCtrl[2];
-  local ldtBinName    = lsoPropMap[PM_BinName];
+  local ldtBinName = propMap[PM_BinName];
 
-  initializeLdrMap(src,topRec,newLdrChunkRecord,ldrPropMap,ldrMap,ldtCtrl );
+  -- Create the Aerospike Sub-Record, initialize the bins: Ctrl, List
+  -- Notes: 
+  -- (1) All Field Names start with UPPER CASE.
+  -- (2) Remember to add the ldrSubRec to the SRC
+  local ldrSubRec = ldt_common.createSubRec(src, topRec, ldtCtrl, RT_SUB );
+  local subRecPropMap = ldrSubRec[SUBREC_PROP_BIN];
+  
+  -- The common createSubRec() function creates the Sub-Record and sets up
+  -- the property bin.  It's our job to set up the LSTACK-Specific bins
+  -- for a Warm List Sub-Record.
+  local subRecCtrlMap = map();
+  subRecCtrlMap[LDR_ByteEntryCount] = 0; -- When Bytes are used
 
-  -- Now that it's initialized, add the SUBREC to the SRC.
-  addSubrecToContext( src, newLdrChunkRecord );
+  ldrSubRec[LDR_CTRL_BIN] = subRecCtrlMap;
+  ldrSubRec[LDR_LIST_BIN] = list();
+  -- NOTE: Leave LDR_BNRY_BIN empty for now.
 
-  -- Assign Prop, Control info and List info to the LDR bins
-  newLdrChunkRecord[SUBREC_PROP_BIN] = ldrPropMap;
-  newLdrChunkRecord[LDR_CTRL_BIN] = ldrMap;
-  newLdrChunkRecord[LDR_LIST_BIN] = list();
-
-  GP=F and trace("[DEBUG]: <%s:%s> Chunk Create: CTRL Contents(%s)",
-    MOD, meth, tostring(ldrMap) );
-
-  aerospike:update_subrec( newLdrChunkRecord );
-
-  -- Add our new chunk (the digest) to the WarmDigestList
+  -- Add our new ldrSubRec (the digest) to the WarmDigestList
+  local ldrDigest = record.digest( ldrSubRec );
   -- TODO: @TOBY: Remove these trace calls when fully debugged.
-  GP=F and trace("[DEBUG]: <%s:%s> Appending NewChunk(%s) to WarmList(%s)",
-    MOD, meth, tostring(newChunkDigest), tostring(ldtMap[M_WarmDigestList]));
+  GD=DEBUG and trace("[DEBUG]<%s:%s> Appending new SubRec(%s) to WarmList(%s)",
+    MOD, meth, tostring(ldrDigest), tostring(ldtMap[M_WarmDigestList]));
 
-  list.append( ldtMap[M_WarmDigestList], newChunkDigest );
+  list.append( ldtMap[M_WarmDigestList], ldrDigest );
 
-  GP=F and trace("[DEBUG]<%s:%s>Post CHunkAppend:NewChunk(%s) LdtMap(%s)CH(%s)",
-    MOD, meth, tostring(newChunkDigest), tostring(ldtMap),
-    tostring( ldtMap[M_ColdDirListHead] ));
+  GP=F and trace("[DEBUG]<%s:%s>Post LDR Append:NewLDR(%s) LdtMap(%s)",
+    MOD, meth, tostring(ldrDigest), tostring(ldtMap));
    
   -- Increment the Warm Count
-  local warmChunkCount = ldtMap[M_WarmListDigestCount];
-  ldtMap[M_WarmListDigestCount] = (warmChunkCount + 1);
+  local warmLdrCount = ldtMap[M_WarmListDigestCount];
+  ldtMap[M_WarmListDigestCount] = (warmLdrCount + 1);
 
   -- NOTE: This may not be needed -- we may wish to update the topRec ONLY
   -- after all of the underlying SUB-REC  operations have been done.
-  -- Update the top (LSO) record with the newly updated ldtMap;
-  topRec[ ldtBinName ] = ldtMap;
-  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
+  -- Update the top (LDT) record with the newly updated ldtMap;
+  info("[WARNING]<%s:%s> NOT UPDATING TOPREC in Warm Create", MOD, meth );
+  -- topRec[ ldtBinName ] = ldtCtrl;
+  -- record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  GP=E and trace("[EXIT]: <%s:%s> Return(%s) ",
-    MOD, meth, ldrSummary(newLdrChunkRecord));
-  return newLdrChunkRecord;
-end --  warmListChunkCreate()
+  GP=E and trace("[EXIT]: <%s:%s> LDR Summary(%s) ",
+    MOD, meth, ldrSummary(ldrSubRec));
+  return ldrSubRec;
+end --  warmListSubRecCreate()
 
 -- ======================================================================
 -- extractWarmListTransferList( ldtCtrl );
@@ -2341,8 +2067,8 @@ local function extractWarmListTransferList( ldtCtrl )
   local meth = "extractWarmListTransferList()";
   GP=E and trace("[ENTER]: <%s:%s> ", MOD, meth );
 
-  -- Extract the main property map and lso control map from the ldtCtrl
-  local lsoPropMap = ldtCtrl[1];
+  -- Extract the main property map and LDT Map from the LDT Control.
+  local ldtPropMap = ldtCtrl[1];
   local ldtMap     = ldtCtrl[2];
 
   -- Get the first N (transfer amount) list elements
@@ -2436,18 +2162,18 @@ local function warmListGetTop( src, topRec, ldtMap )
   GP=F and trace("[DEBUG]: <%s:%s> Warm Digest(%s) item#(%d)", 
       MOD, meth, stringDigest, list.size( warmDigestList ));
 
-  local topWarmChunk = aerospike:open_subrec( topRec, stringDigest );
+  local topWarmSubRec = ldt_common.openSubRec( src, topRec, stringDigest );
 
   GP=E and trace("[EXIT]: <%s:%s> result(%s) ",
-    MOD, meth, ldrSummary( topWarmChunk ) );
-  return topWarmChunk;
+    MOD, meth, ldrSummary( topWarmSubRec ) );
+  return topWarmSubRec;
 end -- warmListGetTop()
 
 -- ======================================================================
 -- warmListInsert()
 -- ======================================================================
 -- Insert "entryList", which is a list of data entries, into the warm
--- dir list -- a directory of warm Lso Data Records that will contain 
+-- dir list -- a directory of warm lstack Data Records that will contain 
 -- the data entries.
 -- A New Feature to insert is the "StoreLimit" aspect.  If we are over the
 -- storage limit, then before we insert into the warm list, we're going to
@@ -2477,88 +2203,91 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
   GP=F and trace("[DEBUG]:<%s:%s> LDT LIST(%s)", MOD, meth, tostring(ldtCtrl));
 
   local warmDigestList = ldtMap[M_WarmDigestList];
-  local topWarmChunk;
+  local topWarmSubRec;
 
   -- With regard to the Ldt Data Record (LDR) Pages, whether we create a new
   -- LDR or open an existing LDR, we save the current count and close the
   -- LDR page.
-  -- Note that the last write may have filled up the warmTopChunk, in which
+  -- Note that the last write may have filled up the warmTopSubRec, in which
   -- case it set a flag so that we will go ahead and allocate a new one now,
   -- rather than after we read the old top and see that it's already full.
   if list.size( warmDigestList ) == 0 or ldtMap[M_WarmTopFull] == AS_TRUE then
-    GP=F and trace("[DEBUG]: <%s:%s> Calling Chunk Create ", MOD, meth );
-    topWarmChunk = warmListChunkCreate(src, topRec, ldtCtrl ); -- create new
+    GP=F and trace("[DEBUG]: <%s:%s> Calling SubRec Create ", MOD, meth );
+    topWarmSubRec = warmListSubRecCreate(src, topRec, ldtCtrl ); -- create new
     ldtMap[M_WarmTopFull] = AS_FALSE; -- reset for next time.
   else
     GP=F and trace("[DEBUG]: <%s:%s> Calling Get TOP ", MOD, meth );
-    topWarmChunk = warmListGetTop( src, topRec, ldtMap ); -- open existing
+    topWarmSubRec = warmListGetTop( src, topRec, ldtMap ); -- open existing
   end
   GP=F and trace("[DEBUG]: <%s:%s> Post 'GetTop': LdtMap(%s) ", 
     MOD, meth, tostring( ldtMap ));
 
-  if( topWarmChunk == nil ) then
-    warn("[ERROR] <%s:%s> Internal Error: Top Warm Chunk is NIL!!",MOD,meth);
+  if( topWarmSubRec == nil ) then
+    warn("[ERROR] <%s:%s> Internal Error: Top Warm SubRec is NIL!!",MOD,meth);
     error( ldte.ERR_INTERNAL );
   end
 
-  -- We have a warm Chunk -- write as much as we can into it.  If it didn't
-  -- all fit -- then we allocate a new chunk and write the rest.
+  -- We have a warm SubRec -- write as much as we can into it.  If it didn't
+  -- all fit -- then we allocate a new SubRec and write the rest.
   local totalEntryCount = list.size( entryList );
-  GP=F and trace("[DEBUG]: <%s:%s> Calling Chunk Insert: List(%s)",
+  GP=F and trace("[DEBUG]: <%s:%s> Calling SubRec Insert: List(%s)",
     MOD, meth, tostring( entryList ));
-  local countWritten = ldrInsert( topWarmChunk, ldtMap, 1, entryList );
+  local countWritten = ldrInsert( topWarmSubRec, ldtMap, 1, entryList );
   if( countWritten == -1 ) then
-    warn("[ERROR]: <%s:%s>: Internal Error in Chunk Insert(1)", MOD, meth);
+    warn("[ERROR]: <%s:%s>: Internal Error in SubRec Insert(1)", MOD, meth);
     error( ldte.ERR_INTERNAL );
   end
   local itemsLeft = totalEntryCount - countWritten;
   if itemsLeft > 0 then
-    aerospike:update_subrec( topWarmChunk );
+    -- This should NOT be needed.  We set this ONCE on create.
+    --record.set_type( topWarmSubRec, RT_SUB );
+    
+    ldt_common.updateSubRec( src, topWarmSubRec );
 
-    -- We're not closing dirty subrecs -- they get cleaned up at the end.
-    -- aerospike:close_subrec( topWarmChunk );
+    -- We're done with this Sub-Rec.
+    ldt_common.closeSubRec( src, topWarmSubRec, true );
 
-    GP=F and trace("[DEBUG]:<%s:%s>Calling Chunk Create: AGAIN!!", MOD, meth );
-    topWarmChunk = warmListChunkCreate( src, topRec, ldtCtrl ); -- create new
+    GP=F and trace("[DEBUG]:<%s:%s>Calling SubRec Create: AGAIN!!", MOD, meth );
+    topWarmSubRec = warmListSubRecCreate( src, topRec, ldtCtrl ); -- create new
     -- Unless we've screwed up our parameters -- we should never have to do
     -- this more than once.  This could be a while loop if it had to be, but
     -- that doesn't make sense that we'd need to create multiple new LDRs to
     -- hold just PART of the hot list.
-  GP=F and trace("[DEBUG]: <%s:%s> Calling Chunk Insert: List(%s) AGAIN(%d)",
+  GP=F and trace("[DEBUG]: <%s:%s> Calling SubRec Insert: List(%s) AGAIN(%d)",
     MOD, meth, tostring( entryList ), countWritten + 1);
     countWritten =
-        ldrInsert( topWarmChunk, ldtMap, countWritten+1, entryList );
+        ldrInsert( topWarmSubRec, ldtMap, countWritten+1, entryList );
     if( countWritten == -1 ) then
-      warn("[ERROR]: <%s:%s>: Internal Error in Chunk Insert(2)", MOD, meth);
+      warn("[ERROR]: <%s:%s>: Internal Error in SubRec Insert(2)", MOD, meth);
       error( ldte.ERR_INTERNAL );
     end
     if countWritten ~= itemsLeft then
-      warn("[ERROR!!]: <%s:%s> Second Warm Chunk Write: CW(%d) IL(%d) ",
+      warn("[ERROR!!]: <%s:%s> Second Warm SubRec Write: CW(%d) IL(%d) ",
         MOD, meth, countWritten, itemsLeft );
       error( ldte.ERR_INTERNAL );
     end
   end
 
   -- NOTE: We do NOT have to update the WarmDigest Count here; that is done
-  -- in the warmListChunkCreate() call.
+  -- in the warmListSubRecCreate() call.
 
   -- All done -- Save the info of how much room we have in the top Warm
-  -- chunk (entry count or byte count)
-  GP=F and trace("[DEBUG]: <%s:%s> Saving LdtMap (%s) Before Update ",
-    MOD, meth, tostring( ldtMap ));
-  topRec[ldtBinName] = ldtMap;
+  -- SubRec (entry count or byte count)
+  GP=F and trace("[DEBUG]: <%s:%s> Saving ldtCtrl (%s) Before Update ",
+    MOD, meth, tostring( ldtCtrl ));
+  topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  GP=F and trace("[DEBUG]: <%s:%s> Chunk Summary before storage(%s)",
-    MOD, meth, ldrSummary( topWarmChunk ));
+  GP=F and trace("[DEBUG]: <%s:%s> SubRec Summary before storage(%s)",
+    MOD, meth, ldrSummary( topWarmSubRec ));
 
-  GP=F and trace("[DEBUG]: <%s:%s> Calling SUB-REC  Update ", MOD, meth );
-  local status = aerospike:update_subrec( topWarmChunk );
-  GP=F and trace("[DEBUG]: <%s:%s> SUB-REC  Update Status(%s) ",MOD,meth, tostring(status));
-  GP=F and trace("[DEBUG]: <%s:%s> Calling SUB-REC  Close ", MOD, meth );
+  GP=F and trace("[DEBUG]: <%s:%s> Calling SUB-REC Update ", MOD, meth );
+  local status = ldt_common.updateSubRec( src, topWarmSubRec );
+  GP=F and trace("[DEBUG]: <%s:%s> SUB-REC  Update Status(%s) ", 
+    MOD, meth, tostring(status));
 
-  -- status = aerospike:close_subrec( topRec, topWarmChunk );
-  status = aerospike:close_subrec( topWarmChunk );
+  GP=F and trace("[DEBUG]: <%s:%s> Calling SUB-REC Close ", MOD, meth );
+  status = ldt_common.closeSubRec( src, topWarmSubRec, true );
   GP=F and trace("[DEBUG]: <%s:%s> SUB-REC  Close Status(%s) ",
     MOD,meth, tostring(status));
 
@@ -2584,6 +2313,8 @@ end -- warmListInsert
 -- deliver the digestList to a component that can schedule the digest
 -- to be cleaned up later.
 -- ======================================================================
+-- THIS FUNCTION NEEDS REVIEW (it is currently used)
+-- ======================================================================
 local function releaseStorage( topRec, ldtCtrl, digestList )
   local meth = "releaseStorage()";
   local rc = 0;
@@ -2604,7 +2335,7 @@ local function releaseStorage( topRec, ldtCtrl, digestList )
       local listSize = list.size( digestList );
       for i = 1, listSize, 1 do
         digestString = tostring( digestList[i] );
-        local subrec = aerospike:open_subrec( topRec, digestString );
+        local subrec = ldt_common.openSubRec( src, topRec, digestString );
         rc = aerospike:remove_subrec( subrec );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
@@ -2627,7 +2358,10 @@ end -- releaseStorage()
 -- (*) prevDigest:  Set PrevPage ptr, if not nil
 -- (*) nextDigest:  Set NextPage ptr, if not nil
 -- ======================================================================
-local function setPagePointers( coldDirRec, prevDigest, nextDigest )
+-- THIS FUNCTION IS NOT CURRENTLY USED.  That might be an error.  Check.
+-- TODO: Check on why we're not using this function.
+-- ======================================================================
+local function setPagePointers( src, coldDirRec, prevDigest, nextDigest )
   local meth = "setLeafPagePointers()";
   GP=E and trace("[ENTER]<%s:%s> prev(%s) next(%s)",
     MOD, meth, tostring(prevDigest), tostring(nextDigest) );
@@ -2639,7 +2373,7 @@ local function setPagePointers( coldDirRec, prevDigest, nextDigest )
     leafMap[LF_NextPage] = nextDigest;
   end
   leafRec[LSR_CTRL_BIN] = leafMap;
-  aerospike:update_subrec( leafRec );
+  ldt_common.updateSubRec( src, leafRec );
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- setPagePointers()
@@ -2671,7 +2405,7 @@ end -- setPagePointers()
 -- ======================================================================
 local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
   local meth = "coldDirHeadCreate()";
-  GP=E and trace("[ENTER]<%s:%s>LSO(%s)",MOD,meth,ldtSummaryString(ldtCtrl));
+  GP=E and trace("[ENTER]<%s:%s>LDT(%s)",MOD,meth,ldtSummaryString(ldtCtrl));
 
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
@@ -2716,7 +2450,7 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     createNewHead = false;
     coldDirDigest = ldtMap[M_ColdDirListHead];
     coldDirDigestString = tostring( coldDirDigest );
-    coldDirRec = openSubrec( src, topRec, coldDirDigestString );
+    coldDirRec = ldt_common.openSubRec( src, topRec, coldDirDigestString );
     if( coldDirRec == nil ) then
       warn("[INTERNAL ERROR]<%s:%s> Can't open Cold Head(%s)", MOD, meth,
         coldDirDigestString );
@@ -2770,14 +2504,13 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
         -- list and move on to the next Cold Dir Record.
         -- Note that we track the LDRs and the DIRs separately.
         -- Also note the two different types of LIST APPEND.
-        coldDirRec = openSubrec( src, topRec, tailDigestString );
+        coldDirRec = ldt_common.openSubRec( src, topRec, tailDigestString );
         -- Append a digest LIST to the LDR delete list
         listAppend( ldrDeleteList, coldDirRec[COLD_DIR_LIST_BIN] );
         -- Append a cold Dir Digest to the DirDelete list
         list.append( dirDeleteList, tailDigest ); 
 
-        -- Move back one to the previous ColdDir Rec.  Make it the
-        -- NEW TAIL.
+        -- Move back one to the previous ColdDir Rec.  Make it the NEW TAIL.
         coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
         tailDigest = coldDirMap[CDM_PrevDirRec];
         GP=F and trace("[DEBUG]<%s:%s> Cur Tail(%s) Next Cold Dir Tail(%s)",
@@ -2786,7 +2519,7 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
         
         -- It is best to adjust the new tail now, even though in some
         -- cases we might remove this cold dir rec as well.
-        coldDirRec = openSubrec( src, topRec, tailDigestString );
+        coldDirRec = ldt_common.openSubRec( src, topRec, tailDigestString );
         coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
         coldDirMap[CDM_NextDirRec] = 0; -- this is now the tail
 
@@ -2805,7 +2538,7 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     itemsDeleted = list.size(ldrDeleteList) * ldrItemCount;
     subrecsDeleted = list.size(ldrDeleteList) + list.size(dirDeleteList);
 
-    -- releaseStorage( topRec, ldtCtrl, deleteList );
+    -- releaseStorage( src, topRec, ldtCtrl, deleteList );
   end -- end -- cases for when we remove OLD storage
 
   -- If we did some deletes -- clean that all up now.
@@ -2819,8 +2552,8 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
 
 
     -- Now release any freed subrecs.
-    releaseStorage( topRec, ldtCtrl, ldrDeleteList );
-    releaseStorage( topRec, ldtCtrl, dirDeleteList );
+    releaseStorage( src, topRec, ldtCtrl, ldrDeleteList );
+    releaseStorage( src, topRec, ldtCtrl, dirDeleteList );
   end
 
   -- Now -- whether or not we removed some old storage above, NOW are are
@@ -2833,16 +2566,21 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     -- if present, and have it point BACK to this new one.
     --
     -- Note: All Field Names start with UPPER CASE.
+    -- Use the common createSubRec() call to create the new Cold Head
+    -- subrec and set up the common properties.  All of the CH-specific
+    -- stuff goes here.
     -- Remember to add the newColdHeadRec to the SRC.
-    local newColdHeadRec = aerospike:create_subrec( topRec );
+    local newColdHeadRec =
+      ldt_common.createSubRec( src, topRec, ldtCtrl, RT_CDIR );
+    -- The SubRec is created and the PropMap is set up. So, now we
+    -- finish the job and set up the rest.
     local newColdHeadMap     = map();
-    local newColdHeadPropMap = map();
-    initializeColdDirMap(topRec, newColdHeadRec, newColdHeadPropMap,
-                         newColdHeadMap, ldtCtrl);
+    newColdHeadMap[CDM_NextDirRec] = 0; -- no other Dir Records (yet).
+    newColdHeadMap[CDM_PrevDirRec] = 0; -- no other Dir Records (yet).
+    newColdHeadMap[CDM_DigestCount] = 0; -- no digests in the list -- yet.
 
-    -- Now that it's initialized, add the newColdHeadRec to the SRC.
-    addSubrecToContext( src, newColdHeadRec );
-                           
+    local newColdHeadPropMap = newColdHeadRec[SUBREC_PROP_BIN];
+
     -- Update our global counts ==> One more Cold Dir Record.
     ldtMap[M_ColdDirRecCount] = coldDirRecCount + 1;
 
@@ -2868,7 +2606,8 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     else
       -- Regular situation:  Go open the old ColdDirRec and update it.
       local oldColdHeadDigestString = tostring(oldColdHeadDigest);
-      local oldColdHeadRec = openSubrec(src,topRec,oldColdHeadDigestString);
+      local oldColdHeadRec =
+        ldt_common.openSubRec(src,topRec,oldColdHeadDigestString);
       if( oldColdHeadRec == nil ) then
         warn("[ERROR]<%s:%s> oldColdHead NIL from openSubrec: digest(%s)",
           MOD, meth, oldColdHeadDigestString );
@@ -2877,11 +2616,10 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
       local oldColdHeadMap = oldColdHeadRec[COLD_DIR_CTRL_BIN];
       oldColdHeadMap[CDM_PrevDirRec] = newColdHeadDigest;
 
-      updateSubrec( src, oldColdHeadRec, oldColdHeadDigest );
-      -- aerospike:update_subrec( oldColdHeadRec );
+      ldt_common.updateSubRec( src, oldColdHeadRec );
     end
 
-    GP=F and trace("[REVIEW]: <%s:%s> LSOMAP = (%s) COLD DIR PROP MAP = (%s)",
+    GP=F and trace("[REVIEW]: <%s:%s> LDTMAP = (%s) COLD DIR PROP MAP = (%s)",
       MOD, meth, tostring(ldtMap), tostring(newColdHeadPropMap));
 
     -- Save our updates in the records
@@ -2889,13 +2627,16 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     newColdHeadRec[COLD_DIR_CTRL_BIN] = newColdHeadMap;
     newColdHeadRec[SUBREC_PROP_BIN] =   newColdHeadPropMap;
 
-    aerospike:update_subrec( newColdHeadRec );
+    ldt_common.updateSubRec( src, newColdHeadRec );
 
     -- NOTE: We don't want to update the TOP RECORD until we know that
     -- the  underlying children record operations are complete.
     -- However, we can update topRec here, since that won't get written back
     -- to storage until there's an explicit update_subrec() call.
-    topRec[ ldtBinName ] = ldtMap;
+    warn("[WARNING:NOTICE]<%s:%s> Updating Top Rec.  Verify this is needed",
+      MOD, meth );
+
+    topRec[ ldtBinName ] = ldtCtrl;
     record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
     returnColdHead = newColdHeadRec;
   end -- if we should create a new Cold HEAD
@@ -2925,7 +2666,7 @@ local function coldDirRecInsert(ldtCtrl,coldHeadRec,digestListIndex,digestList)
   GP=E and trace("[ENTER]:<%s:%s> ColdHead(%s) ColdDigestList(%s)",
       MOD, meth, coldDirRecSummary(coldHeadRec), tostring( digestList ));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT map from the LDT Control.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -2946,7 +2687,7 @@ local function coldDirRecInsert(ldtCtrl,coldHeadRec,digestListIndex,digestList)
   -- opened up this page -- and there's no room -- then just return ZERO
   -- items written, and hope that the caller can deal with that.
   if itemSlotsAvailable <= 0 then
-    warn("[ERROR]: <%s:%s> INTERNAL ERROR: No space available on chunk(%s)",
+    warn("[ERROR]: <%s:%s> INTERNAL ERROR: No space available on LDR(%s)",
     MOD, meth, tostring( coldDirMap ));
     -- Deal with this at a higher level.
     return -1; -- nothing written, Error.  Bubble up to caller
@@ -2988,7 +2729,7 @@ local function coldDirRecInsert(ldtCtrl,coldHeadRec,digestListIndex,digestList)
   GP=F and trace("[DEBUG]: <%s:%s>: Post digest Copy: Ctrl(%s) List(%s)",
     MOD, meth, tostring(coldDirMap), tostring(coldDirList));
 
-  -- Store our modifications back into the Chunk Record Bins
+  -- Store our modifications back into the LDR Record Bins
   coldHeadRec[COLD_DIR_CTRL_BIN] = coldDirMap;
   coldHeadRec[COLD_DIR_LIST_BIN] = coldDirList;
 
@@ -3002,7 +2743,7 @@ end -- coldDirRecInsert()
 -- coldListInsert()
 -- ======================================================================
 -- Insert "insertList", which is a list of digest entries, into the cold
--- dir page -- a directory of cold Lso Data Record digests that contain 
+-- dir page -- a directory of cold LSTACK Data Record digests that contain 
 -- the actual data entries. Note that the data pages were built when the
 -- warm list was created, so all we're doing now is moving the LDR page
 -- DIGESTS -- not the data itself.
@@ -3017,7 +2758,7 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   local meth = "coldListInsert()";
   local rc = 0;
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT map from the LDT Control
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
   local ldtBinName = propMap[PM_BinName];
@@ -3033,7 +2774,7 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   -- being deleted.  If that's the case, then we pass those digests to
   -- the "release storage" method and return.
   if( ldtMap[M_ColdDirRecMax] == 0 ) then
-    rc = releaseStorage( topRec, ldtCtrl, digestList );
+    rc = releaseStorage( src, topRec, ldtCtrl, digestList );
     GP=E and trace("[Early EXIT]: <%s:%s> Release Storage Status(%s) RC(%d)",
       MOD,meth, tostring(status), rc );
     return rc;
@@ -3064,7 +2805,7 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   else
     GP=F and trace("[DEBUG]:<%s:%s>:Opening Existing COLD HEAD", MOD, meth );
     stringDigest = tostring( coldHeadDigest );
-    coldHeadRec = aerospike:open_subrec( topRec, stringDigest );
+    coldHeadRec = ldt_common.openSubRec( src, topRec, stringDigest );
   end
 
   local coldDirMap = coldHeadRec[COLD_DIR_CTRL_BIN];
@@ -3075,7 +2816,7 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
     tostring( coldHeadList ));
 
   -- Iterate thru and transfer the "digestList" (which is a list of
-  -- LDR data chunk record digests) into the coldDirHead.  If it doesn't all
+  -- LDR data Sub-Record digests) into the coldDirHead.  If it doesn't all
   -- fit, then create a new coldDirHead and keep going.
   local digestsWritten = 0;
   local digestsLeft = transferAmount;
@@ -3092,8 +2833,9 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
     -- If we have more to do -- then write/close the current coldHeadRec and
     -- allocate ANOTHER one (woo hoo).
     if digestsLeft > 0 then
-      aerospike:update_subrec( coldHeadRec );
-      aerospike:close_subrec( coldHeadRec );
+      ldt_common.updateSubRec( src, coldHeadRec );
+      -- Can't currently close a dirty SubRec.
+      ldt_common.closeSubRec( src, coldHeadRec, true );
       GP=F and trace("[DEBUG]: <%s:%s> Calling Cold DirHead Create: AGAIN!!",
           MOD, meth );
       -- Note that coldDirHeadCreate() deals with the data Expiration and
@@ -3110,19 +2852,19 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   ldtMap[M_WarmListDigestCount] = warmListCount - transferAmount;
 
   -- All done -- Save the info of how much room we have in the top Warm
-  -- chunk (entry count or byte count)
-  GP=F and trace("[DEBUG]: <%s:%s> Saving LdtMap (%s) Before Update ",
-    MOD, meth, tostring( ldtMap ));
-  topRec[ ldtBinName ] = ldtMap;
+  -- Sub-Rec (entry count or byte count)
+  GP=F and trace("[DEBUG]: <%s:%s> Saving ldtCtrl (%s) Before Update ",
+    MOD, meth, tostring( ldtCtrl ));
+  topRec[ ldtBinName ] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
   GP=F and trace("[DEBUG]: <%s:%s> New Cold Head Save: Summary(%s) ",
     MOD, meth, coldDirRecSummary( coldHeadRec ));
-  local status = aerospike:update_subrec( coldHeadRec );
+  local status = ldt_common.udpateSubRec( src, coldHeadRec );
   GP=F and trace("[DEBUG]: <%s:%s> SUB-REC  Update Status(%s) ",
     MOD,meth, tostring(status));
 
-  status = aerospike:close_subrec( coldHeadRec );
+  local status = ldt_common.closeSubRec( src, coldHeadRec, true);
   GP=E and trace("[EXIT]: <%s:%s> SUB-REC  Close Status(%s) RC(%d)",
     MOD,meth, tostring(status), rc );
 
@@ -3137,7 +2879,7 @@ end -- coldListInsert
 -- coldListRead()
 -- ======================================================================
 -- Synopsis: March down the Cold List Directory Pages (a linked list of
--- directory pages -- that each point to Lso Data Record "chunks") and
+-- directory pages -- that each point to lstack Data Sub-Records) and
 -- read "count" data entries.  Use the same ReadDigestList method as the
 -- warm list.
 -- Parms:
@@ -3154,7 +2896,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
   GP=E and trace("[ENTER]: <%s:%s> Count(%d) All(%s) ldtMap(%s)",
       MOD, meth, count, tostring( all ), tostring( ldtMap ));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT map from the LDT Control.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -3187,7 +2929,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
       MOD, meth, tostring(coldDirRecDigest) );
     -- Open the Directory Page
     local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = aerospike:open_subrec( topRec, stringDigest );
+    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
 
@@ -3212,9 +2954,10 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
           tostring(coldDirMap[CDM_PrevDirRec]));
 
     if countRemaining <= 0 or coldDirMap[CDM_NextDirRec] == 0 then
-        GP=E and trace("[EARLY EXIT]:<%s:%s>:Cold Read: (%d) Items",
+      GP=E and trace("[EARLY EXIT]:<%s:%s>:Cold Read: (%d) Items",
           MOD, meth, totalNumRead );
-        aerospike:close_subrec( coldDirRec );
+        -- We no longer close a dirty SubRec, but we can mark it available.
+        ldt_common.closeSubRec( src, coldDirRec, true );
         return totalNumRead;
     end
 
@@ -3232,7 +2975,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     GP=F and trace("[DEBUG]:<%s:%s>Getting Next Digest in Dir Chain(%s)",
       MOD, meth, coldDirRecDigest );
 
-    aerospike:close_subrec( coldDirRec );
+    ldt_common.closeSubRec( src, coldDirRec, true );
 
   end -- while Dir Page not empty.
 
@@ -3267,7 +3010,7 @@ end -- coldListRead()
 --
 -- There is a lot of complexity at this level, as a single Warm List
 -- transfer can trigger several operations in the cold list (see the
--- function makeRoomInColdList( lso, digestCount )
+-- function makeRoomInColdList( ldtCtrl, digestCount )
 -- Parms:
 -- (*) src: Subrec Context -- Manage the Open Subrec Pool
 -- (*) topRec: The top level user record (needed for create_subrec)
@@ -3277,7 +3020,7 @@ end -- coldListRead()
 local function warmListTransfer( src, topRec, ldtCtrl )
   local meth = "warmListTransfer()";
   local rc = 0;
-  GP=E and trace("[ENTER]<%s:%s>\n\n <> TRANSFER TO COLD LIST <> lso(%s)\n",
+  GP=E and trace("[ENTER]<%s:%s>\n\n <> TRANSFER TO COLD LIST <> LDT(%s)\n",
     MOD, meth, tostring(ldtCtrl) );
 
   -- if we haven't yet initialized the cold list, then set up the
@@ -3290,13 +3033,13 @@ local function warmListTransfer( src, topRec, ldtCtrl )
   -- list to the cold list. Use coldListInsert() to insert them.
   local transferList = extractWarmListTransferList( ldtCtrl );
   rc = coldListInsert( src, topRec, ldtCtrl, transferList );
-  GP=E and trace("[EXIT]: <%s:%s> lso(%s) ", MOD, meth, tostring(ldtCtrl) );
+  GP=E and trace("[EXIT]: <%s:%s> LDT(%s) ", MOD, meth, tostring(ldtCtrl) );
   return rc;
 end -- warmListTransfer()
 
 
 -- ======================================================================
--- local function hotListTransfer( ldtCtrl, insertValue )
+-- hotListTransfer( ldtCtrl, insertValue )
 -- ======================================================================
 -- The job of hotListTransfer() is to move part of the HotList, as
 -- specified by HotListTransferAmount, to LDRs in the warm Dir List.
@@ -3315,7 +3058,7 @@ local function hotListTransfer( src, topRec, ldtCtrl )
   GP=E and trace("[ENTER]: <%s:%s> LDT Summary(%s) ",
       MOD, meth, ldtSummaryString(ldtCtrl) );
       --
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT map from the LDT Control.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -3405,7 +3148,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
     -- check that our bin is (mostly) there
     ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-    -- Extract the property map and lso control map from the lso bin list.
+    -- Extract the property map and LDT Map from the LDT Control.
     propMap = ldtCtrl[1];
     ldtMap  = ldtCtrl[2];
 
@@ -3421,7 +3164,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
     -- then it MUST have magic.
     if topRec ~= nil and topRec[ldtBinName] ~= nil then
       ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-      -- Extract the property map and lso control map from the lso bin list.
+      -- Extract the property map and LDT Map from the LDT Control.
       propMap = ldtCtrl[1];
       ldtMap  = ldtCtrl[2];
       if propMap[PM_Magic] ~= MAGIC then
@@ -3443,6 +3186,7 @@ end -- validateRecBinAndMap()
 -- Build the list of subrecs starting at location N.  ZERO means, get them
 -- all.
 -- Parms:
+-- (0) src:
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtCtrl: The main LDT control structure
 -- (3) position: We start building the list with the first subrec that
@@ -3452,7 +3196,7 @@ end -- validateRecBinAndMap()
 --   res = (when successful) List of SUBRECs
 --   res = (when error) Empty List
 -- ========================================================================
-local function buildSubRecList( topRec, ldtCtrl, position )
+local function buildSubRecList( src, topRec, ldtCtrl, position )
   local meth = "buildSubRecList()";
 
   GP=E and trace("[ENTER]: <%s:%s> position(%s) ldtSummary(%s)",
@@ -3540,7 +3284,7 @@ local function buildSubRecList( topRec, ldtCtrl, position )
 
     -- Open the Directory Page, read the digest list
     local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = aerospike:open_subrec( topRec, stringDigest );
+    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -3552,7 +3296,7 @@ local function buildSubRecList( topRec, ldtCtrl, position )
     -- If no more, we'll drop out of the loop, and if there's more, 
     -- we'll get it in the next round.
     -- Close this directory subrec before we open another one.
-    aerospike:close_subrec( coldDirRec );
+    ldt_common.closeSubRec( src, coldDirRec, false );
   end -- for each coldDirRecDigest
 
   GP=E and trace("[EXIT]:<%s:%s> SubRec Digest Result List(%s)",
@@ -3574,13 +3318,13 @@ end -- buildResultList()
 --   res = (when successful) List of SUBRECs
 --   res = (when error) Empty List
 -- ========================================================================
-local function buildSubRecListAll( src, topRec, lsolist )
+local function buildSubRecListAll( src, topRec, ldtCtrl )
   local meth = "buildSubRecListAll()";
 
   GP=E and trace("[ENTER]: <%s:%s> LDT Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT Map from the LDT Control.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -3613,7 +3357,7 @@ local function buildSubRecListAll( src, topRec, lsolist )
 
     -- Open the Directory Page, read the digest list
     local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = aerospike:open_subrec( topRec, stringDigest );
+    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -3625,7 +3369,7 @@ local function buildSubRecListAll( src, topRec, lsolist )
     -- If no more, we'll drop out of the loop, and if there's more, 
     -- we'll get it in the next round.
     -- Close this directory subrec before we open another one.
-    aerospike:close_subrec( coldDirRec );
+    ldt_common.closeSubRec( src, coldDirRec, false );
 
   end -- Loop thru each cold directory
 
@@ -3702,7 +3446,7 @@ local function locatePosition( topRec, ldtCtrl, sp, position )
     -- TODO: Finish this later -- if needed at all.
   warn("[WARNING!!]<%s:%s> FUNCTION UNDER CONSTRUCTION!!! ", MOD, meth );
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT Map from the LDT Control.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
@@ -3759,7 +3503,7 @@ end -- locatePosition
 -- ======================================================================
 local function localTrim( topRec, ldtCtrl, searchPath )
   local meth = "localTrim()";
-  GP=E and trace("[ENTER]:<%s:%s> LsoSummary(%s) SearchPath(%s)",
+  GP=E and trace("[ENTER]:<%s:%s> LDTSummary(%s) SearchPath(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(searchPath));
     
   -- TODO: Finish this later -- if needed at all.
@@ -3792,7 +3536,9 @@ end -- localTrim()
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
-function lstack_delete_subrecs( topRec, ldtBinName )
+-- THIS FUNCTION IS NOT CURRENTLY IN USE.
+-- ========================================================================
+function lstack_delete_subrecs( src, topRec, ldtBinName )
   local meth = "lstack_delete()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3804,15 +3550,12 @@ function lstack_delete_subrecs( topRec, ldtBinName )
   local rc = 0; -- start off optimistic
 
   -- Validate the ldtBinName before moving forward
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  -- Extract the property map and lso control map from the lso bin list.
-  local ldtCtrl = topRec[ ldtBinName ];
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
   -- TODO: Create buildSubRecList()
-  local deleteList = buildSubRecList( topRec, ldtCtrl );
+  local deleteList = buildSubRecList( src, topRec, ldtCtrl );
   local listSize = list.size( deleteList );
   local digestString;
   local subrec;
@@ -3821,7 +3564,7 @@ function lstack_delete_subrecs( topRec, ldtBinName )
       digestString = tostring( deleteList[i] );
       GP=F and trace("[SUBREC DELETE]<%s:%s> About to Open and Delete(%s)",
         MOD, meth, digestString );
-      subrec = aerospike:open_subrec( topRec, digestString );
+      subrec = ldt_common.openSubRec( src, topRec, digestString );
       if( subrec ~= nil ) then
         rc = aerospike:remove_subrec( subrec );
         if( rc == nil or rc == 0 ) then
@@ -3900,9 +3643,8 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
-  -- Set the type of this record to LDT (it might already be set)
-  -- No Longer needed.  The Set Type is handled in initializeLdtCtrl()
-  -- record.set_type( topRec, RT_LDT ); -- LDT Type Rec
+  -- Remember that record.set_type() for the TopRec
+  -- is handled in initializeLdtCtrl()
 
   -- If the user has passed in settings that override the defaults
   -- (the userModule), then process that now.
@@ -3911,7 +3653,7 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
     if( createSpecType == "string" ) then
       processModule( ldtCtrl, userModule );
     elseif( createSpecType == "userdata" ) then
-      adjustLdtMap( ldtCtrl, userModule );
+      ldt_common.adjustLdtMap( ldtCtrl, userModule, lstackPackage);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( userModule ));
@@ -3925,10 +3667,12 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- we created from initializeLdtCtrl() : 
   -- Item 1 :  the property map & Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
+  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
   -- NOTE: The Caller will write out the LDT bin.
   return 0;
 end -- setupLdtBin()
+
 -- ========================================================================
 -- This function is (still) under construction
 -- ========================================================================
@@ -3944,6 +3688,8 @@ end -- setupLdtBin()
 -- must be protected with "tostring()" so that we do not encounter a format
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
+-- NOTE: This function not currently in use.
+-- ========================================================================
 function lstack_trim( topRec, ldtBinName, trimCount )
   local meth = "lstack_trim()";
 
@@ -3954,9 +3700,7 @@ function lstack_trim( topRec, ldtBinName, trimCount )
 
   -- validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  ldtCtrl = topRec[ldtBinName];
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
   -- Move to the location (Hot, Warm or Cold) that is the trim point.
   -- TODO: Create locatePosition()
@@ -3984,13 +3728,15 @@ end -- function lstack_trim()
 -- must be protected with "tostring()" so that we do not encounter a format
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
-function lstack_subrec_list( topRec, ldtBinName )
+-- THIS FUNCTION IS NOT CURRENTLY IN USE.
+-- ========================================================================
+function lstack_subrec_list( src, topRec, ldtBinName )
   local meth = "lstack_subrec_list()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
-  -- Extract the property map and lso control map from the lso bin list.
+  -- Extract the property map and LDT Map from the LDT Control.
   local ldtCtrl = topRec[ ldtBinName ];
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
@@ -4024,7 +3770,7 @@ function lstack_subrec_list( topRec, ldtBinName )
 
     -- Open the Directory Page, read the digest list
     local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = aerospike:open_subrec( topRec, stringDigest );
+    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -4036,7 +3782,7 @@ function lstack_subrec_list( topRec, ldtBinName )
     -- If no more, we'll drop out of the loop, and if there's more, 
     -- we'll get it in the next round.
     -- Close this directory subrec before we open another one.
-    aerospike:close_subrec( coldDirRec );
+    ldt_common.closeSubRec( src, coldDirRec, false );
 
   end -- Loop thru each cold directory
 
@@ -4074,19 +3820,6 @@ local lstack = {};
 -- ======================================================================
 -- Create/Initialize a Stack structure in a bin, using a single LSTACK
 -- bin, using User's name, but Aerospike TYPE (LSTACK).
---
--- For this version of lstack, we will be using a SINGLE MAP object,
--- which contains lots of metadata, plus one list:
--- (*) Namespace Name (just one Namespace -- for now)
--- (*) Set Name
--- (*) Chunk Size (same for both namespaces)
--- (*) Warm Chunk Count: Number of Warm Chunk Data Records
--- (*) Cold Chunk Count: Number of Cold Chunk Data Records
--- (*) Item Count (will NOT be tracked in Stoneman)
--- (*) The List of Warm Chunks of data (each Chunk is a list)
--- (*) The Head of the Cold Data Directory
--- (*) Storage Mode (Compact or Regular) (0 for compact, 1 for regular)
--- (*) Compact Item List
 --
 -- The LDT starts out with the first N (default to 100) elements stored
 -- directly in the record.  That list is referred to as the "Hot List. Once
@@ -4129,17 +3862,22 @@ function lstack.create( topRec, ldtBinName, createSpec )
   
   GP=F and trace("[DEBUG]: <%s:%s> : Initialize SET CTRL Map", MOD, meth );
   -- We need a new LDT bin -- set it up.
-  setupLdtBin( topRec, ldtBinName, createSpec );
+  local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  -- The create was done higher up because we need to do this right away
+  -- in order to work with the LDT fields.  Now, after some additional
+  -- changes, we call update().
   local rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
   
   GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
-  if( rc == nil or rc == 0 ) then
-    return 0;
-  else
-    error( ldte.ERR_CREATE );
-  end
+  return rc;
 end -- function lstack.create()
 
 -- =======================================================================
@@ -4192,12 +3930,14 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   local propMap = ldtCtrl[1];
   local ldtMap = ldtCtrl[2];
 
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
+
   -- Set up the Write Functions (Transform).  But, just in case we're
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  setKeyFunction( ldtMap, false );
-  setReadFunctions( ldtMap, nil, nil, nil );
-  setWriteFunctions( ldtMap );
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
   -- Now, it looks like we're ready to insert.  If there is a transform
   -- function present, then apply it now.
@@ -4216,7 +3956,7 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   -- That may, in turn, have to make room by moving some items to the
   -- cold list.  (Ok to use ldtMap and not ldtCtrl here).
   -- First -- set up our sub-rec context to track open sub-recs.
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   if hotListHasRoom( ldtMap, newStoreValue ) == false then
     GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
@@ -4237,13 +3977,13 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   local rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- function lstack.push()
 
 -- =======================================================================
@@ -4283,15 +4023,17 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
   local propMap = ldtCtrl[1];
   local ldtMap = ldtCtrl[2];
 
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
+
   -- Set up the Write Functions (Transform).  But, just in case we're
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  setKeyFunction( ldtMap, false );
-  setReadFunctions( ldtMap, nil, nil, nil );
-  setWriteFunctions( ldtMap );
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
   -- Set up our sub-rec pool
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   -- Loop thru the value list.  So, for each element ...
   -- If we have room, do the simple list insert.  If we don't have
@@ -4322,7 +4064,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
       end
 
       if hotListHasRoom( ldtMap, newStoreValue ) == false then
-        GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
+        GP=F and trace("[DEBUG]<%s:%s> CALLING TRANSFER HOT LIST!!",MOD, meth);
         hotListTransfer( src, topRec, ldtCtrl );
       end
       hotListInsert( ldtCtrl, newStoreValue );
@@ -4346,14 +4088,13 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   local rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
-  return rc;
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- end lstack.push_all()
 
 -- ======================================================================
@@ -4400,24 +4141,26 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
     tostring(func), tostring(fargs) );
 
   -- Some simple protection of faulty records or bad bin names
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  local ldtCtrl = topRec[ ldtBinName ];
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   GP=F and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  -- Set up the Read Functions (KeyFunction, Untransform, Filter)
+  -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  setKeyFunction( ldtMap, false )
-  setReadFunctions( ldtMap, nil, nil, nil );
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  G_Filter, G_UnTransform =
+    ldt_common.setReadFunctions(ldtMap, userModule, filter );
+  G_FunctionArgs = fargs;
 
   -- Create the SubrecContext, which will hold all of the open subrecords.
   -- The key will be the DigestString, and the value will be the subRec
   -- pointer.
-  local src = createSubrecContext();
+  local src = ldt_common.createSubRecContext();
 
   -- Build the user's "resultList" from the items we find that qualify.
   -- They must pass the "transformFunction()" filter.
@@ -4450,9 +4193,6 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
   else
     count = peekCount;
   end
-
-  -- Set up the Read Functions (UnTransform, Filter)
-  setReadFunctions( ldtMap, userModule, filter, fargs );
 
   -- Set up our answer list.
   local resultList = list(); -- everyone will fill this in
@@ -4543,12 +4283,12 @@ function lstack.size( topRec, ldtBinName )
 
   -- validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  local ldtCtrl = topRec[ ldtBinName ];
-  -- Extract the property map and lso control map from the lso bin list.
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local propMap = ldtCtrl[1];
   local ldtMap = ldtCtrl[2];
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
+
   local itemCount = propMap[PM_ItemCount];
   local storeLimit = ldtMap[M_StoreLimit];
   -- Check for a special value.
@@ -4590,12 +4330,11 @@ function lstack.get_capacity( topRec, ldtBinName )
 
   -- validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  local ldtCtrl = topRec[ ldtBinName ];
-  -- Extract the property map and lso control map from the lso bin list.
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local ldtMap = ldtCtrl[2];
   local capacity = ldtMap[M_StoreLimit];
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   GP=E and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, capacity );
 
@@ -4633,15 +4372,11 @@ function lstack.set_capacity( topRec, ldtBinName, newLimit )
   end
 
   -- Validate the ldtBinName before moving forward
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  -- Extract the property map and lso control map from the lso bin list.
-  local ldtCtrl = topRec[ ldtBinName ];
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
-  GP=F and trace("[LSO SUMMARY]: <%s:%s> Summary(%s)", MOD, meth,
-    ldtSummaryString( ldtCtrl ));
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   info("[PARAMETER UPDATE]<%s:%s> StoreLimit: Old(%d) New(%d) ItemCount(%d)",
     MOD, meth, ldtMap[M_StoreLimit], newLimit, propMap[PM_ItemCount] );
@@ -4750,13 +4485,12 @@ function lstack.set_capacity( topRec, ldtBinName, newLimit )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- lstack.set_capacity();
 
 -- ========================================================================
@@ -4781,9 +4515,7 @@ function lstack.config( topRec, ldtBinName )
 
   -- validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  local ldtCtrl = topRec[ ldtBinName ];
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local config = ldtSummary( ldtCtrl );
 
   GP=E and trace("[EXIT]: <%s:%s> : config(%s)", MOD, meth, tostring(config));
@@ -4813,15 +4545,21 @@ function lstack.destroy( topRec, ldtBinName )
   GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.DESTROY ] <<<<<<<<<< \n");
 
   local meth = "lstack.destroy()";
-  GP=E and trace("[ENTER]<%s:%s> ldtBinName(%s)", MOD, meth, tostring(ldtBinName));
+  GP=E and trace("[ENTER]<%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
   local rc = 0; -- start off optimistic
 
   -- Validate the Bin Name before moving forward
-  validateRecBinAndMap( topRec, ldtBinName, true );
-
-  -- Extract the property map and lso control map from the lso bin list.
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   local ldtList = topRec[ ldtBinName ];
   local propMap = ldtList[1];
+  
+  -- Create the SubrecContext, which will hold all of the open subrecords.
+  -- The key will be the DigestString, and the value will be the subRec
+  -- pointer.
+  local src = ldt_common.createSubRecContext();
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Get the ESR and delete it -- if it exists.  If we have ONLY a HotList,
   -- then the ESR will be ZERO.
@@ -4829,13 +4567,13 @@ function lstack.destroy( topRec, ldtBinName )
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
     GP=f and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
-    local esrRec = aerospike:open_subrec( topRec, esrDigestString );
+    local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
       rc = aerospike:remove_subrec( esrRec );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
-        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)", MOD, meth, rc, ldtBinName);
+        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",MOD,meth,rc,ldtBinName);
         error( ldte.ERR_SUBREC_DELETE );
       end
     else
@@ -4854,6 +4592,7 @@ function lstack.destroy( topRec, ldtBinName )
       MOD, meth, REC_LDT_CTRL_BIN );
     error( ldte.ERR_INTERNAL );
   end
+
   local ldtCount = recPropMap[RPM_LdtCount];
   if( ldtCount <= 1 ) then
     -- Remove this bin
@@ -4871,13 +4610,12 @@ function lstack.destroy( topRec, ldtBinName )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if( rc == nil or rc == 0 ) then
-    GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
-    return 0;
-  else
-    GP=E and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_INTERNAL );
-  end
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- lstack.destroy()
 
 -- ========================================================================
@@ -4957,4 +4695,3 @@ return lstack;
 --                                        
 -- ========================================================================
 -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
---

@@ -3,7 +3,7 @@
 -- ===================
 
 -- Note date and iteration of the last update:
-local MOD="2014_03_09.a";
+local MOD="2014_04_04.A";
 
 -- These errors align with the errors found in:
 -- client/aerospike/src/include/aerospike/as_status.h
@@ -39,6 +39,8 @@ local exports = {
   ERR_SUBREC_CREATE        ="1424:LDT-Sub Record Create Error",
   ERR_SUBREC_DELETE        ="1425:LDT-Sub Record Delete Error",
   ERR_SUBREC_CLOSE         ="1426:LDT-Sub Record Close Error",
+  ERR_TOPREC_UPDATE        ="1427:LDT-TOP Record Update Error",
+  ERR_TOPREC_CREATE        ="1428:LDT-TOP Record Create Error",
 
   ERR_FILTER_BAD           ="1430:LDT-Bad Read Filter Name",
   ERR_FILTER_NOT_FOUND     ="1431:LDT-Read Filter Not Found",
