@@ -190,7 +190,7 @@ end
 -- Dump: Debugging/Tracing mechanism -- show the WHOLE tree.
 -- ========================================================================
 function dump( topRec, ldtBinName )
-  return llist.dump( topRec, ldtBinName );
+  return llist.dump( nil, topRec, ldtBinName );
 end
 
 -- ========================================================================

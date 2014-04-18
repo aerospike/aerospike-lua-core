@@ -1,11 +1,13 @@
 -- Large Map (LMAP) Operations Library
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_04_04.D";
+local MOD="lib_lmap_2014_04_18.A";
 
--- This variable holds the version of the code (Major.Minor).
+-- This variable holds the version of the code.  It would be in the form
+-- of (Major.Minor), except that Lua does not store real numbers.  So, for
+-- now, our version is just a simple integer.
 -- We'll check this for Major design changes -- and try to maintain some
 -- amount of inter-version compatibility.
-local G_LDT_VERSION = 2.1;
+local G_LDT_VERSION = 2;
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -32,7 +34,6 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LMAP library module:
 --
--- (*) Status = lmap.create( topRec, ldtBinName, createSpec) 
 -- (*) Status = lmap.put( topRec, ldtBinName, newName, newValue, userModule) 
 -- (*) Status = lmap.put_all( topRec, ldtBinName, nameValueMap, userModule)
 -- (*) Map    = lmap.get( topRec, ldtBinName, searchName )
@@ -43,6 +44,9 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Map    = lmap.config( topRec, ldtBinName )
 -- (*) Status = lmap.set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Number = lmap.get_capacity( topRec, ldtBinName )
+-- ======================================================================
+-- Deprecated:
+-- (*) Status = lmap.create( topRec, ldtBinName, createSpec) 
 -- ======================================================================
 --
 -- Large Map Design/Architecture
@@ -129,13 +133,14 @@ local FV_SCAN    = 'S'; -- Regular Scan (do nothing else)
 local FV_DELETE  = 'D'; -- flag to show scanList to Delete the value, if found
 
 -- The Hash Directory has a default starting size that can be overwritten.
-local DEFAULT_HASH_MODULO = 32;
+local DEFAULT_HASH_MODULO = 8;
 
 -- The Hash Directory has a "number of bits" (hash depth) that it uses to
 -- to calculate calculate the current hash value.
-local DEFAULT_HASH_DEPTH = 5; -- goes with 32, above.
+local DEFAULT_HASH_DEPTH = 3; -- goes with 8, above.
 --
--- Switch from a single list to distributed lists after this amount
+-- Switch from a single list to distributed lists after this amount, i.e.
+-- convert the compact list to a hash directory of cells.
 local DEFAULT_THRESHOLD = 10;
 
 local MAGIC="MAGIC";     -- the magic value for Testing LDT integrity
@@ -180,19 +185,7 @@ local KH_DEFAULT="keyHash";         -- Key Hash used only in complex mode
 local RT_REG = 0; -- 0x0: Regular Record (Here only for completeneness)
 local RT_LDT = 1; -- 0x1: Top Record (contains an LDT)
 local RT_SUB = 2; -- 0x2: Regular Sub Record (LDR, CDIR, etc)
-local RT_CDIR= 3; -- xxx: Cold Dir Subrec::Not used for set_type() 
 local RT_ESR = 4; -- 0x4: Existence Sub Record
-
--- Errors used in LDT Land
-local ERR_OK            =  0; -- HEY HEY!!  Success
-local ERR_GENERAL       = -1; -- General Error
-local ERR_NOT_FOUND     = -2; -- Search Error
-
--- We maintain a pool, or "context", of sub-records that are open.  That allows
--- us to look up sub-recs and get the open reference, rather than bothering
--- the lower level infrastructure.  There's also a limit to the number
--- of open sub-recs.
-local G_OPEN_SR_LIMIT = 20;
 
 ---- ------------------------------------------------------------------------
 -- Note:  All variables that are field names will be upper case.
@@ -311,6 +304,10 @@ local M_ListMax                = 'w';
 -- Y:                         y:
 -- Z:                         z:
 -- -----------------------------------------------------------------------
+-- Cell Anchors are used in both LSET and LMAP.  They use the same Hash
+-- Directory structure and Hash Cell structure, except that LSET uses a
+-- SINGLE value list and LMAP uses two lists (Name, Value).
+-- -----------------------------------------------------------------------
 -- Cell Anchor Fields:  A cell anchor is a map object that sits in each
 -- cell of the hash directory.   Since we don't have the freedom of keeping
 -- NULL array entries (as one might in C), we have to keep an active object
@@ -424,159 +421,6 @@ local function resetUdfPtrs()
 end -- resetPtrs()
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
--- -----------------------------------------------------------------------
--- setReadFunctions()()
--- -----------------------------------------------------------------------
--- Set the Filter and UnTransform Function pointers for Reading values.
--- We follow this hierarchical lookup pattern for the read filter function:
--- (*) User Supplied Module (might be different from create module)
--- (*) Create Module
--- (*) UdfFunctionTable
---
--- We follow this lookup pattern for the UnTransform function:
--- (*) Create Module
--- (*) UdfFunctionTable
--- Notice that it would be generally dangerous to use some sort of ad hoc
--- UnTransform filter -- the Transform/UnTransform should be defined at
--- the LDT Instance Creation, and then left alone.
---
--- -----------------------------------------------------------------------
-local function setReadFunctions( ldtMap, userModule, filter, filterArgs )
-  local meth = "setReadFunctions()";
-  GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
-    MOD, meth, tostring(filter));
-  GP=E and trace("[DEBUG]<%s:%s> UserMod(%s) Fargs(%s)",
-    MOD, meth, tostring(userModule), tostring(filterArgs));
-
-  -- Do the Filter First. If not nil, then process.  Complain if things
-  -- go badly.
-  local createModule = ldtMap[M_UserModule];
-  G_Filter = nil;
-  G_FunctionArgs = filterArgs;
-  if( filter ~= nil ) then
-    if( type(filter) ~= "string" or filter == "" ) then
-      warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
-        MOD, meth, type(filter), tostring(filter) );
-      error( ldte.ERR_FILTER_BAD );
-    else
-      -- Ok -- so far, looks like we have a valid filter name, 
-      if( userModule ~= nil and type(userModule) == "string" ) then
-        local userModuleRef = require(userModule);
-        if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
-          G_Filter = userModuleRef[filter];
-        end
-      end
-      -- If we didn't find a good filter then keep looking. 
-      -- Try the createModule.
-      if( G_Filter == nil and createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[filter] ~= nil ) then
-          G_Filter = createModuleRef[filter];
-        end
-      end
-      -- Last we try the UdfFunctionTable, In case the user wants to employ
-      -- one of the standard Functions.
-      if( G_Filter == nil and functionTable ~= nil ) then
-        G_Filter = functionTable[filter];
-      end
-
-      -- If we didn't find anything, BUT the user supplied a function name,
-      -- then we have a problem.  We have to complain.
-      if( G_Filter == nil ) then
-        warn("[ERROR]<%s:%s> filter not found: type(%s) filter(%s)",
-          MOD, meth, type(filter), tostring(filter) );
-        error( ldte.ERR_FILTER_NOT_FOUND );
-      end
-    end
-  end -- if filter not nil
-
-  -- That wraps up the Filter handling.  Now do  the UnTransform Function.
-  local untrans = ldtMap[M_UnTransform];
-  G_UnTransform = nil;
-  if( untrans ~= nil ) then
-    if( type(untrans) ~= "string" or untrans == "" ) then
-      warn("[ERROR]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
-        MOD, meth, type(untrans), tostring(untrans) );
-      error( ldte.ERR_UNTRANS_FUN_BAD );
-    else
-      -- Ok -- so far, looks like we have a valid untransformation func name, 
-      if( createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[untrans] ~= nil ) then
-          G_UnTransform = createModuleRef[untrans];
-        end
-      end
-      -- Last we try the UdfFunctionTable, In case the user wants to employ
-      -- one of the standard Functions.
-      if( G_UnTransform == nil and functionTable ~= nil ) then
-        G_UnTransform = functionTable[untrans];
-      end
-
-      -- If we didn't find anything, BUT the user supplied a function name,
-      -- then we have a problem.  We have to complain.
-      if( G_UnTransform == nil ) then
-        warn("[ERROR]<%s:%s> UnTransform Func not found: type(%s) Func(%s)",
-          MOD, meth, type(untrans), tostring(untrans) );
-        error( ldte.ERR_UNTRANS_FUN_NOT_FOUND );
-      end
-    end
-  end -- if untransform not nil
-
-  GP=E and trace("[EXIT]<%s:%s>", MOD, meth );
-end -- setReadFunctions()
-
-
--- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
--- -----------------------------------------------------------------------
--- setWriteFunctions()()
--- -----------------------------------------------------------------------
--- Set the Transform Function pointer for Writing values.
--- We follow a hierarchical lookup pattern for the transform function.
--- (*) Create Module
--- (*) UdfFunctionTable
---
--- -----------------------------------------------------------------------
-local function setWriteFunctions( ldtMap )
-  local meth = "setWriteFunctions()";
-  GP=E and trace("[ENTER]<%s:%s> ldtMap(%s)", MOD, meth, tostring(ldtMap));
-
-  -- Look in the create module first, then the UdfFunctionTable to find
-  -- the transform function (if there is one).
-  local createModule = ldtMap[M_UserModule];
-  local trans = ldtMap[M_Transform];
-  G_Transform = nil;
-  if( trans ~= nil ) then
-    if( type(trans) ~= "string" or trans == "" ) then
-      warn("[ERROR]<%s:%s> Bad Transformation Name: type(%s) function(%s)",
-        MOD, meth, type(trans), tostring(trans) );
-      error( ldte.ERR_TRANS_FUN_BAD );
-    else
-      -- Ok -- so far, looks like we have a valid transformation func name, 
-      if( createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[trans] ~= nil ) then
-          G_Transform = createModuleRef[trans];
-        end
-      end
-      -- Last we try the UdfFunctionTable, In case the user wants to employ
-      -- one of the standard Functions.
-      if( G_Transform == nil and functionTable ~= nil ) then
-        G_Transform = functionTable[trans];
-      end
-
-      -- If we didn't find anything, BUT the user supplied a function name,
-      -- then we have a problem.  We have to complain.
-      if( G_Transform == nil ) then
-        warn("[ERROR]<%s:%s> Transform Func not found: type(%s) Func(%s)",
-          MOD, meth, type(trans), tostring(trans) );
-        error( ldte.ERR_TRANS_FUN_NOT_FOUND );
-      end
-    end
-  end
-
-  GP=E and trace("[EXIT]<%s:%s>", MOD, meth );
-end -- setWriteFunctions()
-
 -- =========================================================================
 -- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
 -- =========================================================================
@@ -1155,7 +999,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   --
   -- Otherwise, If "mustExist" is false, then basically we're just going
   -- to check that our bin includes MAGIC, if it is non-nil.
-  -- TODO : Flag is true for peek, trim, config, size, delete etc 
+  -- TODO : Flag is true for get, config, size, delete etc 
   -- Those functions must be added b4 we validate this if section 
 
   if mustExist == true then
@@ -1205,18 +1049,23 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   -- Finally -- let's check the version of our code against the version
   -- in the data.  If there's a mismatch, then kick out with an error.
-  --  Can't do version control this way becase we don't FUCKING store
-  --  real numbers.  We'll have to store MAJOR and MINOR separately.
-  --  MAJOR will be a data format change -- and so we may not support
-  --  data changes across MAJOR versions.
---  if( G_LDT_VERSION > propMap[PM_Version] ) then
---    GP=E and warn("[ERROR EXIT]:<%s:%s> Code Version (%f) <> Data Version(%f)",
---    MOD, meth, G_LDT_VERSION, propMap[PM_Version]);
---    error( ldte.ERR_VERSION_MISMATCH );
---  end
- 
-  return ldtCtrl; -- Save the caller the effort of extracting the map.
+  -- Although, we check this ONLY in the "must exist" case.
+  if( mustExist == true ) then
+  local dataVersion = 0;
+    if( propMap[PM_Version] ~= nil and type(propMap[PM_Version] == "number") )
+    then
+      dataVersion = propMap[PM_Version];
+    end
 
+    if( G_LDT_VERSION > dataVersion ) then
+      GP=E and warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+        MOD, meth, G_LDT_VERSION, dataVersion );
+      error( ldte.ERR_VERSION_MISMATCH );
+    end
+  end -- final version check
+
+  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
+  return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
 
 -- ======================================================================
@@ -1404,7 +1253,8 @@ end -- searchList()
 -- =======================================================================
 local function scanList(nameList, valueList, resultMap )
   local meth = "scanList()";
-  GP=E and trace("[ENTER]: <%s:%s> ScanList", MOD, meth );
+  GP=E and trace("[ENTER]: <%s:%s> ScanList: Names(%s) Values(%s)",
+      MOD, meth, tostring(nameList), tostring(valueList));
 
   if( resultMap == nil ) then
     warn("[ERROR]<%s:%s> NULL RESULT MAP", MOD, meth );
@@ -1414,7 +1264,12 @@ local function scanList(nameList, valueList, resultMap )
   -- Nothing to search if the list is null or empty.  Assume that ValueList
   -- is in the same shape as the NameList.
   if( nameList == nil or list.size( nameList ) == 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s> EmptyList", MOD, meth );
+    GP=F and trace("[DEBUG]<%s:%s> EmptyNameList", MOD, meth );
+    return 0;
+  end
+
+  if( valueList == nil or list.size( valueList ) == 0 ) then
+    GP=F and trace("[DEBUG]<%s:%s> EmptyValueList", MOD, meth );
     return 0;
   end
 
@@ -1493,12 +1348,12 @@ local function stringHash( value, modulo )
   GP=E and trace("[ENTER]<%s:%s> val(%s) Mod = %s", MOD, meth,
     tostring(value), tostring(modulo));
 
-  -- local CRC32 = require('ldt/CRC32');
+  local result = 0;
   if value ~= nil and type(value) == "string" then
-    return CRC32.Hash( value ) % modulo;
-  else
-    return 0;
+    result = CRC32.Hash( value ) % modulo;
   end
+  GP=E and trace("[EXIT]:<%s:%s>HashResult(%s)", MOD, meth, tostring(result));
+  return result;
 end -- stringHash()
 
 -- ======================================================================
@@ -1513,14 +1368,12 @@ local function numberHash( value, modulo )
     tostring(value), tostring(modulo));
 
   local result = 0;
-  -- local CRC32 = require('ldt/CRC32');
   if value ~= nil and type(value) == "number" then
-    -- math.randomseed( value ); return math.random( modulo );
     result = CRC32.Hash( value ) % modulo;
   end
-  GP=E and trace("[EXIT]:<%s:%s>HashResult(%s)", MOD, meth, tostring(result))
-  return result
-end -- numberHash
+  GP=E and trace("[EXIT]:<%s:%s>HashResult(%s)", MOD, meth, tostring(result));
+  return result;
+end -- numberHash()
 
 -- ======================================================================
 -- computeHashCell()
@@ -1859,6 +1712,7 @@ local function compactInsert( ldtCtrl, newName, newValue )
   
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
+  local rc = 0;
   
   -- NOTE: We're expecting the lists to be built, and it's an error if
   -- they are not there.
@@ -1872,10 +1726,16 @@ local function compactInsert( ldtCtrl, newName, newValue )
   end
 
   local position = searchList( ldtCtrl, nameList, newName );
-  if( position > 0 and ldtMap[M_OverWrite] == AS_FALSE) then
-    trace("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
+  -- If we find it, then we will either OVERWRITE or generate an error.
+  -- If we overwrite, then we MUST NOT INCREMENT THE COUNT.
+  if( position > 0 ) then
+    if( ldtMap[M_OverWrite] == AS_FALSE) then
+      trace("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
                  MOD, meth, tostring(newName), tostring(newValue));
-    error( ldte.ERR_INTERNAL );
+      error( ldte.ERR_UNIQUE_KEY );
+    else
+      rc = 1;
+    end
   end
 
   -- Store the name in the name list.  If we're doing transforms, do that on
@@ -1887,10 +1747,11 @@ local function compactInsert( ldtCtrl, newName, newValue )
   end
   list.append( valueList, storeValue );
 
-  GP=E and trace("[EXIT]<%s:%s>Name(%s) Value(%s) NameList(%s) ValList(%s)",
+  GP=E and trace("[EXIT]<%s:%s>Name(%s) Value(%s) N List(%s) V List(%s) rc(%d)",
      MOD, meth, tostring(newName), tostring(newValue), 
-     tostring(nameList), tostring(valueList));
-  -- No need to return anything
+     tostring(nameList), tostring(valueList), rc );
+  
+  return rc;
 end -- compactInsert()
 
 -- ======================================================================
@@ -1941,31 +1802,63 @@ end -- compactInsert()
 -- ======================================================================
 
 -- ======================================================================
--- hashCellListInsert()
+-- lmapListInsert()
 -- ======================================================================
--- Insert into a hash cell list.  Easy Peasy.
+-- Insert into the two lists for LMAP, assumign the search goes ok.
+-- Parms: 
+-- (*) ldtCtrl
+-- (*) nameList
+-- (*) valueList
+-- (*) newName
+-- (*) newValue
+-- (*) check:
+-- Return:
+-- 0: all is well
+-- 1: Value overwritten: Do NOT update the count.
 -- ======================================================================
-local function hashCellListInsert( cellAnchor, newName, newValue )
-  local meth = "hashCellListInsert()";
-  GP=E and trace("[ENTER]<%s:%s> cellAnchor(%s) newName(%s) newValue(%s)",
-  MOD, meth, tostring(cellAnchor), tostring(newName), tostring(newValue));
+local function
+lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, check )
+  local meth = "lmapListInsert()";
+  GP=E and trace("[ENTER]<%s:%s> NList(%s) MVlist(%s) Name(%s) Value(%s)",
+    MOD, meth, tostring(nameList), tostring(valueList),
+    tostring(newName), tostring(newValue));
 
-  cellAnchor[C_CellState] = C_STATE_LIST;
-  local nameList  = cellAnchor[C_CellNameList];
-  local valueList = cellAnchor[C_CellValueList];
-   
-  -- Add the new name/value to the existing list and then assign the lists
-  -- to the sub-record.
-  list.append( nameList, newName );
+  local propMap = ldtCtrl[1]; 
+  local ldtMap = ldtCtrl[2];
+  local rc = 0;
 
-  -- If we have a transform to perform, do that now and then store the value
+  -- If we have a transform to perform, do that now and then store the value.
+  -- We're setting the value up here, even though there's a small chance that
+  -- we have an illegal overwrite case, because otherwise we'd have to do
+  -- this in two places.
   local storeValue = newValue;
   if( G_Transform ~= nil ) then
     storeValue = G_Transform( newValue );
   end
-  list.append( valueList, storeValue );
 
- end -- function hashCellListInsert()
+  local position = 0;
+  if( check == 1 ) then
+    position = searchList( ldtCtrl, nameList, newName );
+  end
+  -- If we find it, then see if we are going to overwrite or flag an error.
+  if( position > 0 ) then
+    if( ldtMap[M_OverWrite] == AS_FALSE) then
+      info("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
+                 MOD, meth, tostring(newName), tostring(newValue));
+      error( ldte.ERR_UNIQUE_KEY );
+    else
+      rc = 1; -- we will overwrite.  Name is the same, new value.
+      valueList[position] = storeValue;
+    end
+  else
+    -- Add the new name/value to the existing lists.
+    list.append( nameList, newName );
+    list.append( valueList, storeValue );
+  end
+
+  GP=E and trace("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
+  return rc;
+end -- function lmapListInsert()
 
 -- ======================================================================
 -- hashCellConvertInsert()
@@ -1978,6 +1871,9 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   local meth = "hashCellConvertInsert()";
   GP=E and trace("[ENTER]<%s:%s> HCell(%s) newName(%s) newValue(%s)", MOD, meth,
     tostring(cellAnchor), tostring(newName), tostring(newValue));
+
+    -- Remove later.
+    -- info("\n\n<<<<<<<<<<<<<<<<<<<<< CONVERT HASH >>>>>>>>>>>>>>>>>>>\n");
 
   -- Validate that the state of this Hash Cell Anchor really is "LIST",
   -- because otherwise something bad would be done.
@@ -2006,35 +1902,13 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
+  local rc = 0;
 
   local nameList = cellAnchor[C_CellNameList];
   local valueList = cellAnchor[C_CellValueList];
 
-  if( nameList == nil or valueList == nil ) then
-    warn("[ERROR]<%s:%s> Empty List: NameList(%s) ValueList(%s)", MOD, meth,
-      tostring(nameList), tostring(valueList));
-    error( ldte.ERR_INTERNAL );
-  end
+  rc = lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, 1 );
 
-  -- Make sure the new name is NOT in the existing nameList.  If so, 
-  -- then ERROR if "Overwrite" is not turned on.
-  local position = searchList( ldtCtrl, nameList, newName );
-  if( position > 0 and ldtMap[M_OverWrite] == AS_FALSE) then
-    info("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
-                 MOD, meth, tostring(newName), tostring(newValue));
-    error( ldte.ERR_INTERNAL );
-  end
-
-  -- Add the new name/value to the existing list and then assign the lists
-  -- to the sub-record.
-  list.append( nameList, newName );
-  -- If we have a transform to perform, do that now and then store the value
-  local storeValue = newValue;
-  if( G_Transform ~= nil ) then
-    storeValue = G_Transform( newValue );
-  end
-  list.append( valueList, storeValue );
-  
   subRec[LDR_NLIST_BIN] = nameList;
   subRec[LDR_VLIST_BIN] = valueList;
 
@@ -2042,21 +1916,19 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   -- values (which are now in the sub-rec).
   cellAnchor[C_CellState] = C_STATE_DIGEST;
   cellAnchor[C_CellDigest] = subRecDigest;
-  -- NOTE: Once we figure out how to REMOVE a map entry by assigning NIL to
-  -- it, we can THEN replace this with NIL. Until then, we have to reset the
-  -- list by putting in an EMPTY (a new) list.
-  -- cellAnchor[C_CellNameList] = nil;
-  -- cellAnchor[C_CellValueList] = nil;
-  cellAnchor[C_CellNameList] = list();
-  cellAnchor[C_CellValueList] = list();
+
+  -- With the latest Lua fix we can now safely remove a map entry just
+  -- by assigning a NIL value to the key.
+  cellAnchor[C_CellNameList] = nil;
+  cellAnchor[C_CellValueList] = nil;
 
   ldt_common.updateSubRec( src, subRec );
 
   GP=F and trace("[DEBUG]<%s:%s> Cell(%s) LDR Summary(%s)", MOD, meth,
     tostring(cellAnchor), ldrSubRecSummary( subRec ));
 
-  GP=E and trace("[EXIT]<%s:%s> Conversion Successful", MOD, meth );
-
+  GP=E and trace("[EXIT]<%s:%s> Conversion Successful: rc(%d)", MOD, meth, rc);
+  return rc;
 end -- function hashCellConvertInsert()
 
 -- ======================================================================
@@ -2066,6 +1938,16 @@ end -- function hashCellConvertInsert()
 -- an overflow, then split the sub-record into two.
 -- This might be an existing radix tree with sub-recs, or it might be
 -- a single sub-rec that needs to split and introduce a tree.
+-- Parms:
+-- (*) src
+-- (*) topRec
+-- (*) ldtCtrl
+-- (*) cellAnchor
+-- (*) newName
+-- (*) newValue
+-- Return:
+-- 0: if all goes well
+-- 1: if we inserted, but overwrote, so do NOT update the counts.
 -- ======================================================================
 local function
 hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
@@ -2075,6 +1957,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
+  local rc = 0;
 
   -- LMAP Version 1:  Just a pure Sub-Rec insert, no trees just yet.
   local digest = cellAnchor[C_CellDigest];
@@ -2089,7 +1972,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   trace("[REMEMBER]<%s:%s> HERE: we'll check for SubRec spill into Radix tree",
       MOD, meth );
 
-  local nameList = subRec[LDR_NLIST_BIN];
+  local nameList  = subRec[LDR_NLIST_BIN];
   local valueList = subRec[LDR_VLIST_BIN];
   if( nameList == nil or valueList == nil ) then
     warn("[ERROR]<%s:%s> Empty List: NameList(%s) ValueList(%s)", MOD, meth,
@@ -2097,24 +1980,19 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
     error( ldte.ERR_INTERNAL );
   end
 
-  local position = searchList( ldtCtrl, nameList, newName );
-  if( position > 0 and ldtMap[M_OverWrite] == AS_FALSE) then
-    info("[UNIQUE VIOLATION]:<%s:%s> Name(%s) Value(%s)",
-                 MOD, meth, tostring(newName), tostring(newValue));
-    error( ldte.ERR_INTERNAL );
-  end
+  rc = lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, 1 );
 
-  list.append( nameList, newName );
-  -- If we have a transform to perform, do that now and then store the value
-  local storeValue = newValue;
-  if( G_Transform ~= nil ) then
-    storeValue = G_Transform( newValue );
-  end
-  list.append( valueList, storeValue );
+  -- Now, we have to re-assign the lists back into the bin values.
+  subRec[LDR_NLIST_BIN] = nameList;
+  subRec[LDR_VLIST_BIN] = valueList;
+  ldt_common.updateSubRec( src, subRec );
 
-  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
+  GP=F and trace("[DEBUG]<%s:%s> Post LDR Insert Summary(%s)",
+    MOD, meth, ldrSubRecSummary( subRec ));
+
+  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful: rc(%d)",MOD,meth,rc);
+  return rc;
 end -- function hashCellSubRecInsert()
-
 
 -- ======================================================================
 -- regularInsert()
@@ -2134,7 +2012,7 @@ end -- function hashCellSubRecInsert()
 -- Step ONE: Use a Single Sub-Record.  Note the state so that we can
 -- gracefully extend into use of a Radix Tree.
 -- ======================================================================
-local function regularInsert( src, topRec, ldtCtrl, newName, newValue )
+local function regularInsert( src, topRec, ldtCtrl, newName, newValue, check)
   local meth = "regularInsert()";
   GP=E and trace("[ENTER]<%s:%s> Name(%s) Value(%s)",
    MOD, meth, tostring(newName), tostring(newValue));
@@ -2175,27 +2053,37 @@ local function regularInsert( src, topRec, ldtCtrl, newName, newValue )
     -- Easy :: hash cell list insert.
     cellAnchor[C_CellNameList] = list();
     cellAnchor[C_CellValueList] = list();
-    hashCellListInsert( cellAnchor, newName, newValue );
+    lmapListInsert( ldtCtrl, cellAnchor[C_CellNameList],
+      cellAnchor[C_CellValueList], newName, newValue, 0 )
+    cellAnchor[C_CellState] = C_STATE_LIST;
   elseif ( cellAnchor[C_CellState] == C_STATE_LIST ) then
-    -- We have a list.  See if we're already at the threshold.
+    -- We have a list. if check==1, then we will search the list before we
+    -- insert. If we find it, AND we overwrite, then we return "1" to signal
+    -- that our caller should NOT update the overall count.
+    
+    -- See if we're already at the threshold.
     local listSize = list.size( cellAnchor[C_CellNameList] );
     if ( listSize < ldtMap[M_HashCellMaxList] ) then
       -- Still easy.  List insert.
-      hashCellListInsert( cellAnchor, newName, newValue );
+      local nameList  = cellAnchor[C_CellNameList];
+      local valueList = cellAnchor[C_CellValueList];
+      rc = lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, 1);
     else
       -- Harder.  Convert List into Subrec and insert.
-      hashCellConvertInsert(src,topRec,ldtCtrl,cellAnchor,newName,newValue);
+      rc=hashCellConvertInsert(src,topRec,ldtCtrl,cellAnchor,newName,newValue);
     end
   else
     -- It's a sub-record insert, with a possible tree overflow
-      hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue);
+    rc = hashCellSubRecInsert(src,topRec,ldtCtrl,cellAnchor,newName,newValue);
   end
 
   -- All done -- Save our work.
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful", MOD, meth );
+  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful: rc(%d)",
+    MOD, meth, rc);
+  return rc;
 end -- function regularInsert()
 
 -- ======================================================================
@@ -2366,7 +2254,7 @@ local function regularDelete( topRec, ldtCtrl, searchName, resultMap )
     -- NOTE: openSubRec() does its own error checking. No more needed here.
     local subRec = ldt_common.openSubRec( src, topRec, digestString );
 
-    nameList = subRec[LDR_NLIST_BIN];
+    nameList  = subRec[LDR_NLIST_BIN];
     valueList = subRec[LDR_VLIST_BIN];
     if( nameList == nil or valueList == nil ) then
       warn("[ERROR]<%s:%s> Empty List: NameList(%s) ValueList(%s)", MOD, meth,
@@ -2454,8 +2342,8 @@ local function regularSearch(topRec, ldtCtrl, searchName, resultMap )
     -- NOTE: openSubRec() does its own error checking. No more needed here.
     local subRec = ldt_common.openSubRec( src, topRec, digestString );
 
-    local nameList = subRec[LDR_NLIST_BIN];
-    local valueList = subRec[LDR_VLIST_BIN];
+    nameList  = subRec[LDR_NLIST_BIN];
+    valueList = subRec[LDR_VLIST_BIN];
 
   else
     -- Get the lists from the correct Sub-Rec in the Radix Tree.
@@ -2612,6 +2500,10 @@ end -- end of localLMapWalkThru
 -- (*) ldtCtrl
 -- (*) newName
 -- (*) newValue
+-- Return:
+-- 0: if all goes well
+-- 1: If we overwrote a value
+-- ERR: if anything went wrong
 -- ======================================================================
 local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
   local meth = "convertCompactToSubRec()";
@@ -2633,6 +2525,12 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
          MOD, meth, tostring(ldtBinName));
     error( ldte.ERR_INSERT );
   end
+
+  -- We're going to take the easy route here, even though it requires a little
+  -- extra work.  Use the regular List Insert code to perform the insert
+  -- on the list, and THEN (assuming it all worked), convert the list
+  -- into a Sub-Rec format.
+  local rc = lmapListInsert(ldtCtrl, nameList, valueList, newName, newValue);
   
   -- Copy existing elements into temp list
   trace("[DEBUG]<%s:%s> About to copy lists: Name(%s) Value(%s)", MOD, meth,
@@ -2642,7 +2540,6 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
 
   trace("[DEBUG]<%s:%s> Got lists: Name(%s) Value(%s)", MOD, meth,
     tostring( listNameCopy ), tostring( listValueCopy ));
-
 
   -- Create and initialize the control-map parameters needed for the switch to 
   -- SS_REGULAR mode : add digest-list parameters 
@@ -2671,10 +2568,11 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
   -- Iterate thru our name/value list and perform an insert for each one.
   listSize = list.size(listNameCopy);
   for i = 1, listSize, 1 do
-    regularInsert( src, topRec, ldtCtrl, listNameCopy[i], listValueCopy[i] );
+    regularInsert( src, topRec, ldtCtrl, listNameCopy[i], listValueCopy[i], 0);
   end
  
-  GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
+  GP=E and trace("[EXIT]: <%s:%s> rc(%d)", MOD, meth, rc);
+  return rc;
 end -- convertCompactToSubRec()
 
 -- ======================================================================
@@ -2699,6 +2597,7 @@ local function localPut( src, topRec, ldtCtrl, newName, newValue )
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
+  local rc = 0;
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to rehash our single list into the real sub-record organization.
@@ -2708,29 +2607,18 @@ local function localPut( src, topRec, ldtCtrl, newName, newValue )
   if ( ldtMap[M_StoreState] == SS_COMPACT ) then
     -- Either we insert into the COMPACT list, or we rehash
     if ( (totalCount + 1) >= ldtMap[M_Threshold] ) then
-      convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue );
+      rc = convertCompactToSubRec(src, topRec, ldtCtrl, newName, newValue);
     else 
-      compactInsert( ldtCtrl, newName, newValue );
+      rc = compactInsert( ldtCtrl, newName, newValue );
     end
   else
-    regularInsert( src, topRec, ldtCtrl, newName, newValue); 
+    rc = regularInsert( src, topRec, ldtCtrl, newName, newValue, 1); 
   end
 
   --  NOTE: We do NOT update counts here -- our caller(s) will take
-  --  care of that.
+  --  care of that.  Also the caller will update the Top-Record.
   
-  -- All done, store the record
-  -- With recent changes, we know that the record is now already created
-  -- so all we need to do is perform the update (no create needed).
-  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
-
-  rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_TOPREC_UPDATE );
-  end 
-   
-  GP=E and trace("[EXIT]<%s:%s> : Done. RC(%s)", MOD, meth, tostring(rc) );
+  GP=E and trace("[EXIT]<%s:%s> : Done. RC(%d)", MOD, meth, rc );
   return rc;
 end -- function localPut()
 
@@ -2794,6 +2682,7 @@ function lmap.create( topRec, ldtBinName, createSpec )
   -- First, check the validity of the Bin Name.
   -- This will throw and error and jump out of Lua if the Bin Name is bad.
   validateBinName( ldtBinName );
+  local rc = 0;
 
   if createSpec == nil then
     GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s) NULL createSpec",
@@ -2882,10 +2771,12 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
   local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
+  local rc = 0;
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
+  -- No keyFunction needed for lmap.
   G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
   
@@ -2897,10 +2788,15 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
   -- Update the counts.  If there were any errors, the code would have
   -- jumped out of the Lua code entirely.  So, if we're here, the insert
   -- was successful.
-  local itemCount = propMap[PM_ItemCount];
-  local totalCount = ldtMap[M_TotalCount];
-  propMap[PM_ItemCount] = itemCount + 1; -- number of valid items goes up
-  ldtMap[M_TotalCount] = totalCount + 1; -- Total number of items goes up
+  -- However, it is ALSO the case that if we allow OVERWRITE, then we don't
+  -- update the count.  If rc == 1, then we overwrote the value, so we
+  -- DO NOT UPDATE the count.
+  if( rc == 0 ) then
+    local itemCount = propMap[PM_ItemCount];
+    local totalCount = ldtMap[M_TotalCount];
+    propMap[PM_ItemCount] = itemCount + 1; -- number of valid items goes up
+    ldtMap[M_TotalCount] = totalCount + 1; -- Total number of items goes up
+  end
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
   
@@ -2927,7 +2823,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
       warn("[INTERNAL ERROR]: StartSize(%d) <> EndSize(%d)",
         startSize, endSize );
     end
-  end
+  end -- if DEBUG
    
   GP=E and trace("[EXIT]<%s:%s> : Done.  RC(%s)", MOD, meth, tostring(rc) );
   return rc;
@@ -2950,6 +2846,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ALL] <<<<<<<<<< \n");
 
   local meth = "lmap.put_all()";
+  local rc = 0;
    
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
     MOD, meth, tostring(ldtBinName), tostring(newName),tostring(newValue),
@@ -2976,7 +2873,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil);
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
   -- Needed only when we're in sub-rec mode, but that will be most of the time.
@@ -2990,6 +2887,8 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
     -- We need to drop out of here if there's an error, but we have to do it
     -- carefully because all previous PUTS must have succeeded.  So, we
     -- should really return a VECTOR of return status!!!!
+    -- Although -- Subrecs do not get written until the end, so if we do
+    -- jump out with an error, then (in theory), no Sub-Rec gets udpated.
     -- TODO: Return a VECTOR of error status and jump out with that vector
     -- on error!!
     if( rc == 0 ) then
@@ -3058,7 +2957,8 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
   local rc = 0; -- start out OK.
   
   -- Set up the Read Functions (UnTransform, Filter)
-  G_Filter, G_UnTransform = setReadFunctions( ldtMap, userModule, filter );
+  G_Filter, G_UnTransform =
+    ldt_common.setReadFunctions( ldtMap, userModule, filter );
   G_FunctionArgs = fargs;
 
   -- Process these two options differently.  Either we're in COMPACT MODE,
@@ -3168,6 +3068,7 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
   GP=B and trace("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
 
   local meth = "lmap.remove()";
+  local rc = 0;
    
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s)",
     MOD, meth, tostring(ldtBinName), tostring(searchName));
@@ -3493,7 +3394,14 @@ function lmap.dump( src, topRec, ldtBinName )
   local cellAnchor;
   local count = 0;
 
+
+  -- set up the Sub-Rec Context, if needed.
+  if( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   local resultMap = map();
+  local label = "EMPTY";
 
   if ldtMap[M_StoreState] == SS_COMPACT then 
     -- Scan the Compact Name/Value Lists
@@ -3509,6 +3417,7 @@ function lmap.dump( src, topRec, ldtBinName )
 
     -- For each Hash Cell, Dump the contents
     for i = 1, list.size( hashDir ), 1 do
+      label = "EMPTY:"; -- the default.  If not filled in somewhere else.
       resultMap = map();
       cellAnchor = hashDir[i];
       -- TODO: Move this code into a common "cellAnchor" Scan.
@@ -3520,6 +3429,7 @@ function lmap.dump( src, topRec, ldtBinName )
         -- state, or it has a Sub-Record.  Later, it might have a Radix tree
         -- of multiple Sub-Records.
         if( cellAnchor[C_CellState] == C_STATE_LIST ) then
+          label = "LIST:";
           -- The small list is inside of the cell anchor.  Get the lists.
           scanList( cellAnchor[C_CellNameList], cellAnchor[C_CellValueList],
             resultMap );
@@ -3530,6 +3440,8 @@ function lmap.dump( src, topRec, ldtBinName )
             warn("[ERROR]: <%s:%s>: nil Digest value",  MOD, meth );
             error( ldte.ERR_SUBREC_OPEN );
           end
+
+          label = "SUB-REC:";
 
           local digestString = tostring(digest);
           local subRec = ldt_common.openSubRec( src, topRec, digestString );
@@ -3552,7 +3464,7 @@ function lmap.dump( src, topRec, ldtBinName )
         end
       end -- Cell not empty
       -- Print out the map for EACH Hash Cell.
-      ldt_common.dumpMap( resultMap, "Cell:" .. tostring(i));
+      ldt_common.dumpMap( resultMap, label .. "Cell:" .. tostring(i));
       count = count + map.size( resultMap );
     end -- for each Hash Dir Cell
   end -- regular Hash Dir

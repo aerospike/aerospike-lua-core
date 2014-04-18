@@ -1,11 +1,13 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_04_04.A";
+local MOD="ldt_common_2014_04_18.A";
 
--- This variable holds the version of the code (Major.Minor).
+-- This variable holds the version of the code.  It would be in the form
+-- of (Major.Minor), except that Lua does not store real numbers.  So, for
+-- now, our version is just a simple integer.
 -- We'll check this for Major design changes -- and try to maintain some
 -- amount of inter-version compatibility.
-local G_LDT_VERSION = 1.1;
+local G_LDT_VERSION = 2;
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -21,11 +23,11 @@ local G_LDT_VERSION = 1.1;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=false; -- turn on for more elaborate state dumps.
+local DEBUG=true; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -40,10 +42,12 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 --     support for Lists (search, insert, delete, summarize) and Common 
 --     Object summary.  This Convenience list may grow over time.
 -- =====================================================================
+-- GLOBAL FUNCTIONS (key, filter, transform, untransform)
 -- ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
 -- ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
 -- ldt_common.setWriteFunctions( ldtMap )
--- ldt_common.propMapSummary( resultMap, propMap )
+--
+-- SUB-RECORD CONTEXT FUNCTIONS
 -- ldt_common.createSubRecContext()
 -- ldt_common.createSubRec( srcCtrl, topRec, recType )
 -- ldt_common.closeSubRec( srcCtrl, digestString )
@@ -51,18 +55,28 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ldt_common.updateSubRec( srcCtrl, subRec )
 -- ldt_common.markSubRecDirty( srcCtrl, digestString )
 -- ldt_common.closeAllSubRecs( srcCtrl )
--- ldt_common.listAppendList( baseList, additionalList )
+--
 -- ldt_common.setLdtRecordType( topRec )
 -- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
 -- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
--- ldt_common.validateRecBinAndMap()
+--
+-- UTILITY FUNCTIONS (dump, summarize, etc)
+-- ldt_common.propMapSummary( resultMap, propMap )
 -- ldt_common.summarizeList( myList )
 -- ldt_common.dumpList( myList )
 -- ldt_common.summarizeMap( myMap )
 -- ldt_common.dumpMap( myMap )
-
+--
+-- VALIDATION FUNCTIONS
 -- ldt_common.validateBinName( ldtBinName )
 -- ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+--
+-- LIST FUNCTIONS
+-- ldt_common.listAppendList( baseList, additionalList )
+-- ldt_common.listInsert( valList, newValue, position )
+-- ldt_common.listDelete( objectList, position )
+-- ldt_common.validateList( valList )
+
 -- ======================================================================
 -- Using These Functions:
 -- ======================================================================
@@ -1607,6 +1621,300 @@ function ldt_common.dumpMap( myMap, msg )
   info("\n<>>>>> END OF MAP <<<<>");
 
 end -- ldt_common.dumpMap()
+
+
+-- ======================================================================
+-- ldt_common.listInsert()
+-- ======================================================================
+-- General List Insert function that can be used to insert
+-- keys, digests or objects.
+-- Return:
+-- Success: 0
+-- Error: Error String
+-- ======================================================================
+function ldt_common.listInsert( valList, newValue, position )
+  local meth = "ldt_common.listInsert()";
+  GP=F and trace("[ENTER]<%s:%s>List(%s) size(%d) Value(%s) Position(%d)", MOD,
+  meth, tostring(valList), list.size(valList), tostring(newValue), position );
+
+  local listSize = list.size( valList );
+  if ( listSize == 0 or position > listSize or position == 0 ) then
+    -- Just append to the list
+    list.append( valList, newValue );
+    GP=F and trace("[LIST APPEND]<%s:%s> Appended item(%s) to list(%s)",
+      MOD, meth, tostring(newValue), tostring(valList) );
+  else
+    -- Move elements in the list from "Position" to the end (end + 1)
+    -- and then insert the new value at "Position".  We go back to front so
+    -- that we don't overwrite anything.
+    -- (move pos:end to the right one cell)
+    -- This example: Position = 1, end = 3. (1 based array indexing, not zero)
+    --          +---+---+---+
+    -- (111) -> |222|333|444| +----Cell added by list.append()
+    --          +---+---+---+ V
+    --          +---+---+---+---+
+    -- (111) -> |   |222|333|444|
+    --          +---+---+---+---+
+    --          +---+---+---+---+
+    --          |111|222|333|444|
+    --          +---+---+---+---+
+    -- Note that we can't index beyond the end, so that first move must be
+    -- an append, not an index access list[end+1] = value.
+    GP=F and trace("[LIST TRANSFER]<%s:%s> listSize(%d) position(%d)",
+      MOD, meth, listSize, position );
+    local endValue = valList[listSize];
+    list.append( valList, endValue );
+    for i = (listSize - 1), position, -1  do
+      valList[i+1] = valList[i];
+    end -- for()
+    valList[position] = newValue;
+  end
+
+  GP=F and trace("[EXIT]<%s:%s> Appended(%s) to list(%s)", MOD, meth,
+    tostring(newValue), tostring(valList));
+
+  return 0;
+end -- ldt_common.listInsert()
+
+-- ======================================================================
+-- ldt_common.listDelete()
+-- ======================================================================
+-- General List Delete function for removing items from a list.
+-- RETURN:
+-- A NEW LIST that no longer includes the deleted item.
+-- ======================================================================
+function ldt_common.listDelete( objectList, position )
+  local meth = "listDelete()";
+  local resultList;
+  local listSize = list.size( objectList );
+
+  GP=F and trace("[ENTER]<%s:%s>List(%s) size(%d) Position(%s)", MOD,
+  meth, tostring(objectList), listSize, tostring(position) );
+
+  if( position < 1 or position > listSize ) then
+    warn("[DELETE ERROR]<%s:%s> Bad position(%d) for delete.",
+      MOD, meth, position );
+    error( ldte.ERR_DELETE );
+  end
+
+  -- Move elements in the list to "cover" the item at Position.
+  --  +---+---+---+---+
+  --  |111|222|333|444|   Delete item (333) at position 3.
+  --  +---+---+---+---+
+  --  Moving forward, Iterate:  list[pos] = list[pos+1]
+  --  This is what you would THINK would work:
+  -- for i = position, (listSize - 1), 1 do
+  --   objectList[i] = objectList[i+1];
+  -- end -- for()
+  -- objectList[i+1] = nil;  (or, call trim() )
+  -- However, because we cannot assign "nil" to a list, nor can we just
+  -- trim a list, we have to build a NEW list from the old list, that
+  -- contains JUST the pieces we want.
+  --
+  -- So, basically, we're going to build a new list out of the LEFT and
+  -- RIGHT pieces of the original list.
+  --
+  -- Our List operators :
+  -- (*) list.take (take the first N elements) 
+  -- (*) list.drop (drop the first N elements, and keep the rest) 
+  -- The special cases are:
+  -- (*) A list of size 1:  Just return a new (empty) list.
+  -- (*) We're deleting the FIRST element, so just use RIGHT LIST.
+  -- (*) We're deleting the LAST element, so just use LEFT LIST
+  if( listSize == 1 ) then
+    resultList = list();
+  elseif( position == 1 ) then
+    resultList = list.drop( objectList, 1 );
+  elseif( position == listSize ) then
+    resultList = list.take( objectList, position - 1 );
+  else
+    resultList = list.take( objectList, position - 1);
+    local addList = list.drop( objectList, position );
+    local addLength = list.size( addList );
+    for i = 1, addLength, 1 do
+      list.append( resultList, addList[i] );
+    end
+  end
+
+  GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
+  return resultList;
+end -- ldt_common.listDelete()
+
+-- =======================================================================
+-- searchOrderedList()
+-- =======================================================================
+-- Search an Ordered list for an item.  This is the simple Linear Search method.
+--
+-- (*) valList: the list of Values from the record bin
+-- (*) searchKey: the "value"  we're searching for
+-- Return A,B:
+-- A: Return the position if found, else return ZERO.
+-- B: The Correct position to insert, if not found (the index of where
+--    this value will go, and all current values will shift to the right.
+-- Recall the Lua Arrays start with index ONE (not zero)
+-- =======================================================================
+local function searchOrderedList( valList, searchKey )
+    local meth = "searchOrderedList()";
+    GP=F and trace("[ENTER]: <%s:%s> Looking for searchKey(%s) in List(%s)",
+        MOD, meth, tostring(searchKey), tostring(valList));
+
+    local foundPos = 0;
+    local insertPos = 0;
+
+    -- Nothing to search if the list is null or empty
+    if( valList == nil or list.size( valList ) == 0 ) then
+        GP=F and trace("[DEBUG]<%s:%s> EmptyList", MOD, meth );
+        return 0,0;
+    end
+
+    -- Search the list for the item (searchKey) return the position if found.
+    -- Note that searchKey may be the entire object, or it may be a subset.
+    local listSize = list.size(valList);
+    local item;
+    local dbKey;
+    for i = 1, listSize, 1 do
+        item = valList[i];
+        GP=F and trace("[COMPARE]<%s:%s> index(%d) SV(%s) and ListVal(%s)",
+            MOD, meth, i, tostring(searchKey), tostring(item));
+        -- a value that does not exist, will have a nil valList item
+        -- so we'll skip this if-loop for it completely                  
+        if item ~= nil and item == searchKey then
+            foundPos = i;
+            break;
+        elseif searchKey < item and insertPos == 0 then
+            insertPos = i;
+            break;
+        end -- end if not null and equals
+    end -- end for each item in the list
+
+    GP=F and trace("[EXIT]<%s:%s> Result: FindPos(%d) InsertPos(%d)",
+        MOD, meth, foundPos, insertPos );
+    return foundPos, insertPos;
+end -- searchOrderedList()
+
+-- =======================================================================
+-- ldt_common.binSearchOrderedList()
+-- =======================================================================
+-- Search the ordered list, using binary search, for the given value.
+-- Parms:
+-- (*) valueList:
+-- (*) key:
+-- (*) compFunc: The Compare Function
+-- (*) reversed: True when order is descending
+-- If the  value is found:
+-- it returns a table holding all the matching indices
+-- (e.g. { startindice,endindice } )
+-- Note that endindice may be the same as startindice if only one
+-- matching indice was found
+-- If compFunc is given:
+-- then it must be a function that takes one value and returns a second value2,
+-- to be compared with the input value, e.g.:
+-- compvalue = function( value ) return value[1] end
+-- If reversed is set to true:
+-- then the search assumes that the table is sorted in reverse order
+-- (largest value at position 1).
+-- Note when reversed is given compval must be given as well, it can be
+-- nil/_ in this case
+-- Return:
+-- SUCCESS: a table holding matching indices
+-- (e.g. { startindice,endindice } )
+-- FAILURE: nil
+-- =======================================================================
+-- Avoid heap allocs for performance
+local default_fcompval = function( value ) return value end
+local fcompf = function( a,b ) return a < b end
+local fcompr = function( a,b ) return a > b end
+local function binsearch( t,value,fcompval,reversed )
+    -- Initialise functions
+    local fcompval = fcompval or default_fcompval
+    local fcomp = reversed and fcompr or fcompf
+    --  Initialise numbers
+    local iStart,iEnd,iMid = 1,#t,0
+    -- Binary Search
+    while iStart <= iEnd do
+        -- calculate middle
+        iMid = math.floor( (iStart+iEnd)/2 )
+        -- get compare value
+        local value2 = fcompval( t[iMid] )
+        -- get all values that match
+        if value == value2 then
+            local tfound,num = { iMid,iMid },iMid - 1
+            while value == fcompval( t[num] ) do
+                tfound[1],num = num,num - 1
+            end
+            num = iMid + 1
+            while value == fcompval( t[num] ) do
+                tfound[2],num = num,num + 1
+            end
+            return tfound
+            -- keep searching
+        elseif fcomp( value,value2 ) then
+            iEnd = iMid - 1
+        else
+            iStart = iMid + 1
+        end
+    end
+end
+
+
+-- =======================================================================
+-- table.bininsert( table, value [, comp] )
+--
+-- Inserts a given value through BinaryInsert into the table sorted by [, comp].
+--
+-- If 'comp' is given, then it must be a function that receives
+-- two table elements, and returns true when the first is less
+-- than the second, e.g. comp = function(a, b) return a > b end,
+-- will give a sorted table, with the biggest value on position 1.
+-- [, comp] behaves as in table.sort(table, value [, comp])
+-- returns the index where 'value' was inserted
+-- =======================================================================
+-- Avoid heap allocs for performance
+local fcomp_default = function( a,b ) return a < b end
+local function bininsert(t, value, fcomp)
+    -- Initialise compare function
+    local fcomp = fcomp or fcomp_default
+    --  Initialise numbers
+    local iStart,iEnd,iMid,iState = 1,#t,1,0
+    -- Get insert position
+    while iStart <= iEnd do
+        -- calculate middle
+        iMid = math.floor( (iStart+iEnd)/2 )
+        -- compare
+        if fcomp( value,t[iMid] ) then
+            iEnd,iState = iMid - 1,0
+        else
+            iStart,iState = iMid + 1,1
+        end
+    end
+    table.insert( t,(iMid+iState),value )
+    return (iMid+iState)
+end
+
+-- =========================================================================
+-- ldt_common.validateList()
+-- =========================================================================
+-- validate that the list passed in is in sorted order, with no duplicates
+-- =========================================================================
+function ldt_common.validateList( valList )
+    local result = true;
+
+    if( valList == nil ) then
+        return false;
+    end
+
+    local listSize = list.size(valList);
+    for i = 1, ( listSize - 1), 1 do
+        if( valList[i] == nil or valList[i+1] == nil ) then
+            return false;
+        end
+        if( valList[i] >= valList[i+1] == nil ) then
+            return false;
+        end
+    end
+    return true;
+end -- ldt_common.validateList()
+
 
 -- ========================================================================
 -- Return the ldt_commonm MAP (or table) that contains all of the functions

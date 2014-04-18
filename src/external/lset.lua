@@ -280,7 +280,7 @@ end
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
 function dump( topRec, ldtBinName )
-  return lset.dump( topRec, ldtBinName )
+  return lset.dump( nil, topRec, ldtBinName )
 end
 
 -- ========================================================================

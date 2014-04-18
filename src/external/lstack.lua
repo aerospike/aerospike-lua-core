@@ -123,6 +123,17 @@ function lstack_peek_then_filter( topRec, ldtBinName, peekCount, filter, fargs )
   return lstack.peek( topRec, ldtBinName, peekCount, nil, filter, fargs );
 end -- lstack_peek_then_filter()
 
+
+-- =======================================================================
+-- scan() -- without filters (just get everything)
+--
+-- These are the globally visible calls -- that call the local UDF to do
+-- all of the work.
+-- =======================================================================
+function scan( topRec, ldtBinName )
+  return lstack.peek( topRec, ldtBinName, 0, nil, nil, nil )
+end -- scan()
+
 -- ========================================================================
 -- size() -- return the number of elements (item count) in the stack.
 -- get_size() -- return the number of elements (item count) in the stack.

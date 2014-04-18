@@ -2,7 +2,7 @@
 -- settings_llist.lua:  September 05, 2013 (tjl)
 --
 -- Module Marker: Keep this in sync with the stated version
-local MOD="settings_llist_2013_09_05.a"; -- the module name used for tracing
+local MOD="settings_llist_2014_04_18.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -89,8 +89,8 @@ local package = {};
     ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
     ldtMap[T.R_KeyType] = KT_ATOMIC; -- Atomic Keys
-    ldtMap[T.R_Threshold] = DEFAULT_THRESHOLD; -- Rehash after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
+    ldtMap[T.R_Threshold] = DEFAULT_THRESHOLD; -- REDO after this many inserts
+    ldtMap[T.R_KeyFunction] = nil; -- No Special Attention Required.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -106,6 +106,39 @@ local package = {};
 
     return 0;
   end -- package.StandardList()
+
+  -- ======================================================================
+  -- This is the standard configuration for Complex Objects.
+  -- It is ASSUMED that the key is held in a map field named "Key".
+  -- Otherwise, no special processing is needed.
+  -- Package = "StandardMap"
+  -- ======================================================================
+    function package.StandardMap( ldtMap )
+    
+    -- General Parameters
+    ldtMap[T.R_Transform] = nil;
+    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
+    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
+    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Complex Object, but use Key Field
+    ldtMap[T.R_Threshold] = DEFAULT_THRESHOLD; -- REDO after this many inserts
+    ldtMap[T.R_KeyFunction] = nil; -- No Special Attention Required.
+
+    -- Top Node Tree Root Directory
+    ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
+    
+    -- LLIST Inner Node Settings
+    ldtMap[T.R_NodeListMax] = 100;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
+
+    -- LLIST Tree Leaves (Data Pages)
+    ldtMap[T.R_LeafListMax] = 100;  -- Max # of items
+    ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
+
+    return 0;
+  end -- package.StandardMap()
 
   -- ======================================================================
   -- Package = "TestModeNumber"
