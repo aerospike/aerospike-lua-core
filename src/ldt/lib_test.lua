@@ -1,5 +1,24 @@
--- Test Facility for trying things out.
-local MOD="lib_test_2014_04_18.A";
+-- Test Module for trying things out.
+--
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- Track the date and iteration of the last update:
+local MOD="lib_test_2014_05_27.A";
 
 -- ======================================================================
 -- || GLOBAL PRINT and GLOBAL DEBUG ||
@@ -14,13 +33,32 @@ local MOD="lib_test_2014_04_18.A";
 -- (*) "B" is used for BANNER prints
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
-local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local GP;     -- Global Print Instrument
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
+-- ++==================++
+-- || External Modules ||
+-- ++==================++
+-- Set up our "outside" links.
+-- Get addressability to the Function Table: Used for compress/transform,
+-- keyExtract, Filters, etc. 
+local functionTable = require('ldt/UdfFunctionTable');
+
+-- We import all of our error codes from "ldt_errors.lua" and we access
+-- them by prefixing them with "ldte.XXXX", so for example, an internal error
+-- return looks like this:
+-- error( ldte.ERR_INTERNAL );
+local ldte = require('ldt/ldt_errors');
+
+-- We have recently moved a number of COMMON functions into the "ldt_common"
+-- module, namely the subrec routines and some list management routines.
+-- We will likely move some other functions in there as they become common.
+local ldt_common = require('ldt/ldt_common');
+--
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  TEST Main Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -103,6 +141,42 @@ function test.same( topRec, ldtBinName, val )
   end
 end -- test.same()
 
+
+-- =========================================================================
+-- The Annotated Stack
+-- =========================================================================
+-- Take a list of items to be pushed onto the stack. Put each one into
+-- a map, along with its (server-size) insert time, which is a system
+-- call from Lua.
+-- Parms:
+-- (*) topRec: The main Aerospike Record
+-- (*) binName: The name of the LDT Stack Bin in the AS Record.
+-- (*) valueList: the list of values to be inserted.
+-- (*) createSpec: the Creation Specification for the LSTACK push() call()
+-- =========================================================================
+function annotated_stack_write( topRec, binName, valueList, createSpec)
+  local meth = "annotated_stack_write()";
+  GP=E and trace("[ENTER]:<%s:%s>:Bin(%s) List(%s) C Spec(%s)",
+    MOD, meth, tostring(binName), tostring(valueList), tostring(createSpec));
+
+  -- For each item in "valueList", create a map, append the current system
+  -- time and push that map onto the stack.
+  -- It would be faster to call the system time ONCE and just reuse the
+  -- value, but it might be more accurate it call it for each value.
+  -- Recall that arrays in Lua begin with index=1.
+  local listSize = list.size(valueList);
+  local newMap;
+  for i = 1 , listSize, 1 do
+    newMap = map();
+    newMap.value = valueList[i];
+    newMap.time = aerospike:get_current_time();
+    -- No real need to check error code, since any real error will
+    -- jump out of the Lua Context entirely.
+    lstack.push( topRec, binName, newMap, createSpec );
+  end -- for()
+
+  GP=E and trace("[EXIT]:<%s:%s> ", MOD, meth);
+end
 
 -- =========================================================================
 -- |||||||||||||||||||| The CAPPED COLLECTION PACKAGE ||||||||||||||||||||||
@@ -295,13 +369,13 @@ end
 -- value with the SMALLEST TIME value from the TIME List -- and use that time
 -- object to locate the corresponding key for the value in the Value List.
 -- =========================================================================
-local function removeOldest( topRec, ccCtrl )
+local function removeOldest( topRec, ccCtrl, src)
   local meth = "removeOldest()";
   GP=F and trace("[ENTER]:<%s:%s> CC Bin(%s)()", MOD, meth, tostring(ccCtrl));
   local rc = 0;
 
   -- Get the smallest Time value
-  local object = llist.take_first( topRec, VAL_LIST_BIN );
+  local object = llist.take_first( topRec, VAL_LIST_BIN, src);
   if( object == nil ) then
     warn("[NOT FOUND]<%s:%s> Couldn't find Oldest Element", MOD, meth );
   end
@@ -309,7 +383,7 @@ local function removeOldest( topRec, ccCtrl )
 
   -- Remove the Value that was associated with the smallest time value.
   if( key ~=nil ) then
-    rc = llist.remove( topRec, TIME_LIST_BIN, key );
+    rc = llist.remove( topRec, TIME_LIST_BIN, key, src);
   end
   GP=F and trace("[exit]<%s:%s> RC(%d)()", MOD, meth, rc );
 
@@ -328,7 +402,7 @@ local function updateObject( topRec, ccCtrl, userObject )
 
   -- Locate the userObject in the TIME LIST,(extracting the key)
   -- and update it in place.
-  rc = llist.update( topRec, TIME_LIST_BIN, userObject );
+  rc = llist.update( topRec, TIME_LIST_BIN, userObject, src);
 
   GP=F and trace("[exit]<%s:%s> RC(%d)()", MOD, meth, rc );
 
@@ -485,22 +559,32 @@ end -- validateCCBin()
 -- "payload" that is associated with it.
 -- Parms:
 -- (*) topRec: The main Aerospike Record
+-- (*) binName: The name of the CC Bin
 -- (*) key: The atomic search value for the user's object
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Return:
 -- Success: The Payload Object
 -- Error: Error Code
 -- =========================================================================
-function test.cc_read()( topRec, ccBinName, key )
+function test.cc_read( topRec, ccBinName, key, src )
   local meth = "test.cc_read()";
-  GP=F and trace("[ENTER]:<%s:%s>:value(%s)", MOD, meth, tostring(value));
+  GP=F and trace("[ENTER]:<%s:%s>:key(%s)", MOD, meth, tostring(key));
 
   -- Validate that everything is there and in the right state.
   local ccCtrl = validateCC( topRec, ccBinName, true );
 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   -- Search the Value List for the object.  If found, then return the
   -- "payLoad", which will be a field inside the "foundObject" map.
-  local result;
-  local foundObject = llist.find(topRec, ccValBin, newObject, nil, nil, nil );
+  local result = "NOT FOUND";
+  local foundObject = llist.find(topRec, ccValBin, key, nil, nil, nil, src);
   if ( foundObject ~= nil and foundObject.PayLoad ~= nil ) then
     result = foundObject.PayLoad;
   end
@@ -528,11 +612,12 @@ end -- test.cc_read()
 -- (*) key: The atomic search value for the user's object
 -- (*) value: The payload that the user wants to store with the key
 -- (*) createSpec: the Creation Specification for the CC collection.
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =========================================================================
-function test.cc_write()( topRec, ccBinName, key, value, createSpec)
+function test.cc_write( topRec, ccBinName, key, value, createSpec, src)
   local meth = "write_type_test()";
-  GP=F and trace("[ENTER]:<%s:%s>:key(%s) value(%s)",
-      MOD, meth, tostring(value));
+  GP=F and trace("[ENTER]:<%s:%s>:key(%s) value(%s) C Spec(%s)",
+      MOD, meth, tostring(key), tostring(value), tostring(createSpec));
 
   -- Validate that everything is there and in the right state.
   -- If the record doesn't exist, then set it up.
@@ -580,7 +665,15 @@ function test.cc_write()( topRec, ccBinName, key, value, createSpec)
   timeObject.Key = insertTime;
   timeObject.PayLoad  = key;
 
-  local foundObject = llist.find(topRec, ccValBin, newObject, nil, nil, nil );
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  local foundObject = llist.find(topRec,ccValBin,newObject,nil,nil,nil,src);
   if( foundObject == nil ) then
     -- Didn't find it -- so insert it into the val LLIST.
     -- If we're already at capacity, then remove the oldest.
@@ -588,8 +681,8 @@ function test.cc_write()( topRec, ccBinName, key, value, createSpec)
         removeOldest( topRec, ccCtrl );
         addedCount = 0;
     end
-    llist.add( topRec, ccValBin, userObject, nil );
-    llist.add( topRec, ccTimeBin, timeObject, nil );
+    llist.add( topRec, ccValBin, userObject, nil, src);
+    llist.add( topRec, ccTimeBin, timeObject, nil, src);
   else
     -- We DID find it.  We need to remove the old object and insert the
     -- new one in the Time List.

@@ -1,6 +1,23 @@
 -- Large Stack Object (LSTACK) Operations Library
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+--
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_04_18.A";
+local MOD="lib_lstack_2014_05_27.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -34,17 +51,17 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LSTACK module:
 --
--- (*) Status = push( topRec, ldtBinName, newValue, userModule )
--- (*) Status = push_all( topRec, ldtBinName, valueList, userModule )
--- (*) List   = peek( topRec, ldtBinName, peekCount ) 
--- (*) List   = pop( topRec, ldtBinName, popCount ) 
--- (*) List   = scan( topRec, ldtBinName )
--- (*) List   = filter( topRec, ldtBinName, peekCount,userModule,filter,fargs)
--- (*) Status = destroy( topRec, ldtBinName )
--- (*) Number = size( topRec, ldtBinName )
--- (*) Map    = get_config( topRec, ldtBinName )
--- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
--- (*) Status = get_capacity( topRec, ldtBinName )
+-- (*) Status = push(topRec, ldtBinName, newValue, userModule, src)
+-- (*) Status = push_all(topRec, ldtBinName, valueList, userModule, src)
+-- (*) List   = peek(topRec, ldtBinName, peekCount, src) 
+-- (*) List   = pop(topRec, ldtBinName, popCount, src) 
+-- (*) List   = scan(topRec, ldtBinName, src)
+-- (*) List   = filter(topRec,ldtBinName,peekCount,userModule,filter,fargs,src)
+-- (*) Status = destroy(topRec, ldtBinName, src)
+-- (*) Number = size(topRec, ldtBinName)
+-- (*) Map    = get_config(topRec, ldtBinName)
+-- (*) Status = set_capacity(topRec, ldtBinName, new_capacity)
+-- (*) Status = get_capacity(topRec, ldtBinName)
 
 -- ======================================================================
 -- >> Please refer to ldt/doc_lstack.md for architecture and design notes.
@@ -3301,7 +3318,6 @@ local function localTrim( topRec, ldtCtrl, searchPath )
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- localTrim()
 
-
 -- ========================================================================
 -- This function is under construction.
 -- ========================================================================
@@ -3581,19 +3597,23 @@ function lstack_subrec_list( src, topRec, ldtBinName )
   return resultList
 end -- lstack_subrec_list()
 
--- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- LSTACK External Functions
+-- ||  LSTACK External Functions                                       ||
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- ======================================================================
--- (*) Status = lstack.push( topRec, ldtBinName, newValue, userModule )
--- (*) Status = lstack.push_all( topRec, ldtBinName, valueList, userModule )
--- (*) List   = lstack.peek( topRec, ldtBinName, peekCount,filter,fargs)) 
--- (*) List   = lstack.pop( topRec, ldtBinName, popCount ) 
--- (*) Status = lstack.destroy( topRec, ldtBinName )
--- (*) Number = lstack.size( topRec, ldtBinName )
--- (*) Map    = lstack.config( topRec, ldtBinName )
--- (*) Status = lstack.set_capacity( topRec, ldtBinName, new_capacity)
+-- The following external functions are defined in the LSTACK module:
+--
+-- (*) Status = push(topRec, ldtBinName, newValue, userModule, src)
+-- (*) Status = push_all(topRec, ldtBinName, valueList, userModule, src)
+-- (*) List   = peek(topRec, ldtBinName, peekCount, src) 
+-- (*) List   = pop(topRec, ldtBinName, popCount, src) 
+-- (*) List   = scan(topRec, ldtBinName, src)
+-- (*) List   = filter(topRec,ldtBinName,peekCount,userModule,filter,fargs,src)
+-- (*) Status = destroy(topRec, ldtBinName, src)
+-- (*) Number = size(topRec, ldtBinName)
+-- (*) Map    = get_config(topRec, ldtBinName)
+-- (*) Status = set_capacity(topRec, ldtBinName, new_capacity)
+-- (*) Status = get_capacity(topRec, ldtBinName)
+
 -- ======================================================================
 -- The following functions are deprecated:
 -- (*) Status =  create( topRec, ldtBinName, createSpec )
@@ -3623,12 +3643,13 @@ local lstack = {};
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
 -- (3) createSpec: The Name of a configuration UDF for setting confif values.
+--
 -- Result:
 --   rc = 0: ok
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function lstack.create( topRec, ldtBinName, createSpec )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
 
   local meth = "lstack.create()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) createSpec(%s)",
@@ -3688,6 +3709,7 @@ end -- function lstack.create()
 -- (2) ldtBinName: The name of the LDT Bin
 -- (3) newValue: The value to be inserted (pushed on the stack)
 -- (4) createSpec: The map of create parameters or UDF create function.
+-- (5) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   rc = 0: ok
 --   rc < 0: Aerospike Errors
@@ -3695,8 +3717,8 @@ end -- function lstack.create()
 -- with "tostring()" so that we do not encounter a format error if the user
 -- passes in nil or any other incorrect value/type.
 -- =======================================================================
-function lstack.push( topRec, ldtBinName, newValue, createSpec )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
+function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
 
   local meth = "lstack.push()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) NewVal(%s) createSpec(%s)", MOD, meth,
@@ -3745,8 +3767,14 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec )
   -- room, then make room -- transfer half the list out to the warm list.
   -- That may, in turn, have to make room by moving some items to the
   -- cold list.  (Ok to use ldtMap and not ldtCtrl here).
-  -- First -- set up our sub-rec context to track open sub-recs.
-  local src = ldt_common.createSubRecContext();
+ 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   if hotListHasRoom( ldtMap, newStoreValue ) == false then
     GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
@@ -3785,11 +3813,12 @@ end -- function lstack.push()
 -- (*) ldtBinName: Name of the LDT record
 -- (*) valueList: List of values to push onto the stack
 -- (*) createSpec: Map or Name of Configure UDF
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Notice that the "createSpec" can be either the old style map or the
 -- new style user modulename.
 -- =======================================================================
-function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
+function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
 
   local meth = "lstack.push_all()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) valueList(%s) createSpec(%s)", MOD,
@@ -3822,8 +3851,13 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec )
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
-  -- Set up our sub-rec pool
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- Loop thru the value list.  So, for each element ...
   -- If we have room, do the simple list insert.  If we don't have
@@ -3891,8 +3925,7 @@ end -- end lstack.push_all()
 -- lstack.peek(): Return N elements from the top of the stack.
 -- ======================================================================
 -- Return "peekCount" values from the stack, in Stack (LIFO) order.
--- For Each Bin (in LIFO Order), read each Bin in reverse append order.
--- If "peekCount" is zero, then return all.
+-- If "peekCount" is zero, then return all (same as a scan).
 -- Depending on "peekcount", we may find the elements in:
 -- -> Just the HotList
 -- -> The HotList and the Warm List
@@ -3906,9 +3939,11 @@ end -- end lstack.push_all()
 -- Parms:
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
--- (3) newValue: The value to be inserted (pushed on the stack)
--- (4) func: The "Inner UDF" that will filter Peek output
--- (5) fargs: Arg List to the filter function (i.e. func(val, fargs)).
+-- (3) peekCount: The number of items to read from the stack
+-- (4) userModule: Lua file that potentially holds the filter function
+-- (5) filter: The "Inner UDF" that will filter Peek output
+-- (6) fargs: Arg List to the filter function (i.e. func(val, fargs)).
+-- (7) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   res = (when successful) List (empty or populated) 
 --   res = (when error) nil
@@ -3922,8 +3957,9 @@ end -- end lstack.push_all()
 -- NOTE: July 2013:tjl: Now using the SubrecContext to track the open
 -- subrecs.
 -- ======================================================================
-function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
+function
+lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
 
   local meth = "lstack.peek()";
   GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) func(%s) fargs(%s)",
@@ -3947,10 +3983,13 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
     ldt_common.setReadFunctions(ldtMap, userModule, filter );
   G_FunctionArgs = fargs;
 
-  -- Create the SubrecContext, which will hold all of the open subrecords.
-  -- The key will be the DigestString, and the value will be the subRec
-  -- pointer.
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- Build the user's "resultList" from the items we find that qualify.
   -- They must pass the "transformFunction()" filter.
@@ -4052,6 +4091,176 @@ function lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs )
   return resultList;
 end -- function lstack.peek() 
 
+-- ======================================================================
+-- lstack.pop(): Remove and return N elements from the top of the stack.
+-- ======================================================================
+-- Remove and Return "Count" values from the stack, in Stack (LIFO) order.
+-- If "Count" is zero, then return all and EMPTY the stack.
+-- Just like peek(), Depending on "Count", we may find the elements in:
+-- -> Just the HotList
+-- -> The HotList and the Warm List
+-- -> The HotList, Warm list and Cold list
+--
+-- The N items are read and removed from the stack, BUT only those items
+-- that match the filter (if supplied) are return to the caller.
+--
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) count: The number of items to pop off the stack
+-- (4) userModule: The Lua file that potentially holds the filter function
+-- (5) filter: The "Inner UDF" that will filter Peek output
+-- (6) fargs: Arg List to the filter function (i.e. func(val, fargs)).
+-- (7) src: Sub-Rec Context - Needed for repeated calls from caller
+-- Result:
+--   res = (when successful) List (empty or populated) 
+--   res = (when error) nil
+-- Note 1: We need to switch to a two-part return, with the first value
+-- being the status return code, and the second being the content (or
+-- error message).
+--
+-- NOTE: Any parameter that might be printed (for trace/debug purposes)
+-- must be protected with "tostring()" so that we do not encounter a format
+-- error if the user passes in nil or any other incorrect value/type.
+-- NOTE: July 2013:tjl: Now using the SubrecContext to track the open
+-- subrecs.
+-- ======================================================================
+function
+lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
+
+  local meth = "lstack.pop()";
+  GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) func(%s) fargs(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(count),
+    tostring(func), tostring(fargs) );
+
+  -- Some simple protection of faulty records or bad bin names
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  warn("[ERROR]<%s:%s> Currently, this POP() function only PEEKS()", MOD, meth);
+
+  GD=DEBUG and ldtDebugDump( ldtCtrl );
+
+  GP=F and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
+    MOD, meth, ldtSummaryString( ldtCtrl ) );
+
+  -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
+  -- Note that KeyFunction would be used only for special TIMESTACK function.
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  G_Filter, G_UnTransform =
+    ldt_common.setReadFunctions(ldtMap, userModule, filter );
+  G_FunctionArgs = fargs;
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- Build the user's "resultList" from the items we find that qualify.
+  -- They must pass the "transformFunction()" filter.
+  -- Also, Notice that we go in reverse order -- to get the "stack function",
+  -- which is Last In, First Out.
+  
+  -- When the user passes in a "count" of ZERO, then we read ALL.
+  -- Actually -- we will also read ALL if count is negative.
+  -- New addition -- with the STORE LIMIT addition (July 2013) we now
+  -- also limit our pops to the storage limit -- which also discards
+  -- storage for LDRs holding items beyond the limit.
+  -- A storeLimit of ZERO (or negative) means "no limit".
+  local all = false;
+  local count = 0;
+  local itemCount = propMap[PM_ItemCount];
+  local storeLimit = ldtMap[M_StoreLimit];
+  -- Check for a special value.
+  if( storeLimit <= 0 ) then
+      storeLimit = itemCount;
+  end
+
+  if( count <= 0 ) then
+    if( itemCount < storeLimit ) then
+      all = true;
+    else
+      count = storeLimit; -- remove NO MORE than our storage limit.
+    end
+  elseif( count > storeLimit ) then
+    count = storeLimit;
+  else
+    count = count;
+  end
+
+  -- Set up our answer list.
+  local resultList = list(); -- everyone will fill this in
+
+  GP=F and trace("[DEBUG]<%s:%s> Pop with Count(%d) StoreLimit(%d)",
+      MOD, meth, count, storeLimit );
+
+  -- Fetch from the Hot List, then the Warm List, then the Cold List.
+  -- Each time we decrement the count and add to the resultlist.
+  local resultList = hotListRead(resultList, ldtCtrl, count, all);
+  local numRead = list.size( resultList );
+  GP=F and trace("[DEBUG]: <%s:%s> HotListResult:Summary(%s)",
+      MOD, meth, summarizeList(resultList));
+
+  local warmCount = 0;
+
+  -- If the list had all that we need, then done.  Return list.
+  if(( numRead >= count and all == false) or numRead >= propMap[PM_ItemCount] )
+  then
+    return resultList;
+  end
+
+  -- We need more -- get more out of the Warm List.  If ALL flag is set,
+  -- keep going until we're done.  Otherwise, compute the correct READ count
+  -- given that we've already read from the Hot List.
+  local remainingCount = 0; -- Default, when ALL flag is on.
+  if( all == false ) then
+    remainingCount = count - numRead;
+  end
+  GP=F and trace("[DEBUG]: <%s:%s> Checking WarmList Count(%d) All(%s)",
+    MOD, meth, remainingCount, tostring(all));
+  -- If no Warm List, then we're done (assume no cold list if no warm)
+  if list.size(ldtMap[M_WarmDigestList]) > 0 then
+    warmCount =
+     warmListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
+  end
+
+  -- As Agent Smith would say... "MORE!!!".
+  -- We need more, so get more out of the COLD List.  If ALL flag is set,
+  -- keep going until we're done.  Otherwise, compute the correct READ count
+  -- given that we've already read from the Hot and Warm Lists.
+  local coldCount = 0;
+  if( all == false ) then
+    remainingCount = count - numRead - warmCount;
+      GP=F and trace("[DEBUG]:<%s:%s>After WmRd:A(%s)RC(%d)PC(%d)NR(%d)WC(%d)",
+        MOD, meth, tostring(all), remainingCount, count, numRead, warmCount );
+  end
+
+  GP=F and trace("[DEBUG]:<%s:%s>After WarmListRead: ldtMap(%s) ldtCtrl(%s)",
+    MOD, meth, tostring(ldtMap), ldtSummaryString(ldtCtrl));
+
+  numRead = list.size( resultList );
+  -- If we've read enough, then return.
+  if ( (remainingCount <= 0 and all == false) or
+       (numRead >= propMap[PM_ItemCount] ) )
+  then
+      return resultList; -- We have all we need.  Return.
+  end
+
+  -- Otherwise, go look for more in the Cold List.
+  local coldCount = 
+     coldListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
+
+  GP=E and trace("[EXIT]: <%s:%s>: Count(%d) ResultListSummary(%s)",
+    MOD, meth, count, summarizeList(resultList));
+
+  return resultList;
+end -- function lstack.pop() 
+
 -- ========================================================================
 -- lstack.size() -- return the number of elements (item count) in the stack.
 -- Parms:
@@ -4065,7 +4274,7 @@ end -- function lstack.peek()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.size( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
   local meth = "lstack.size()";
 
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -4327,11 +4536,12 @@ end -- function lstack.config()
 -- Parms:
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
+-- (3) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
-function lstack.destroy( topRec, ldtBinName )
+function lstack.destroy( topRec, ldtBinName, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.DESTROY ] <<<<<<<<<< \n");
 
   local meth = "lstack.destroy()";
@@ -4344,10 +4554,13 @@ function lstack.destroy( topRec, ldtBinName )
   local ldtList = topRec[ ldtBinName ];
   local propMap = ldtList[1];
   
-  -- Create the SubrecContext, which will hold all of the open subrecords.
-  -- The key will be the DigestString, and the value will be the subRec
-  -- pointer.
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 

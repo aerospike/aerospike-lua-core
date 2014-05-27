@@ -1,8 +1,27 @@
 -- Large Stack Object (LSTACK) Operations.
 
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSTACK Main Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- ======================================================================
 -- The following external functions are defined in the LSTACK module:
 --
 -- (*) Status = push( topRec, ldtBinName, newValue, userModule )
@@ -61,20 +80,20 @@ end
 -- =======================================================================
 -- NEW EXTERNAL FUNCTIONS
 function push( topRec, ldtBinName, newValue, createSpec )
-  return lstack.push( topRec, ldtBinName, newValue, createSpec )
+  return lstack.push( topRec, ldtBinName, newValue, createSpec, nil );
 end -- push()
 
 function create_and_push( topRec, ldtBinName, newValue, createSpec )
-  return lstack.push( topRec, ldtBinName, newValue, createSpec );
+  return lstack.push( topRec, ldtBinName, newValue, createSpec, nil );
 end -- create_and_push()
 
 -- OLD EXTERNAL FUNCTIONS
 function lstack_push( topRec, ldtBinName, newValue, createSpec )
-  return lstack.push( topRec, ldtBinName, newValue, createSpec )
+  return lstack.push( topRec, ldtBinName, newValue, createSpec, nil );
 end -- end lstack_push()
 
 function lstack_create_and_push( topRec, ldtBinName, newValue, createSpec )
-  return lstack.push( topRec, ldtBinName, newValue, createSpec );
+  return lstack.push( topRec, ldtBinName, newValue, createSpec, nil );
 end -- lstack_create_and_push()
 
 -- =======================================================================
@@ -86,12 +105,12 @@ end -- lstack_create_and_push()
 -- =======================================================================
 -- NEW EXTERNAL FUNCTIONS
 function push_all( topRec, ldtBinName, valueList, createSpec )
-  return lstack.push_all( topRec, ldtBinName, valueList, createSpec )
+  return lstack.push_all( topRec, ldtBinName, valueList, createSpec, nil );
 end
 
 -- OLD EXTERNAL FUNCTIONS
 function lstack_push_all( topRec, ldtBinName, valueList, createSpec )
-  return lstack.push_all( topRec, ldtBinName, valueList, createSpec )
+  return lstack.push_all( topRec, ldtBinName, valueList, createSpec, nil );
 end
 
 -- =======================================================================
@@ -106,21 +125,21 @@ end
 -- =======================================================================
 -- NEW EXTERNAL FUNCTIONS
 function peek( topRec, ldtBinName, peekCount )
-  return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil )
+  return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil, nil );
 end -- peek()
 
 function filter( topRec, ldtBinName, peekCount, userModule, filter, fargs )
-  return lstack.peek(topRec,ldtBinName,peekCount,userModule,filter,fargs );
+  return lstack.peek(topRec,ldtBinName,peekCount,userModule,filter,fargs, nil );
 end -- peek_then_filter()
 
 -- OLD EXTERNAL FUNCTIONS (didn't have userModule in the first version)
 function lstack_peek( topRec, ldtBinName, peekCount )
-  return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil )
+  return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil, nil );
 end -- lstack_peek()
 
 -- OLD EXTERNAL FUNCTIONS (didn't have userModule in the first version)
 function lstack_peek_then_filter( topRec, ldtBinName, peekCount, filter, fargs )
-  return lstack.peek( topRec, ldtBinName, peekCount, nil, filter, fargs );
+  return lstack.peek( topRec, ldtBinName, peekCount, nil, filter, fargs, nil );
 end -- lstack_peek_then_filter()
 
 
@@ -131,8 +150,15 @@ end -- lstack_peek_then_filter()
 -- all of the work.
 -- =======================================================================
 function scan( topRec, ldtBinName )
-  return lstack.peek( topRec, ldtBinName, 0, nil, nil, nil )
+  return lstack.peek( topRec, ldtBinName, 0, nil, nil, nil, nil );
 end -- scan()
+
+-- =======================================================================
+-- pop() -- Return and remove values from the top of stack
+-- =======================================================================
+function pop( topRec, ldtBinName, peekCount, userModule, filter, fargs )
+  return lstack.pop(topRec,ldtBinName,peekCount,userModule,filter,fargs, nil );
+end -- peek_then_filter()
 
 -- ========================================================================
 -- size() -- return the number of elements (item count) in the stack.
@@ -231,12 +257,12 @@ end
 -- ========================================================================
 -- NEW EXTERNAL FUNCTIONS
 function destroy( topRec, ldtBinName )
-  return lstack.destroy( topRec, ldtBinName );
+  return lstack.destroy( topRec, ldtBinName, nil );
 end -- destroy()
 
 -- OLD EXTERNAL FUNCTIONS
 function lstack_remove( topRec, ldtBinName )
-  return lstack.destroy( topRec, ldtBinName );
+  return lstack.destroy( topRec, ldtBinName, nil );
 end -- lstack_remove()
 -- ========================================================================
 -- lstack_set_storage_limit()
@@ -303,10 +329,8 @@ function same( topRec, ldtBinName, val )
 end
 
 -- ========================================================================
--- lstack_debug() -- Turn the debug setting on (1) or off (0)
 -- debug()        -- Turn the debug setting on (1) or off (0)
--- one()          -- Just return 1.  This is used for perf measurement.
--- same()         -- Return Val parm.  Used for perf measurement.
+-- lstack_debug() -- Turn the debug setting on (1) or off (0)
 -- ========================================================================
 -- Turning the debug setting "ON" pushes LOTS of output to the console.
 -- It would be nice if we could figure out how to make this setting change

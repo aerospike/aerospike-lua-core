@@ -1,6 +1,23 @@
 -- AS Large Set (LSET) Operations
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+--
 -- Track the date and iteration of the last update.
-local MOD="lset_2014_04_18.A"; 
+local MOD="lset_2014_05_27.A"; 
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -34,14 +51,14 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LSET module:
 --
--- (*) Status = lset.add( topRec, ldtBinName, newValue, userModule )
--- (*) Status = lset.add_all( topRec, ldtBinName, valueList, userModule )
--- (*) Object = lset.get( topRec, ldtBinName, searchValue ) 
--- (*) Number = lset.exists( topRec, ldtBinName, searchValue ) 
--- (*) List   = lset.scan( topRec, ldtBinName, userModule, filter, fargs )
--- (*) Status = lset.remove( topRec, ldtBinName, searchValue ) 
--- (*) Object = lset.take( topRec, ldtBinName, searchValue ) 
--- (*) Status = lset.destroy( topRec, ldtBinName )
+-- (*) Status = lset.add( topRec, ldtBinName, newValue, userModule, src)
+-- (*) Status = lset.add_all( topRec, ldtBinName, valueList, userModule, src)
+-- (*) Object = lset.get( topRec, ldtBinName, searchValue, src) 
+-- (*) Number = lset.exists( topRec, ldtBinName, searchValue, src) 
+-- (*) List   = lset.scan( topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) Status = lset.remove( topRec, ldtBinName, searchValue, src) 
+-- (*) Object = lset.take( topRec, ldtBinName, searchValue, src) 
+-- (*) Status = lset.destroy( topRec, ldtBinName, src)
 -- (*) Number = lset.size( topRec, ldtBinName )
 -- (*) Map    = lset.get_config( topRec, ldtBinName )
 -- (*) Status = lset.set_capacity( topRec, ldtBinName, new_capacity)
@@ -301,7 +318,7 @@ local ST_HYBRID = 'H'; -- Store values (lists) Hybrid Style
 -- in terms of the read/write of the top record.
 
 -- Key Compare Function for Complex Objects
--- By default, a complex object will have a "KEY" field, which the
+-- By default, a complex object will have a "key" field, which the
 -- key_compare() function will use to compare.  If the user passes in
 -- something else, then we'll use THAT to perform the compare, which
 -- MUST return -1, 0 or 1 for A < B, A == B, A > B.
@@ -1457,8 +1474,8 @@ end -- topRecScan
 
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- Scan a List, append all the items in the list to result if they pass
--- the filter.
+-- Perform the "regular" scan -- a scan of the hash directory that will
+-- mostly contain pointers to Sub-Records.
 -- Parms:
 -- (*) topRec:
 -- (*) resultList: List holding search result
@@ -1466,17 +1483,67 @@ end -- topRecScan
 -- Return: resultlist 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
-local function subRecScan( topRec, ldtCtrl, resultList )
+local function subRecScan( src, topRec, ldtCtrl, resultList )
   local meth = "subRecScan()";
   GP=E and trace("[ENTER]: <%s:%s> Scan all SubRec elements", MOD, meth );
 
-  local propMap = ldtCtrl[1]; 
+  -- For each cell in the Hash Directory, extract that Cell and scan
+  -- its contents.  The contents of a cell may be:
+  -- (*) EMPTY
+  -- (*) A Pair of Short Name/Value lists
+  -- (*) A SubRec digest
+  -- (*) A Radix Tree of multiple SubRecords
   local ldtMap = ldtCtrl[2];
+  local hashDir = ldtMap[M_HashDirectory];
+  local cellAnchor;
 
-  warn("[ERROR]<%s:%s> Not Yet Implemented", MOD, meth );
+  local hashDirSize = list.size( hashDir );
 
-  GP=E and trace("[EXIT]: <%s:%s> Appending %d elements to ResultList ",
-                 MOD, meth, list.size(resultList));
+  for i = 1, hashDirSize,  1 do
+    cellAnchor = hashDir[i];
+    if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
+
+      GD=DEBUG and trace("[DEBUG]<%s:%s>\nHash Cell :: Index(%d) Cell(%s)",
+        MOD, meth, i, tostring(cellAnchor));
+
+      -- If not empty, then the cell anchor must be either in an empty
+      -- state, or it has a Sub-Record.  Later, it might have a Radix tree
+      -- of multiple Sub-Records.
+      if( cellAnchor[C_CellState] == C_STATE_LIST ) then
+        -- The small list is inside of the cell anchor.  Get the lists.
+        scanList( cellAnchor[C_CellValueList], resultList );
+      elseif( cellAnchor[C_CellState] == C_STATE_DIGEST ) then
+        -- We have a sub-rec -- open it
+        local digest = cellAnchor[C_CellDigest];
+        if( digest == nil ) then
+          warn("[ERROR]: <%s:%s>: nil Digest value",  MOD, meth );
+          error( ldte.ERR_SUBREC_OPEN );
+        end
+
+        local digestString = tostring(digest);
+        local subRec = ldt_common.openSubRec( src, topRec, digestString );
+        if( subRec == nil ) then
+          warn("[ERROR]: <%s:%s>: subRec nil or empty: Digest(%s)",  MOD, meth,
+            digestString );
+          error( ldte.ERR_SUBREC_OPEN );
+        end
+        scanList( subRec[LDR_LIST_BIN], resultList );
+        ldt_common.closeSubRec( src, subRec );
+      else
+        -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        -- When we do a Radix Tree, we will STILL end up with a SubRecord
+        -- but it will come from a Tree.  We just need to manage the SubRec
+        -- correctly.
+        warn("[ERROR]<%s:%s> Not yet ready to handle Radix Trees in Hash Cell",
+          MOD, meth );
+        error( ldte.ERR_INTERNAL );
+        -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      end
+    end
+  end -- for each Hash Dir Cell
+
+  GP=E and trace("[EXIT]: <%s:%s> Appended %d elements to ResultList ",
+                 MOD, meth, #resultList );
 
   return 0; 
 end -- subRecScan
@@ -1755,6 +1822,7 @@ end -- createSubRec()
 -- ======================================================================
 -- Search the contents of this cellAnchor.
 -- Parms:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (*) topRec: Top Record (main aerospike record)
 -- (*) ldtCtrl: Main LDT Control Structure.
 -- (*) key: The value (or subvalue) that we're searching for.
@@ -1765,7 +1833,7 @@ end -- createSubRec()
 -- ==> NOT Found:  {0, subRecPtr}
 -- Extreme Error -- longjump out
 -- ======================================================================
-local function subRecSearch( topRec, ldtCtrl, key )
+local function subRecSearch( src, topRec, ldtCtrl, key )
   local meth = "subRecSearch()";
   
   GP=E and trace("[ENTER]:<%s:%s>Digest(%s) SearchVal(%s)",
@@ -1788,7 +1856,15 @@ local function subRecSearch( topRec, ldtCtrl, key )
     -- Ok -- so we have sub-records.  Get the subrec, then search the list.
     -- For NOW -- we will have ONLY ONE digest in the list.  Later, we'll
     -- go with a list (for cell fan-out).
-    local src = ldt_common.createSubRecContext();
+    
+    -- Init our subrecContext, if necessary.  The SRC tracks all open
+    -- SubRecords during the call. Then, allows us to close them all at the end.
+    -- For the case of repeated calls from Lua, the caller must pass in
+    -- an existing SRC that lives across LDT calls.
+    if ( src == nil ) then
+      src = ldt_common.createSubRecContext();
+    end
+
     local digestList = cellAnchor[X_DigestList];
     -- SPECIAL CASE :: ONLY ONE DIGEST FOR NOW.
     --
@@ -2464,11 +2540,12 @@ end -- function topRecInsert()
 -- directory cell is used, open the appropriate subRec, then add to the list.
 --
 -- Parms:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (*) topRec: the Server record that holds the Large Set Instance
 -- (*) ldtCtrl: The name of the bin for the AS Large Set
 -- (*) newValue: Value to be inserted into the Large Set
 -- ======================================================================
-local function subRecInsert( topRec, ldtCtrl, newValue )
+local function subRecInsert( src, topRec, ldtCtrl, newValue )
   local meth = "subRecInsert()";
   
   GP=E and trace("[ENTER]:<%s:%s> LDT CTRL(%s) NewValue(%s)",
@@ -2476,8 +2553,15 @@ local function subRecInsert( topRec, ldtCtrl, newValue )
 
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
-  local src = ldt_common.createSubRecContext();
   local ldtBinName = propMap[PM_BinName];
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to rehash the compact list into the full directory structure.
@@ -2521,6 +2605,7 @@ local function subRecInsert( topRec, ldtCtrl, newValue )
   GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return 0;
 end -- function subRecInsert()
+
 -- ======================================================================
 -- ======================================================================
 -- old code
@@ -2533,6 +2618,8 @@ end -- function subRecInsert()
     -- binList[position] = binList[listSize];
   -- end
   -- local newBinList = list.take( binList, listSize - 1 );
+-- ======================================================================
+--
 -- ======================================================================
 -- listDelete()
 -- ======================================================================
@@ -2596,10 +2683,116 @@ local function listDelete( objectList, position )
   GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
   return resultList;
 end -- listDelete()
---
--- ======================================================================
--- ======================================================================
 
+-- ======================================================================
+-- subRecDelete()
+-- ======================================================================
+-- Sub Record Mode: 
+-- Find an element (i.e. search) and then remove it from the list.
+-- Return the element if found, return nil if not found.
+-- Parms:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (*) topRec:
+-- (*) ldtCtrl
+-- (*) deleteValue:
+-- (*) returnVal;  when true, return the deleted value.
+-- ======================================================================
+local function subRecDelete(src, topRec, ldtCtrl, deleteValue, returnVal)
+  local meth = "subRecDelete()";
+  GP=E and trace("[ENTER]: <%s:%s> Delete Value(%s)",
+                 MOD, meth, tostring( deleteValue ) );
+
+  local rc = 0; -- start out OK.
+  local propMap = ldtCtrl[1]; 
+  local ldtMap = ldtCtrl[2]; 
+
+  -- Compute the subRec address that holds the deleteValue
+  local cellNumber = computeHashCell( deleteValue, ldtMap );
+  local hashDirectory = ldtMap[M_HashDirectory];
+  local cellAnchor = hashDirectory[cellNumber];
+  local subRec;
+  local valueList;
+
+  -- If no sub-record, then not found.
+  if( cellAnchor == nil or
+      cellAnchor == 0 or
+      cellAnchor[C_CellState] == nil or
+      cellAnchor[C_CellState] == C_STATE_EMPTY )
+  then
+    warn("[NOT FOUND]<%s:%s> deleteValue(%s)", MOD, meth, tostring(deleteValue));
+    error( ldte.ERR_NOT_FOUND );
+  end
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- If not empty, then the cell anchor must be either in an empty
+  -- state, or it has a Sub-Record.  Later, it might have a Radix tree
+  -- of multiple Sub-Records.
+  if( cellAnchor[C_CellState] == C_STATE_LIST ) then
+    -- The small list is inside of the cell anchor.  Get the lists.
+    valueList = cellAnchor[C_CellValueList];
+  elseif( cellAnchor[C_CellState] == C_STATE_DIGEST ) then
+    -- If the cell state is NOT empty and NOT a list, it must be a subrec.
+    -- We have a sub-rec -- open it
+    local digest = cellAnchor[C_CellDigest];
+    if( digest == nil ) then
+      warn("[ERROR]: <%s:%s>: nil Digest value",  MOD, meth );
+      error( ldte.ERR_SUBREC_OPEN );
+    end
+
+    local digestString = tostring(digest);
+    -- local subRec = openSubrec( src, topRec, digestString );
+    -- NOTE: openSubRec() does its own error checking. No more needed here.
+    local subRec = ldt_common.openSubRec( src, topRec, digestString );
+
+    valueList = subRec[LDR_LIST_BIN];
+    if( valueList == nil ) then
+      warn("[ERROR]<%s:%s> Empty Value List: ", MOD, meth );
+      error( ldte.ERR_INTERNAL );
+    end
+  else
+    -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    -- When we do a Radix Tree, we will STILL end up with a SubRecord
+    -- but it will come from a Tree.  We just need to manage the SubRec
+    -- correctly.
+    warn("[ERROR]<%s:%s> Not yet ready to handle Radix Trees in Hash Cell",
+      MOD, meth );
+    error( ldte.ERR_INTERNAL );
+    -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  end
+
+  local position = searchList( ldtCtrl, valueList, deleteValue );
+  if( position == 0 ) then
+    -- Didn't find it -- report an error.  But First -- Close the subRec.
+    ldt_common.closeSubRec( src, subRec );
+
+    warn("[NOT FOUND]<%s:%s> deleteVal(%s)", MOD, meth, tostring(deleteValue));
+    error( ldte.ERR_NOT_FOUND );
+  end
+
+  -- ok -- found it, so let's delete the value. Notice that we don't
+  -- need to UNTRANSFORM or check a filter here.  Just remove.
+  --
+  -- listDelete() will generate a new list, so we store that back into
+  -- where we got the list:
+  -- (*) The Cell Anchor List
+  -- (*) The Sub-Record.
+  resultMap[searchName] = validateValue( valueList[position] );
+  if( cellAnchor[C_CellState] == C_STATE_LIST ) then
+    cellAnchor[C_CellValueList] = valueList;
+  else
+    subRec[LDR_LIST_BIN] = listDelete( valueList, position );
+  end
+
+  GP=E and trace("[EXIT]<%s:%s> FOUND: Pos(%d)", MOD, meth, position );
+  return 0;
+end -- function subRecDelete()
 
 -- ======================================================================
 -- topRecDelete()
@@ -2689,6 +2882,7 @@ local function topRecDelete( topRec, ldtCtrl, deleteValue, returnVal)
     return 0;
   end
 end -- function topRecDelete()
+
 -- ========================================================================
 -- subRecDump()
 -- ========================================================================
@@ -2864,13 +3058,14 @@ end -- topRecDestroy()
 -- with the HIDDEN LDT CONTROL BIN.
 --
 -- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtCtrl: The LDT Control Structure.
+-- (1) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (2) topRec: the user-level record holding the LDT Bin
+-- (3) ldtCtrl: The LDT Control Structure.
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
-local function subRecDestroy( topRec, ldtCtrl )
+local function subRecDestroy( src, topRec, ldtCtrl )
   local meth = "subRecDestroy()";
 
   GP=E and trace("[ENTER]: <%s:%s> LDT CTRL(%s)",
@@ -2891,7 +3086,8 @@ local function subRecDestroy( topRec, ldtCtrl )
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
-    local esrRec = aerospike:open_subrec( topRec, esrDigestString );
+    -- local esrRec = aerospike:open_subrec( topRec, esrDigestString );
+    local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
       rc = aerospike:remove_subrec( esrRec );
       if( rc == nil or rc == 0 ) then
@@ -2920,13 +3116,13 @@ end -- subRecDestroy()
 -- NOTE: Requirements/Restrictions (this version).
 -- (1) One Set Per Record if using "TopRecord" Mode
 -- ======================================================================
--- (*) Status = add( topRec, ldtBinName, newValue, userModule )
--- (*) Status = add_all( topRec, ldtBinName, valueList, userModule )
--- (*) Object = get( topRec, ldtBinName, searchValue ) 
--- (*) Number  = exists( topRec, ldtBinName, searchValue ) 
--- (*) List   = scan( topRec, ldtBinName, userModule, filter, fargs )
--- (*) Status = remove( topRec, ldtBinName, searchValue ) 
--- (*) Status = destroy( topRec, ldtBinName )
+-- (*) Status = add( topRec, ldtBinName, newValue, userModule, src)
+-- (*) Status = add_all( topRec, ldtBinName, valueList, userModule, src)
+-- (*) Object = get( topRec, ldtBinName, searchValue, src) 
+-- (*) Number  = exists( topRec, ldtBinName, searchValue, src) 
+-- (*) List   = scan( topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) Status = remove( topRec, ldtBinName, searchValue, src) 
+-- (*) Status = destroy( topRec, ldtBinName, src)
 -- (*) Number = size( topRec, ldtBinName )
 -- (*) Map    = get_config( topRec, ldtBinName )
 -- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
@@ -3010,12 +3206,13 @@ end -- lset.create()
 -- (*) newValue: The new Object to be placed into the set.
 -- (*) userModule: A map of create specifications:  Most likely including
 --               :: a package name with a set of config parameters.
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 -- ======================================================================
 -- TODO: Add a common core "local insert" that can be used by both this
 -- function and the lset.all_all() function.
 -- ======================================================================
-function lset.add( topRec, ldtBinName, newValue, userModule )
+function lset.add( topRec, ldtBinName, newValue, userModule, src )
   GP=B and trace("\n\n  >>>>>>>>>>>>> API[ add ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "lset.add()";
   
@@ -3037,6 +3234,14 @@ function lset.add( topRec, ldtBinName, newValue, userModule )
     setupLdtBin( topRec, ldtBinName, userModule );
   end
 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   local ldtCtrl = topRec[ldtBinName]; -- The main lset control structure
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
@@ -3053,7 +3258,7 @@ function lset.add( topRec, ldtBinName, newValue, userModule )
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Insert
-    subRecInsert( topRec, ldtCtrl, newValue );
+    subRecInsert( src, topRec, ldtCtrl, newValue );
   else
     -- Use the TopRec style Insert (this is default if the subrec style
     -- is not specifically requested).
@@ -3081,14 +3286,31 @@ end -- lset.add()
 -- TODO: Switch to using a common "core insert" for lset.add() and 
 -- lset.add_all() so that we don't perform the initial checking for EACH
 -- element in this list.
+-- Parms:
+-- (*) topRec: The Aerospike Server record on which we operate
+-- (*) ldtBinName: The name of the bin for the AS Large Set
+-- (*) valueList: The list of Objects to be placed into the set.
+-- (*) userModule: A map of create specifications:  Most likely including
+--               :: a package name with a set of config parameters.
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- Result:
 -- ======================================================================
-function lset.add_all( topRec, ldtBinName, valueList, userModule )
+function lset.add_all( topRec, ldtBinName, valueList, userModule, src )
   local meth = "lset.add_all()";
   local rc = 0;
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-      rc = lset.add( topRec, ldtBinName, valueList[i], userModule );
+      rc = lset.add( topRec, ldtBinName, valueList[i], userModule, src );
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
@@ -3115,10 +3337,11 @@ end -- function lset.add_all()
 -- (*) userModule: The Lua File that contains the filter.
 -- (*) filter: the NAME of the filter function (which we'll find in FuncTable)
 -- (*) fargs: Optional Arguments to feed to the filter
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Return the object, or Error (NOT FOUND)
 -- ======================================================================
-function lset.get( topRec, ldtBinName, searchValue,
-        userModule, filter, fargs)
+function
+lset.get( topRec, ldtBinName, searchValue, userModule, filter, fargs, src )
   GP=B and trace("\n\n  >>>>>>>>>>>>> API[ GET ] <<<<<<<<<<<<<<<<<< \n");
 
   local meth = "lset.get()";
@@ -3149,10 +3372,18 @@ function lset.get( topRec, ldtBinName, searchValue,
     ldt_common.setReadFunctions( ldtMap, userModule, filter );
   G_FunctionArgs = fargs;
 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Search
-    resultObject = subRecSearch( topRec, ldtCtrl, key );
+    resultObject = subRecSearch( src, topRec, ldtCtrl, key );
   else
     -- Use the TopRec style Search (this is default if the subrec style
     -- is not specifically requested).
@@ -3180,8 +3411,9 @@ end -- function lset.get()
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) searchValue:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lset.exists( topRec, ldtBinName, searchValue )
+function lset.exists( topRec, ldtBinName, searchValue, src )
   GP=B and trace("\n\n  >>>>>>>>>>>>> API[ EXISTS ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "lset.exists()";
   GP=E and trace("[ENTER]: <%s:%s> Search Value(%s)",
@@ -3194,6 +3426,14 @@ function lset.exists( topRec, ldtBinName, searchValue )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
   local resultObject = 0;
+ 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- For debugging, print out our main control map.
   GD=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3211,7 +3451,7 @@ function lset.exists( topRec, ldtBinName, searchValue )
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Search
-    resultObject = subRecSearch( topRec, ldtCtrl, key );
+    resultObject = subRecSearch( src, topRec, ldtCtrl, key );
   else
     -- Use the TopRec style Search (this is default if the subrec style
     -- is not specifically requested).
@@ -3238,8 +3478,9 @@ end -- function lset.exists()
 -- (*) userModule: (optional) Lua file containing user's filter function
 -- (*) filter: (optional) User's Filter Function
 -- (*) fargs: (optional) filter arguments
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lset.scan(topRec, ldtBinName, userModule, filter, fargs)
+function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   local meth = "lset.scan()";
   GP=B and trace("\n\n  >>>>>>>>>>>>> API[ SCAN ] <<<<<<<<<<<<<<<<<< \n");
 
@@ -3256,6 +3497,14 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs)
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
   local resultList = list();
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
   
   -- For debugging, print out our main control map.
   GD=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3269,7 +3518,7 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs)
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style scan
-    subRecScan( topRec, ldtCtrl, resultList );
+    subRecScan( src, topRec, ldtCtrl, resultList );
   else
     -- Use the TopRec style Scan (this is default Mode if the subrec style
     -- is not specifically requested).
@@ -3295,9 +3544,10 @@ end -- function lset.scan()
 -- (*) filter: the NAME of the filter function (which we'll find in FuncTable)
 -- (*) fargs: Arguments to feed to the filter
 -- (*) returnVal: When true, return the deleted value.
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function lset.remove( topRec, ldtBinName, deleteValue, userModule,
-                                filter, fargs, returnVal)
+                                filter, fargs, returnVal, src )
   GP=B and trace("\n\n  >>>>>>>>>> > API [ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "lset.remove()";
   GP=E and trace("[ENTER]: <%s:%s> Delete Value(%s)",
@@ -3319,6 +3569,14 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   -- Get the value we'll compare against
   local key = getKeyValue( ldtMap, deleteValue );
 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   -- Set up our global "UnTransform" and Filter Functions.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
@@ -3328,7 +3586,7 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style delete
-    resultObject = subRecDelete( topRec, ldtCtrl, key, returnVal);
+    resultObject = subRecDelete( src, topRec, ldtCtrl, key, returnVal);
   else
     -- Use the TopRec style delete
     resultObject = topRecDelete( topRec, ldtCtrl, key, returnVal );
@@ -3368,6 +3626,7 @@ end -- function lset.remove()
 -- Parms:
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
+-- (3) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
@@ -3378,7 +3637,7 @@ end -- function lset.remove()
 -- ALTHOUGH -- the MAIN MEMORY version of LSET needs special attention,
 -- since we need to NULL out the bin lists.
 -- ========================================================================
-function lset.destroy( topRec, ldtBinName )
+function lset.destroy( topRec, ldtBinName, src )
   GP=B and trace("\n\n  >>>>>>>>>> > API [ DESTROY ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "lset.destroy()";
 
@@ -3395,6 +3654,14 @@ function lset.destroy( topRec, ldtBinName )
 
   -- For debugging, print out our main control map.
   GD=DEBUG and ldtDebugDump( ldtCtrl );
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
   -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
@@ -3417,7 +3684,7 @@ function lset.destroy( topRec, ldtBinName )
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Destroy
-    resultObject = subRecDestroy( topRec, ldtCtrl );
+    resultObject = subRecDestroy( src, topRec, ldtCtrl );
   else
     -- Use the TopRec style Destroy (this is default if the subrec style
     -- is not specifically requested).
@@ -3586,7 +3853,7 @@ end -- function lset.lsetCapacity()
 -- entire lset structure. 
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
-function lset.dump( src, topRec, ldtBinName )
+function lset.dump( topRec, ldtBinName, src )
   GP=B and trace("\n\n  >>>>>>>> API[ DUMP ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "dump()";
   GP=E and trace("[ENTER]<%s:%s> LDT BIN(%s)",MOD, meth, tostring(ldtBinName));

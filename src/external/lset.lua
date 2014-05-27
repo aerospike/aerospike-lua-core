@@ -1,8 +1,27 @@
 -- AS Large Set (LSET) Operations
 
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSET Main Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- ======================================================================
 -- The following external functions are defined in the LSET module:
 --
 -- (*) Status = add( topRec, ldtBinName, newValue, userModule )
@@ -21,6 +40,10 @@
 -- ======================================================================
 -- Reference the LMAP LDT Library Module:
 local lset = require('ldt/lib_lset');
+
+-- Reference the common routines, which include the Sub-Rec Context
+-- functions for managing the open sub-recs.
+local ldt_common = require('ldt/ldt_common');
 
 -- ======================================================================
 -- || create      || (deprecated)
@@ -58,15 +81,15 @@ end
 -- lset_create_and_insert()  :: Deprecated
 -- ======================================================================
 function add( topRec, ldtBinName, newValue, userModule )
-  return lset.add( topRec, ldtBinName, newValue, userModule )
+  return lset.add( topRec, ldtBinName, newValue, userModule, nil );
 end -- add()
 
 function lset_insert( topRec, ldtBinName, newValue )
-  return lset.add( topRec, ldtBinName, newValue, nil )
+  return lset.add( topRec, ldtBinName, newValue, nil, nil );
 end -- lset_insert()
 
 function lset_create_and_insert( topRec, ldtBinName, newValue, userModule )
-  return lset.add( topRec, ldtBinName, newValue, userModule )
+  return lset.add( topRec, ldtBinName, newValue, userModule, nil );
 end -- lset_create_and_insert()
 
 -- ======================================================================
@@ -74,15 +97,15 @@ end -- lset_create_and_insert()
 -- lset_insert_all() :: Deprecated
 -- ======================================================================
 function add_all( topRec, ldtBinName, valueList )
-  return lset.add_all( topRec, ldtBinName, valueList, nil );
+  return lset.add_all( topRec, ldtBinName, valueList, nil, nil );
 end -- add_all()
 
 function lset_insert_all( topRec, ldtBinName, valueList )
-  return lset.add_all( topRec, ldtBinName, valueList, nil );
+  return lset.add_all( topRec, ldtBinName, valueList, nil, nil );
 end
 
 function lset_create_and_insert_all( topRec, ldtBinName, valueList )
-  return lset.add_all( topRec, ldtBinName, valueList, userModule );
+  return lset.add_all( topRec, ldtBinName, valueList, userModule, nil );
 end
 
 -- ======================================================================
@@ -92,20 +115,20 @@ end
 -- lset_search_then_filter()
 -- ======================================================================
 function get( topRec, ldtBinName, searchValue )
-  return lset.get( topRec, ldtBinName, searchValue, nil, nil, nil);
+  return lset.get( topRec, ldtBinName, searchValue, nil, nil, nil, nil);
 end -- get()
 
 function get_then_filter(topRec,ldtBinName,searchValue,userModule,filter,fargs)
-  return lset.get(topRec,ldtBinName,searchValue,userModule,filter,fargs);
+  return lset.get(topRec,ldtBinName,searchValue,userModule,filter,fargs, nil);
 end -- get_with_filter()
 
 function lset_search( topRec, ldtBinName, searchValue )
-  return lset.get( topRec, ldtBinName, searchValue, nil, nil, nil);
+  return lset.get( topRec, ldtBinName, searchValue, nil, nil, nil,nil);
 end -- lset_search()
 
 function
 lset_search_then_filter( topRec, ldtBinName, searchValue, filter, fargs )
-  return lset.get(topRec, ldtBinName, searchValue, nil, filter, fargs);
+  return lset.get(topRec, ldtBinName, searchValue, nil, filter, fargs,nil);
 end -- lset_search_then_filter()
 
 -- ======================================================================
@@ -114,20 +137,20 @@ end -- lset_search_then_filter()
 -- lset_exists() -- with and without filter
 -- ======================================================================
 function exists( topRec, ldtBinName, searchValue )
-  return lset.exists( topRec, ldtBinName, searchValue, nil,nil, nil );
+  return lset.exists( topRec, ldtBinName, searchValue, nil,nil, nil,nil );
 end -- lset_exists()
 
 function exists_with_filter( topRec, ldtBinName, searchValue, filter, fargs )
-  return lset.exists( topRec, ldtBinName, searchValue, nil,filter, fargs );
+  return lset.exists( topRec, ldtBinName, searchValue, nil,filter, fargs,nil );
 end -- lset_exists_with_filter()
 
 function lset_exists( topRec, ldtBinName, searchValue )
-  return lset.exists( topRec, ldtBinName, searchValue, nil,nil, nil );
+  return lset.exists( topRec, ldtBinName, searchValue, nil,nil, nil,nil );
 end -- lset_exists()
 
 function
 lset_exists_then_filter( topRec, ldtBinName, searchValue, filter, fargs )
-  return lset.exists( topRec, ldtBinName, searchValue, nil,filter, fargs );
+  return lset.exists( topRec, ldtBinName, searchValue, nil,filter, fargs,nil );
 end -- lset_exists_then_filter()
 
 -- ======================================================================
@@ -135,11 +158,11 @@ end -- lset_exists_then_filter()
 -- lset_scan() :: Deprecated
 -- ======================================================================
 function scan( topRec, ldtBinName )
-  return lset.scan(topRec,ldtBinName,nil, nil, nil);
+  return lset.scan(topRec,ldtBinName,nil, nil, nil,nil);
 end -- scan()
 
 function lset_scan( topRec, ldtBinName )
-  return lset.scan(topRec,ldtBinName,nil, nil, nil);
+  return lset.scan(topRec,ldtBinName,nil, nil, nil,nil);
 end -- lset_search()
 
 -- ======================================================================
@@ -147,12 +170,12 @@ end -- lset_search()
 -- lset_scan_then_filter() :: Deprecated
 -- ======================================================================
 function filter(topRec, ldtBinName, userModule, filter, fargs)
-  return lset.scan(topRec, ldtBinName, userModule, filter, fargs);
+  return lset.scan(topRec, ldtBinName, userModule, filter, fargs,nil);
 end -- filter()
 
 -- This was defined to use only predefined filter UDFs. Now Deprecated.
 function lset_scan_then_filter(topRec, ldtBinName, filter, fargs)
-  return lset.scan(topRec, ldtBinName, nil, filter,fargs);
+  return lset.scan(topRec, ldtBinName, nil, filter,fargs,nil);
 end -- lset_search_then_filter()
 
 -- ======================================================================
@@ -162,15 +185,15 @@ end -- lset_search_then_filter()
 -- Return Status (OK or error)
 -- ======================================================================
 function remove( topRec, ldtBinName, searchValue )
-  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,false);
+  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,false,nil);
 end -- remove()
 
 function take( topRec, ldtBinName, searchValue )
-  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,true );
+  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,true,nil );
 end -- remove()
 
 function lset_delete( topRec, ldtBinName, searchValue )
-  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,false);
+  return lset.remove(topRec,ldtBinName,searchValue,nil,nil,nil,false,nil);
 end -- lset_delete()
 
 -- ======================================================================
@@ -179,13 +202,13 @@ end -- lset_delete()
 -- ======================================================================
 function remove_with_filter( topRec, ldtBinName, searchValue, userModule,
   filter, fargs )
-  return localLSetDelete(topRec,ldtBinName,searchValue,userModule,
-    filter,fargs,false);
+  return lset.remove(topRec,ldtBinName,searchValue,userModule,
+    filter,fargs,false,nil);
 end -- delete_then_filter()
 
 function
 lset_delete_then_filter( topRec, ldtBinName, searchValue, filter, fargs )
-  return localLSetDelete(topRec,ldtBinName,searchValue,nil,filter,fargs,false);
+  return lset.remove(topRec,ldtBinName,searchValue,nil,filter,fargs,false,nil);
 end -- lset_delete_then_filter()
 
 -- ========================================================================
@@ -205,11 +228,11 @@ end -- lset_delete_then_filter()
 --   res = -1: Some sort of error
 -- ========================================================================
 function destroy( topRec, ldtBinName )
-  return lset.destroy( topRec, ldtBinName );
+  return lset.destroy( topRec, ldtBinName, nil );
 end
 
 function lset_remove( topRec, ldtBinName )
-  return lset.destroy( topRec, ldtBinName );
+  return lset.destroy( topRec, ldtBinName, nil );
 end
 
 -- ========================================================================
@@ -280,7 +303,13 @@ end
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
 function dump( topRec, ldtBinName )
-  return lset.dump( nil, topRec, ldtBinName )
+
+  -- Init our subrecContext. .  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  src = ldt_common.createSubRecContext();
+  return lset.dump( topRec, ldtBinName, src )
 end
 
 -- ========================================================================

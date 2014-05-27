@@ -1,9 +1,27 @@
 -- Large Map (LMAP) Operations (Last Update 2014.03.10)
 
 -- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<   LMAP Main Functions   >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- ======================================================================
 -- The following external functions are defined in the LMAP module:
 --
 -- * Status = put( topRec, ldtBinName, newName, newValue, userModule) 
@@ -53,11 +71,11 @@ end -- create()
 -- put_all() -- Insert multiple name/value pairs into the LMAP
 -- ======================================================================
 function put( topRec, ldtBinName, newName, newValue, createSpec )
-  return lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
+  return lmap.put( topRec, ldtBinName, newName, newValue, createSpec, nil);
 end -- put()
 
 function put_all( topRec, ldtBinName, NameValMap, createSpec )
-  return lmap.put_all( topRec, ldtBinName, NameValMap, createSpec )
+  return lmap.put_all( topRec, ldtBinName, NameValMap, createSpec, nil);
 end -- put_all()
 
 -- ========================================================================
@@ -66,11 +84,11 @@ end -- put_all()
 -- ========================================================================
 -- ========================================================================
 function get( topRec, ldtBinName, searchName )
-  return lmap.get(topRec, ldtBinName, searchName, nil, nil, nil)
+  return lmap.get(topRec, ldtBinName, searchName, nil, nil, nil, nil);
 end -- get()
 
 function scan( topRec, ldtBinName )
-  return lmap.scan(topRec, ldtBinName, nil, nil);
+  return lmap.scan(topRec, ldtBinName, nil, nil, nil);
 end -- scan()
 
 -- ========================================================================
@@ -78,21 +96,21 @@ end -- scan()
 --             thru the supplied filter( fargs ).
 -- ========================================================================
 function filter( topRec, ldtBinName, userModule, filter, fargs )
-  return lmap.scan(topRec, ldtBinName, userModule, filter, fargs);
+  return lmap.scan(topRec, ldtBinName, userModule, filter, fargs, nil);
 end -- filter()
 
 -- ========================================================================
 -- remove() -- Remove the name/value pair matching <searchName>
 -- ========================================================================
 function remove( topRec, ldtBinName, searchName )
-  return lmap.remove(topRec, ldtBinName, searchName, nil, nil, nil )
+  return lmap.remove(topRec, ldtBinName, searchName, nil, nil, nil, nil );
 end -- remove()
 
 -- ========================================================================
 -- destroy() - Entirely obliterate the LDT (record bin value and all)
 -- ========================================================================
 function destroy( topRec, ldtBinName )
-  return lmap.destroy( topRec, ldtBinName );
+  return lmap.destroy( topRec, ldtBinName, nil );
 end -- destroy()
 
 -- ========================================================================
@@ -158,7 +176,7 @@ function dump( topRec, ldtBinName )
     -- Set up the Sub-Rec Context to track open Sub-Records.
     local src = ldt_common.createSubRecContext();
 
-  return lmap.dump( src, topRec, ldtBinName );
+  return lmap.dump( topRec, ldtBinName, src );
 end
 
 -- ========================================================================

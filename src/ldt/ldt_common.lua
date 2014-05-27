@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_04_18.A";
+local MOD="ldt_common_2014_04_27.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -1677,14 +1677,14 @@ function ldt_common.listInsert( valList, newValue, position )
 end -- ldt_common.listInsert()
 
 -- ======================================================================
--- ldt_common.listDelete()
+-- ldt_common.listDeleteUnique()
 -- ======================================================================
 -- General List Delete function for removing items from a list.
 -- RETURN:
 -- A NEW LIST that no longer includes the deleted item.
 -- ======================================================================
-function ldt_common.listDelete( objectList, position )
-  local meth = "listDelete()";
+function ldt_common.listDeleteUnique( objectList, position )
+  local meth = "listDeleteUnique()";
   local resultList;
   local listSize = list.size( objectList );
 
@@ -1738,7 +1738,78 @@ function ldt_common.listDelete( objectList, position )
 
   GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
   return resultList;
-end -- ldt_common.listDelete()
+end -- ldt_common.listDeleteUnique()
+
+-- ======================================================================
+-- ldt_common.listDeleteMultiple()
+-- ======================================================================
+-- General List Delete function for removing MULTIPLE items from a list.
+-- Parms:
+-- (*) objectList: the original list of items
+-- (*) startPos: The Starting index of the item(s) we're deleting
+-- (*) endPos: The ending index of the item(s) we're deleting.
+-- RETURN:
+-- A NEW LIST that no longer includes the deleted items.
+--
+-- ======================================================================
+function ldt_common.listDeleteMultiple( objectList, startPos, endPos )
+  local meth = "listDeleteMultiple()";
+  local resultList;
+  local listSize = list.size( objectList );
+
+  GP=F and trace("[ENTER]<%s:%s>List(%s) size(%d) S Pos(%d) E Pos(%d)", MOD,
+  meth, tostring(objectList), listSize, startPos, endPos );
+
+  if( startPos < 1 or endPos > listSize or startPos > endPos) then
+    warn("[DELETE ERROR]<%s:%s> Bad positions: Start(%d) End(%d)for delete.",
+      MOD, meth, startPos, endPos );
+    error( ldte.ERR_DELETE );
+  end
+
+  -- Move elements in the list to "cover" the items that are at the range
+  -- of "startPos to endPos.  This has to work for all cases:
+  -- (*) The entire list
+  -- (*) Only One item (start == end)  (including start or end)
+  -- (*) Any Range in the middle
+  --  +---+---+---+---+---+---+---+---+
+  --  |111|222|333|444|555|666|777|888|  Delete items from Pos 3 to 5
+  --  +---+---+---+---+---+---+---+---+
+  --     1   2   3   4   5   6   7   8 (indexes -- Lua starts at 1, not 0)
+  
+  -- We're going to build a new list out of the LEFT and
+  -- RIGHT pieces of the original list.
+  --
+  -- Our List operators :
+  -- (*) list.take (take the first N elements) 
+  -- (*) list.drop (drop the first N elements, and keep the rest) 
+  -- The special cases are:
+  -- (*) A list of size 1:  Just return a new (empty) list.
+  -- (*) We're deleting the FIRST element, so just use RIGHT LIST.
+  -- (*) We're deleting the LAST element, so just use LEFT LIST
+  if( listSize == 1 or (startPos == 1 and endPos == listSize)) then
+    -- We are deleting everything -- just get a new empty list.
+    resultList = list();
+  elseif( startPos == 1 ) then
+    -- There is no front section -- just create a list of the elements tht
+    -- are beyong the end of endPos.
+    resultList = list.drop( objectList, endPos );
+  elseif( endPos == listSize ) then
+    -- There is no back section -- just take the front part.
+    resultList = list.take( objectList, startPos - 1 );
+  else
+    -- Remove the middle section -- take the front part and then
+    -- append the back part.
+    resultList = list.take( objectList, startPos - 1);
+    local addList = list.drop( objectList, endPos );
+    local addLength = list.size( addList );
+    for i = 1, addLength, 1 do
+      list.append( resultList, addList[i] );
+    end
+  end
+
+  GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
+  return resultList;
+end -- ldt_common.listDeleteMultiple()
 
 -- =======================================================================
 -- searchOrderedList()

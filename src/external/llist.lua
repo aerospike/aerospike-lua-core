@@ -1,6 +1,22 @@
 -- Large Ordered List (LLIST) Operations
-
+--
 -- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -50,7 +66,7 @@ end
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
 function add( topRec, ldtBinName, newValue, createSpec )
-  return llist.add( topRec, ldtBinName, newValue, createSpec )
+  return llist.add( topRec, ldtBinName, newValue, createSpec, nil)
 end
 
 -- =======================================================================
@@ -63,7 +79,7 @@ end
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
 function add_all( topRec, ldtBinName, valueList, createSpec )
-  return llist.add_all( topRec, ldtBinName, valueList, createSpec );
+  return llist.add_all( topRec, ldtBinName, valueList, createSpec, nil);
 end
 
 -- =======================================================================
@@ -75,7 +91,7 @@ end
 -- (*) searchKey: The value(s) to be found
 -- =======================================================================
 function find( topRec, ldtBinName, searchKey )
-  return llist.find( topRec, ldtBinName, searchKey );
+  return llist.find( topRec, ldtBinName, searchKey, nil);
 end
 
 -- =======================================================================
@@ -88,7 +104,7 @@ end
 -- (*) LdtBinName: The user's chosen name for the LDT bin
 -- =======================================================================
 function scan( topRec, ldtBinName )
-  return llist.find( topRec, ldtBinName, nil, nil, nil, nil );
+  return llist.find( topRec, ldtBinName, nil, nil, nil, nil, nil);
 end
 
 -- =======================================================================
@@ -104,7 +120,7 @@ end
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
 function filter( topRec, ldtBinName, userModule, filter, fargs )
-  return llist.find( topRec, ldtBinName, userModule, filter, fargs );
+  return llist.find( topRec, ldtBinName, userModule, filter, fargs, nil);
 end
 
 -- ======================================================================
@@ -118,7 +134,7 @@ end
 -- (3) key: The key we'll search for
 -- ======================================================================
 function remove( topRec, ldtBinName, key )
-  return llist.remove( topRec, ldtBinName, key );
+  return llist.remove( topRec, ldtBinName, key, nil);
 end
 
 -- ========================================================================
@@ -137,7 +153,7 @@ end
 --   res = -1: Some sort of error
 -- ========================================================================
 function destroy( topRec, ldtBinName )
-  return llist.destroy( topRec, ldtBinName );
+  return llist.destroy( topRec, ldtBinName, nil);
 end -- destroy()
 
 -- ========================================================================

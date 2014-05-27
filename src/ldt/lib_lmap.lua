@@ -1,6 +1,23 @@
 -- Large Map (LMAP) Operations Library
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+--
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_04_18.A";
+local MOD="lib_lmap_2014_05_23.C"; 
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -249,6 +266,11 @@ local M_OverWrite              = 'o';-- Allow Overwrite of a Value for a given
                                      -- name.  If false (AS_FALSE), then we
                                      -- throw a UNIQUE error.
 
+-- The LDR (SubRecord) Control Map holds MINIMAL information:
+-- It currently holds ONLY the Byte Count -- for when Binary Storage is
+-- in effect.  Otherwise, it is mostly ignored.
+local LDR_ByteEntryCount       = 'C';
+
 -- Fields specific to lmap in the standard mode only. In standard mode lmap 
 -- does not resemble lset, it looks like a fixed-size warm-list from lstack
 -- with a digest list pointing to LDR's. 
@@ -351,11 +373,10 @@ local C_STATE_TREE    = 'T';
 -- >> (14 char name limit) 12345678901234 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 local REC_LDT_CTRL_BIN  = "LDTCONTROLBIN"; -- Single bin for all LDT in rec
 
--- There are THREE different types of (Child) sub-records that are associated
--- with an LSTACK LDT:
+-- There are TWO different types of (Child) sub-records that are associated
+-- with an LMAP LDT:
 -- (1) LDR (LDT Data Record) -- used in both the Warm and Cold Lists
--- (2) ColdDir Record -- used to hold lists of LDRs (the Cold List Dirs)
--- (3) Existence Sub Record (ESR) -- Ties all children to a parent LDT
+-- (2) Existence Sub Record (ESR) -- Ties all children to a parent LDT
 -- Each Subrecord has some specific hardcoded names that are used
 --
 -- All LDT sub-records have a properties bin that holds a map that defines
@@ -637,7 +658,7 @@ local function ldtDebugDump( ldtCtrl )
   local resultMap                = map();
   resultMap.SUMMARY              = "LMAP Summary";
 
-  info("\n\n <><><><><><><><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
+  info("\n\n <><>  BEGIN <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
 
   if ( ldtCtrl == nil ) then
     warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
@@ -676,6 +697,7 @@ local function ldtDebugDump( ldtCtrl )
   resultMap3.HashDirectory        = ldtMap[M_HashDirectory];
   info("\n<<<%s>>>\n", tostring(resultMap3));
 
+  info("\n\n <><><> END  <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
 end -- function ldtDebugDump()
 
 -- ======================================================================
@@ -1441,6 +1463,7 @@ local function  ldrSubRecSummary( subRec )
   resultMap.SUMMARY = "LDR SUMMARY";
   resultMap.SelfDigest   = subRecPropMap[PM_SelfDigest];
   resultMap.ParentDigest   = subRecPropMap[PM_ParentDigest];
+  resultMap.CtrlLDRByteCnt = subRecCtrlMap[LDR_ByteEntryCount];
 
   resultMap.LDR_NameList = subRec[LDR_NLIST_BIN];
   resultMap.NameListSize = list.size( resultMap.LDR_NameList );
@@ -1483,7 +1506,6 @@ ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
   propMap[PM_SelfDigest]   = selfDigest;
 
 end -- ldtInitPropMap()
-
 
 -- ======================================================================
 -- createLMapSubRec()
@@ -1537,7 +1559,7 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
   subRecCtrlMap[LDR_ByteEntryCount]  = 0;  -- A count of Byte Entries
   
   -- Assign Prop, Control info and List info to the LDR bins
-  -- newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
+  -- Note that SubRec Prop Bin was set in createSubRec().
   newSubRec[LDR_CTRL_BIN] = subRecCtrlMap;
   newSubRec[LDR_NLIST_BIN] = list();
   newSubRec[LDR_VLIST_BIN] = list();
@@ -1649,7 +1671,7 @@ local function regularScan( src, topRec, ldtCtrl, resultMap )
     cellAnchor = hashDir[i];
     if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
 
-      GD=DEBUG and trace("[DEBUG]<%s:%s> Hash Cell :: Index(%d) Cell(%s)",
+      GD=DEBUG and trace("[DEBUG]<%s:%s>\nHash Cell :: Index(%d) Cell(%s)",
         MOD, meth, i, tostring(cellAnchor));
 
       -- If not empty, then the cell anchor must be either in an empty
@@ -1851,7 +1873,7 @@ lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, check )
       valueList[position] = storeValue;
     end
   else
-    -- Add the new name/value to the existing lists.
+    -- Add the new name/value to the existing lists. (rc is still 0).
     list.append( nameList, newName );
     list.append( valueList, storeValue );
   end
@@ -1865,15 +1887,23 @@ end -- function lmapListInsert()
 -- ======================================================================
 -- Convert the hash cell LIST into a single sub-record, change the cell
 -- anchor state (to DIGEST) and then move the list data into the Sub-Rec.
+-- Parms:
+-- (*) src:
+-- (*) topRec:
+-- (*) ldtCtrl:
+-- (*) cellAnchor:
+-- (*) newName:
+-- (*) newValue:
+-- Returns:
+-- 0: New Value Written, all ok
+-- 1: Existing value OVERWRITTEN, ok but count stays the same
+-- other: Error Code
 -- ======================================================================
 local function
 hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   local meth = "hashCellConvertInsert()";
   GP=E and trace("[ENTER]<%s:%s> HCell(%s) newName(%s) newValue(%s)", MOD, meth,
     tostring(cellAnchor), tostring(newName), tostring(newValue));
-
-    -- Remove later.
-    -- info("\n\n<<<<<<<<<<<<<<<<<<<<< CONVERT HASH >>>>>>>>>>>>>>>>>>>\n");
 
   -- Validate that the state of this Hash Cell Anchor really is "LIST",
   -- because otherwise something bad would be done.
@@ -1902,7 +1932,7 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
-  local rc = 0;
+  local rc;
 
   local nameList = cellAnchor[C_CellNameList];
   local valueList = cellAnchor[C_CellValueList];
@@ -1948,6 +1978,7 @@ end -- function hashCellConvertInsert()
 -- Return:
 -- 0: if all goes well
 -- 1: if we inserted, but overwrote, so do NOT update the counts.
+-- other: Error Code
 -- ======================================================================
 local function
 hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
@@ -1957,7 +1988,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
-  local rc = 0;
+  local rc;
 
   -- LMAP Version 1:  Just a pure Sub-Rec insert, no trees just yet.
   local digest = cellAnchor[C_CellDigest];
@@ -2030,10 +2061,6 @@ local function regularInsert( src, topRec, ldtCtrl, newName, newValue, check)
   GP=F and trace("[DEBUG]<%s:%s> CellNum(%s) CellAnchor(%s)", MOD, meth,
     tostring(cellNumber), tostring(cellAnchor));
 
-  -- Maybe, eventually, we'll allow a few items to be stored directly
-  -- in this directory (to save the SUBREC management for small numbers).
-  -- TODO: Add ability to hold small lists -- and read them -- soon.
-
   -- If no hash cell anchor is present, then we're in trouble.  There should
   -- ALWAYS be a cell anchor, even when no data is there.
   if( cellAnchor == nil or cellAnchor == 0 ) then
@@ -2081,8 +2108,8 @@ local function regularInsert( src, topRec, ldtCtrl, newName, newValue, check)
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful: rc(%d)",
-    MOD, meth, rc);
+  GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful: N(%s) V(%s) rc(%d)",
+    MOD, meth, tostring(newName), tostring(newValue), rc);
   return rc;
 end -- function regularInsert()
 
@@ -2201,12 +2228,13 @@ end -- compactDelete()
 -- ======================================================================
 -- Remove a map entry from a SubRec (regular storage mode).
 -- Params:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (*) topRec: The Aerospike record holding the LDT
 -- (*) ldtCtrl: The main LDT control structure
 -- (*) searchName: the name of the name/value pair to be deleted
 -- (*) resultMap: the map carrying the name/value pair result.
 -- ======================================================================
-local function regularDelete( topRec, ldtCtrl, searchName, resultMap )
+local function regularDelete( src, topRec, ldtCtrl, searchName, resultMap )
   local meth = "regularDelete()";
   GP=E and trace("[ENTER]<%s:%s> Name(%s)", MOD, meth, tostring(searchName));
 
@@ -2307,7 +2335,7 @@ end -- function regularDelete()
 -- So, similar to insert -- take the new value and locate the right bin.
 -- Then, scan the bin's list for that item (linear scan).
 -- ======================================================================
-local function regularSearch(topRec, ldtCtrl, searchName, resultMap )
+local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
   local meth = "regularSearch()";
 
   GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
@@ -2337,7 +2365,6 @@ local function regularSearch(topRec, ldtCtrl, searchName, resultMap )
     -- Get the lists from the single Sub-Rec
     local digest = cellAnchor[C_CellDigest];
     local digestString = tostring(digest);
-    local src = ldt_common.createSubRecContext();
     -- local subRec = openSubrec( src, topRec, digestString );
     -- NOTE: openSubRec() does its own error checking. No more needed here.
     local subRec = ldt_common.openSubRec( src, topRec, digestString );
@@ -2587,6 +2614,10 @@ end -- convertCompactToSubRec()
 -- (*) newName: Name to be inserted into the Large Map
 -- (*) newValue: Value to be inserted into the Large Map
 -- (*) createSpec: When in "Create Mode", use this Create Spec
+-- Return:
+-- 0: All Ok -- wrote New Value.
+-- 1: Ok -- but OVERWROTE value (replace option is ON)
+-- other: Error Code
 -- ======================================================================
 local function localPut( src, topRec, ldtCtrl, newName, newValue )
   local meth = "localPut()";
@@ -2627,16 +2658,16 @@ end -- function localPut()
 -- Large Map (LMAP) Library Functions
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
--- (*) lmap.put( topRec, ldtBinName, newName, newValue, userModule) 
--- (*) lmap.put_all( topRec, ldtBinName, nameValueMap, userModule)
--- (*) lmap.get( topRec, ldtBinName, searchName, userMod, filter, fargs )
--- (*) lmap.scan( topRec, ldtBinName, userModule, filter, fargs )
--- (*) lmap.remove( topRec, ldtBinName, searchName )
--- (*) lmap.destroy( topRec, ldtBinName )
--- (*) lmap.size( topRec, ldtBinName )
--- (*) lmap.config( topRec, ldtBinName )
--- (*) lmap.set_capacity( topRec, ldtBinName, new_capacity)
--- (*) lmap.get_capacity( topRec, ldtBinName )
+-- (*) lmap.put(topRec, ldtBinName, newName, newValue, userModule, src) 
+-- (*) lmap.put_all(topRec, ldtBinName, nameValueMap, userModule, src)
+-- (*) lmap.get(topRec, ldtBinName, searchName, userMod, filter, fargs, src)
+-- (*) lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) lmap.remove(topRec, ldtBinName, searchName, src)
+-- (*) lmap.destroy(topRec, ldtBinName, src)
+-- (*) lmap.size(topRec, ldtBinName)
+-- (*) lmap.config(topRec, ldtBinName)
+-- (*) lmap.set_capacity(topRec, ldtBinName, new_capacity)
+-- (*) lmap.get_capacity(topRec, ldtBinName)
 -- ======================================================================
 -- The following functions are deprecated:
 -- (*) create( topRec, ldtBinName, createSpec )
@@ -2746,8 +2777,9 @@ end -- end lmap.create()
 -- (*) newName: Name to be inserted into the Large Map
 -- (*) newValue: Value to be inserted into the Large Map
 -- (*) createSpec: When in "Create Mode", use this Create Spec
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
+function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ] <<<<<<<<<< \n");
   local meth = "lmap.put()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
@@ -2780,8 +2812,13 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
   G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
   
-  -- Needed only when we're in sub-rec mode, but that will be most of the time.
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   rc = localPut( src, topRec, ldtCtrl, newName, newValue );
 
@@ -2791,11 +2828,19 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
   -- However, it is ALSO the case that if we allow OVERWRITE, then we don't
   -- update the count.  If rc == 1, then we overwrote the value, so we
   -- DO NOT UPDATE the count.
-  if( rc == 0 ) then
+  if ( rc == 0 ) then
     local itemCount = propMap[PM_ItemCount];
     local totalCount = ldtMap[M_TotalCount];
     propMap[PM_ItemCount] = itemCount + 1; -- number of valid items goes up
     ldtMap[M_TotalCount] = totalCount + 1; -- Total number of items goes up
+    GP=F and trace("[DEBUG]<%s:%s> Successful PUT: New IC(%d) TC(%d)",
+         MOD, meth, itemCount + 1, totalCount + 1);
+  elseif ( rc == 1 ) then
+    GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
+         MOD, meth, propMap[PM_ItemCount]);
+  else
+    warn("[ERROR]<%s:%s> UNEXPECTED return(%s) from localPut()",
+         MOD, meth, tostring(rc));
   end
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
@@ -2816,7 +2861,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec )
 
     trace("\n\n>>>>>>>>>>>>>>> VALIDATE PUT: Count Size(%d) <<<<<<<<<<<<\n",
         startSize);
-    local endSize = lmap.dump( src, topRec, ldtBinName );
+    local endSize = lmap.dump( topRec, ldtBinName, src );
     trace("\n\n>>>>>>>>>>>>>>>>>> DONE VALIDATE Dump Size(%d)<<<<<<<<<<<<\n",
       endSize);
     if( startSize ~= endSize ) then
@@ -2841,8 +2886,9 @@ end -- function lmap.put()
 -- (*) ldtBinName: The name of the bin for the Large Map
 -- (*) nameValMap: The Map containing all of the new Name/Value pairs
 -- (*) createSpec: When in "Create Mode", use this Create Spec
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
+function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ALL] <<<<<<<<<< \n");
 
   local meth = "lmap.put_all()";
@@ -2876,8 +2922,13 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec )
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
-  -- Needed only when we're in sub-rec mode, but that will be most of the time.
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   local newCount = 0;
   for name, value in map.pairs( nameValMap ) do
@@ -2938,9 +2989,10 @@ end -- function lmap.put_all()
 -- (*) userModule:
 -- (*) filter:
 -- (*) fargs:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function
-lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
+lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs, src)
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP GET] <<<<<<<<<< \n");
   local meth = "lmap.get()";
   GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
@@ -2955,6 +3007,14 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
   local ldtMap = ldtCtrl[2]; 
   local resultMap = map(); -- add results to this list.
   local rc = 0; -- start out OK.
+  
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
   
   -- Set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
@@ -2981,7 +3041,7 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs)
     resultMap[nameList[position]] = resultObject;
   else
     -- Search the SubRecord.
-    regularSearch( topRec, ldtCtrl, searchName, resultMap );
+    regularSearch( src, topRec, ldtCtrl, searchName, resultMap );
   end
 
   GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
@@ -2999,8 +3059,9 @@ end -- function lmap.get()
 -- (*) userModule:
 -- (*) filter:
 -- (*) fargs:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ========================================================================
-function lmap.scan(topRec, ldtBinName, userModule, filter, fargs)
+function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP SCAN ] <<<<<<<<<< \n");
 
   local meth = "lmap.scan()";
@@ -3019,7 +3080,13 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs)
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- Set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
@@ -3041,7 +3108,7 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs)
   GP=E and trace("[EXIT]: <%s:%s>: Scan Returns Size(%d) Map(%s)",
                    MOD, meth, map.size(resultMap), tostring(resultMap));
   	  
-  ldt_common.dumpMap(resultMap, "LMap Scan Results");
+  GD=DEBUG and ldt_common.dumpMap(resultMap, "LMap Scan Results");
 
   return resultMap;
 end -- function lmap.scan()
@@ -3062,9 +3129,10 @@ end -- function lmap.scan()
 -- (*) ldtBinName: The name of the bin for the AS Large Set
 -- (*) newValue: Value to be inserted into the Large Set
 -- (*) createSpec: When in "Create Mode", use this Create Spec
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function
-lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
+lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs, src )
   GP=B and trace("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
 
   local meth = "lmap.remove()";
@@ -3087,6 +3155,14 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read Functions (filter, Untransform)
@@ -3101,9 +3177,8 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs )
     rc = compactDelete( ldtCtrl, searchName, resultMap );
   else
     -- It's "regular".  Find the right LDR (subRec) and search it.
-    rc = regularDelete( topRec, ldtCtrl, searchName, resultMap );
+    rc = regularDelete( src, topRec, ldtCtrl, searchName, resultMap );
   end
-
 
   -- Update the counts.  If there were any errors, the code would have
   -- jumped out of the Lua code entirely.  So, if we're here, the delete
@@ -3137,6 +3212,7 @@ end -- function lmap.remove()
 -- Parms:
 -- (1) topRec: the user-level record holding the Ldt Bin
 -- (2) ldtBinName: The name of the LDT Bin
+-- (3) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
@@ -3145,7 +3221,7 @@ end -- function lmap.remove()
 -- since it will work the same way for all LDTs.
 -- Remove the ESR, Null out the topRec bin.
 -- ========================================================================
-function lmap.destroy( topRec, ldtBinName )
+function lmap.destroy( topRec, ldtBinName, src )
   local meth = "lmap.destroy()";
 
   GP=B and trace("\n\n  >>>>>>>> API[ LMAP DESTROY ] <<<<<<<<<<<<<<<<<< \n");
@@ -3158,8 +3234,13 @@ function lmap.destroy( topRec, ldtBinName )
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
  
-  -- Needed only when we're in sub-rec mode, but that will be most of the time.
-  local src = ldt_common.createSubRecContext();
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
   -- Extract the property map and Ldt control map from the Ldt bin list.
 
@@ -3374,9 +3455,13 @@ end -- function lmap.set_capacity()
 -- shown in the result. Unlike scan which simply returns the contents of all 
 -- the bins, this routine gives a tree-walk through or map walk-through of the
 -- entire lmap structure. 
+-- Parms:
+-- (1) topRec: the user-level record holding the Ldt Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Return a COUNT of the number of items dumped to the log.
 -- ========================================================================
-function lmap.dump( src, topRec, ldtBinName )
+function lmap.dump( topRec, ldtBinName, src )
   GP=F and trace("\n\n  >>>>>>>>>>>> API[ LMAP DUMP ] <<<<<<<<<<<<<<<< \n");
   local meth = "dump()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );
@@ -3394,9 +3479,11 @@ function lmap.dump( src, topRec, ldtBinName )
   local cellAnchor;
   local count = 0;
 
-
-  -- set up the Sub-Rec Context, if needed.
-  if( src == nil ) then
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
 
