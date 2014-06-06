@@ -16,8 +16,12 @@
 -- limitations under the License.
 -- ======================================================================
 
+-- Global Print Flags (set "F" to true to print)
+local GP;
+local F = true;
+
 -- Used for version tracking in logging/debugging
-local MOD = "test:2014_05_27.A";
+local MOD = "test:2014_06_04.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  UDF Test Operations >>
@@ -245,6 +249,98 @@ function cc_write( topRec, ccBinName, key, value, createSpec)
     return lib_test.cc_write( topRec, ccBinName, key, value, createSpec);
 end
 -- ========================================================================
+
+
+-- Bin names and default value for record_update_test()
+local testBinName = "udf_bin";
+local testBinValue = 424242;
+
+-- This is a simple record update test 
+function record_update_test(rec)
+  local meth = "record_update_test()";
+  local bin = testBinName;
+  local val = testBinValue;
+
+  GP=F and trace("[ENTER]<%s> Record(%s) Bin(%s) Value(%s)",
+    meth, tostring(rec), tostring(bin), tostring(val));
+
+  -- check if record exists
+  if (not aerospike:exists(rec)) then
+    GP=F and warn("[ERROR]<%s> Record(%s) does not exist", meth, tostring(rec));
+    error("Record does not exist");
+  else
+    -- update record
+    rec[bin] = val;
+  end
+  GP=F and trace("[EXIT]<%s> Record(%s) has been updated",
+    meth, tostring(rec));
+end
+
+-- This is a simple record existence check test
+function record_exist_test(rec) 
+  local meth = "record_exist_test()"; 
+  GP=F and info("[ENTER]<%s> Record(%s)", meth, tostring(rec));
+  -- Check if rec exists, log if found / not found (not sure if I necessary)
+  if (not aerospike:exists(rec)) then
+    GP=F and info("[EVENT]<%s> Record(%s) does not exist", meth, tostring(rec));
+  else
+    GP=F and info("[EVENT]<%s> Record(%s) exists", meth, tostring(rec));
+  end
+  GP=F and info("[EXIT]<%s>", meth);
+  -- return 0 for clean exit
+  return 0;
+end
+
+function populate_complex_record(rec)
+  local meth = "populate_complex_record";
+  GP=F and info("[ENTER]<%s> Record(%s)", meth, tostring(rec));
+  -- integer timestamp
+  rec['timestamp'] = os.time();
+  -- integer id
+  rec['id'] = 12;
+  -- string name
+  rec['name'] = "test_name";
+  -- map with 20 list elements
+  -- 40 byte string
+  -- time integer
+  -- id integer
+  -- 200 byte blob
+  local m = map();
+  for x=1,20 do
+    local map_list = list {"abcdefghijklmnopqrstuvwxyzabcdefghijklmn",
+    os.time(), 123456, bytes(200)};
+    for y=1,200 do
+      map_list[4][y] = math.random(9);
+    end
+    m[tostring(x)] = map_list;
+  end
+  rec['map'] = m;
+  -- list with 20 40 byte strings
+  local record_list = list();
+  for x=1,20 do
+    record_list[x] = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+  end
+  rec['list'] = record_list;
+
+  -- create record on db
+  if (not aerospike:exists(rec)) then
+    local r = aerospike:create(rec);
+    if (not r == 0) then
+      GP=F and warn("[ERROR]<%s> Record could not be created", meth);
+      error("Record could not be created");
+    end
+  else
+    local r = aerospike:update(rec);
+    if (not r == 0) then
+      GP=F and warn("[ERROR]<%s> Record could not be updated", meth);
+      error("Record could not be updated");
+    end
+  end
+
+  GP=F and info("[EXIT]<%s>", meth);
+  return 0;
+end
+
 -- ========================================================================
 -- ========================================================================
 -- ========================================================================

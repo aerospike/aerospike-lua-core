@@ -288,7 +288,6 @@ end
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 -- Developer Functions
 -- (*) dump()
--- (*) debug()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 --
 -- ========================================================================
@@ -310,13 +309,6 @@ function dump( topRec, ldtBinName )
   -- an existing SRC that lives across LDT calls.
   src = ldt_common.createSubRecContext();
   return lset.dump( topRec, ldtBinName, src )
-end
-
--- ========================================================================
--- debug() -- turn on/off our debug settings
--- ========================================================================
-function debug( topRec, setting )
-  return lset.debug( topRec, setting );
 end
 
 -- ========================================================================

@@ -17,13 +17,15 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lset_2014_05_27.A"; 
+local MOD="lib_lset_2014_06_04.A"; 
 
--- This variable holds the version of the code.  It would be in the form
--- of (Major.Minor), except that Lua does not store real numbers.  So, for
--- now, our version is just a simple integer.
--- We'll check this for Major design changes -- and try to maintain some
--- amount of inter-version compatibility.
+-- This variable holds the version of the code. It should match the
+-- stored version (the version of the code that stored the ldtCtrl object).
+-- If there's a mismatch, then some sort of upgrade is needed.
+-- This number is currently an integer because that is all that we can
+-- store persistently.  Ideally, we would store (Major.Minor), but that
+-- will have to wait until later when the ability to store real numbers
+-- is eventually added.
 local G_LDT_VERSION = 2;
 
 -- ======================================================================
@@ -3840,7 +3842,6 @@ end -- function lset.lsetCapacity()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 -- Developer Functions
 -- (*) dump()
--- (*) debug()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 -- ========================================================================
 --
@@ -3875,50 +3876,6 @@ function lset.dump( topRec, ldtBinName, src )
   local ret = " \n LDT bin contents dumped to server-logs \n"; 
   return ret; 
 end -- function lset.dump();
-
--- ========================================================================
--- lset.debug() -- Turn the debug setting on (1) or off (0)
--- ========================================================================
--- Turning the debug setting "ON" pushes LOTS of output to the console.
--- It would be nice if we could figure out how to make this setting change
--- PERSISTENT. Until we do that, this will be a no-op.
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) setting: 0 turns it off, anything else turns it on.
--- Result:
---   res = 0: all is well
---   res = -1: Some sort of error
--- ========================================================================
-function lset.debug( topRec, setting )
-  local meth = "lset.debug()";
-  local rc = 0;
-
-  GP=B and trace("\n\n  >>>>>>>> API[ DEBUG ] <<<<<<<<<<<<<<<<<< \n");
-
-  GP=E and trace("[ENTER]: <%s:%s> setting(%s)", MOD, meth, tostring(setting));
-  if( setting ~= nil and type(setting) == "number" ) then
-    if( setting == 1 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug ON", MOD, meth );
-      F = true;
-      B = true;
-      E = true;
-      DEBUG = true;
-    elseif( setting == 0 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug OFF", MOD, meth );
-      F = false;
-      B = false;
-      E = false;
-      DEBUG = false;
-    else
-      info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-      rc = -1;
-    end
-  else
-    info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-    rc = -1;
-  end
-  return rc;
-end -- function lset.debug()
 
 -- ======================================================================
 -- This is needed to export the function table for this module

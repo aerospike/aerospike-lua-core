@@ -732,8 +732,6 @@ function test.cc_write( topRec, ccBinName, key, value, createSpec, src)
   return 0;
 end -- test.cc_write()
 
--- =========================================================================
--- =========================================================================
 -- ========================================================================
 -- This is needed to export the function table for this module
 -- Leave this statement at the end of the module.

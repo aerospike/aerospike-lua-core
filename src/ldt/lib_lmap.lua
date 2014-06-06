@@ -17,13 +17,15 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_05_23.C"; 
+local MOD="lib_lmap_2014_06_05.B"; 
 
--- This variable holds the version of the code.  It would be in the form
--- of (Major.Minor), except that Lua does not store real numbers.  So, for
--- now, our version is just a simple integer.
--- We'll check this for Major design changes -- and try to maintain some
--- amount of inter-version compatibility.
+-- This variable holds the version of the code. It should match the
+-- stored version (the version of the code that stored the ldtCtrl object).
+-- If there's a mismatch, then some sort of upgrade is needed.
+-- This number is currently an integer because that is all that we can
+-- store persistently.  Ideally, we would store (Major.Minor), but that
+-- will have to wait until later when the ability to store real numbers
+-- is eventually added.
 local G_LDT_VERSION = 2;
 
 -- ======================================================================
@@ -149,6 +151,21 @@ local FV_INSERT  = 'I'; -- flag to scanList to Insert the value (if not found)
 local FV_SCAN    = 'S'; -- Regular Scan (do nothing else)
 local FV_DELETE  = 'D'; -- flag to show scanList to Delete the value, if found
 
+-- Initial Size of of a STATIC Hash Table.   Once we start to use Linear
+-- Hashing (dynamic growth) we'll set the initial size to be small.
+local DEFAULT_DISTRIB = 128;
+
+-- Our Hash Tables can operate in two modes:
+-- (*) Static (a fixed size Hash Table)
+-- (*) Dynamic (A variable size Hash Table that uses Linear Hash Algorithm)
+local HS_STATIC  = 'S';
+local HS_DYNAMIC = 'D';
+
+-- Currently, the default for the Hash Table Management is STATIC.  When
+-- it is ready (fully tested), we will enable DYNAMIC mode that uses Linear
+-- Hashing and has more graceful directory growth (and shrinkage).
+local DEFAULT_HASH_STATE = HS_STATIC;
+
 -- The Hash Directory has a default starting size that can be overwritten.
 local DEFAULT_HASH_MODULO = 8;
 
@@ -159,6 +176,9 @@ local DEFAULT_HASH_DEPTH = 3; -- goes with 8, above.
 -- Switch from a single list to distributed lists after this amount, i.e.
 -- convert the compact list to a hash directory of cells.
 local DEFAULT_THRESHOLD = 10;
+
+-- Max size of our Compact List before we convert to a full Hash Table.
+local DEFAULT_BINLIST_THRESHOLD = 4;
 
 local MAGIC="MAGIC";     -- the magic value for Testing LDT integrity
 
@@ -243,7 +263,7 @@ local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
 local M_UserModule             = 'P'; -- User's Lua file for overrides
 local M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
-local M_KeyType                = 'k'; -- Type of Key (atomic or complex)
+local M_KeyType                = 'k'; -- Type of Key (Always atomic for LMAP)
 local M_StoreMode              = 'M'; -- List Mode or Binary Mode
 local M_StoreLimit             = 'L'; -- Used for Eviction (eventually)
 local M_Transform              = 't'; -- Transform Lua to Byte format
@@ -258,7 +278,9 @@ local M_BinaryStoreSize        = 'B';
 local M_TotalCount             = 'N';-- Total insert count (not counting dels)
 local M_HashDirSize            = 'O';-- Show current Hash Dir Size
 local M_HashDirMark            = 'm';-- Show where we are in the linear hash
-local M_Threshold              = 'H';
+local M_Threshold              = 'H';-- Convert from simple list to hash table
+local M_BinListThreshold       = 'l'; -- Threshold for converting from a
+                                      -- cell anchor binlist to sub-record.
 local M_CompactNameList        = 'n';--Simple Compact List -- before "dir mode"
 local M_CompactValueList       = 'v';--Simple Compact List -- before "dir mode"
 
@@ -866,7 +888,7 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[M_Transform]        = nil; -- applies only to complex lmap
   ldtMap[M_UnTransform]      = nil; -- applies only to complex lmap
   ldtMap[M_StoreState]       = SS_COMPACT; -- Start out in "single list" mode
-  ldtMap[M_HashType]         = HT_STATIC; -- Static or Dynamic
+  ldtMap[M_HashType]         = HS_STATIC; -- HS_STATIC or HS_DYNAMIC.
   ldtMap[M_BinaryStoreSize]  = nil; 
   ldtMap[M_KeyType]          = KT_ATOMIC; -- assume "atomic" values for now.
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
@@ -2674,7 +2696,6 @@ end -- function localPut()
 --
 -- The following functions are for development use:
 -- (*) lmap.dump()
--- (*) lmap.debug()
 -- ======================================================================
 -- We define a table of functions that are visible to both INTERNAL UDF
 -- calls and to the EXTERNAL LDT functions.  We define this table, "lmap",
@@ -3443,7 +3464,6 @@ end -- function lmap.set_capacity()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 -- Developer Functions
 -- (*) dump()
--- (*) debug()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 --
 -- ========================================================================
@@ -3559,48 +3579,6 @@ function lmap.dump( topRec, ldtBinName, src )
   GP=E and trace("[EXIT]<%s:%s> <><><> DONE <><><>", MOD, meth );
   return count; 
 end -- function lmap.dump();
-
--- ========================================================================
--- lmap.debug() -- Turn the debug setting on (1) or off (0)
--- ========================================================================
--- Turning the debug setting "ON" pushes LOTS of output to the console.
--- It would be nice if we could figure out how to make this setting change
--- PERSISTENT. Until we do that, this will be a no-op.
--- Parms:
--- (1) topRec: the user-level record holding the Ldt Bin
--- (2) setting: 0 turns it off, anything else turns it on.
--- Result:
---   res = 0: all is well
---   res = -1: Some sort of error
--- ========================================================================
-function lmap.debug( topRec, setting )
-  local meth = "lmap.debug()";
-  local rc = 0;
-
-  GP=E and trace("[ENTER]: <%s:%s> setting(%s)", MOD, meth, tostring(setting));
-  if( setting ~= nil and type(setting) == "number" ) then
-    if( setting == 1 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug ON", MOD, meth );
-      F = true;
-      B = true;
-      E = true;
-      DEBUG = true;
-    elseif( setting == 0 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug OFF", MOD, meth );
-      F = false;
-      B = false;
-      E = false;
-      DEBUG = false;
-    else
-      info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-      rc = -1;
-    end
-  else
-    info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-    rc = -1;
-  end
-  return rc;
-end -- function lmap.debug()
 
 -- ======================================================================
 -- This is needed to export the function table for this module

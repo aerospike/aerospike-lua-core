@@ -158,7 +158,6 @@ end
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 -- Developer Functions
 -- (*) dump()
--- (*) debug()
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 
 --
 -- ========================================================================
@@ -177,13 +176,6 @@ function dump( topRec, ldtBinName )
     local src = ldt_common.createSubRecContext();
 
   return lmap.dump( topRec, ldtBinName, src );
-end
-
--- ========================================================================
--- debug() -- turn on/off our debug settings
--- ========================================================================
-function debug( topRec, setting )
-  return lmap.debug( topRec, setting );
 end
 
 -- ========================================================================

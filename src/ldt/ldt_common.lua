@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_04_27.A";
+local MOD="ldt_common_2014_06_04.B";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -819,7 +819,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   -- "bare-hand" this Special SubRec create.
   -- Create the ESR, then Remember to add this to the SRC after it is
   -- initialized.
-  info("[DEBUG]: <%s:%s> Calling CREATE", MOD, meth );
+  GP=F and info("[DEBUG]: <%s:%s> Calling CREATE", MOD, meth );
   local esrRec    = aerospike:create_subrec( topRec );
 
   if( esrRec == nil ) then
@@ -827,18 +827,18 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
     error( ldte.ERR_SUBREC_CREATE );
   end
 
-  info("[DEBUG]: <%s:%s> Setting ESR TYPE ", MOD, meth );
+  GP=F and info("[DEBUG]: <%s:%s> Setting ESR TYPE ", MOD, meth );
 
   -- Set the record type as "ESR"
   record.set_type( esrRec, RT_ESR );
 
-  info("[DEBUG]: <%s:%s> Setting ESR BINS ", MOD, meth );
+  GP=F and info("[DEBUG]: <%s:%s> Setting ESR BINS ", MOD, meth );
 
   local esrDigest = record.digest( esrRec);
   local topDigest = record.digest( topRec );
   local topPropMap = ldtCtrl[1];
 
-  info("[DEBUG]: <%s:%s> topPropMap(%s) ", MOD, meth, tostring(topPropMap));
+  GP=F and info("[DEBUG]: <%s:%s> topPropMap(%s) ", MOD, meth, tostring(topPropMap));
 
   -- Set the Property ControlMap for the ESR, and assign the parent Digest
   -- Note that we use our standard convention for property maps - all Sub-Recs
@@ -850,7 +850,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   -- Remember the ESR in the Top Record
   topPropMap[PM_EsrDigest] = esrDigest;
 
-  info("[DEBUG]: <%s:%s> ESR DG(%s) ", MOD, meth, tostring(esrDigest));
+  GP=F and info("[DEBUG]: <%s:%s> ESR DG(%s) ", MOD, meth, tostring(esrDigest));
 
   -- Initialize the PropertyMap in the new ESR
   esrPropMap[PM_EsrDigest]    = esrDigest;
@@ -876,7 +876,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   --
   -- Update and close the ESR.  We're done with it.
   -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-  info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
+  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
   rc = aerospike:update_subrec( esrRec );
   if( rc == nil or rc == 0 ) then
     -- aerospike:close_subrec( esrRec );
@@ -987,7 +987,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
 
-  info("[REMEMBER]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
+  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
   rc = aerospike:update_subrec( newSubRec );
   if( rc ~= nil and rc ~= 0 ) then
     warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
@@ -1002,7 +1002,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
 
   GP=E and info("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
-    tostring(subRecDigest) );
+    subRecDigestString )
   return newSubRec;
 end --  createSubRec()
 
@@ -1049,7 +1049,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   -- First, look to see if the Sub-Rec is already open.  If so, then
   -- return the Sub-Rec ptr.
   -- If not, see if we can open a new Sub-Rec easily.
-  -- If we are at the limit, then 
+  -- If we are at the limit, then do a clean before we open.
   GP=F and trace("[DEBUG]<%s:%s> Looking for DG(%s) in SRC(%s)", MOD, meth,
     tostring(digestString), tostring(srcCtrl));
 
@@ -1072,7 +1072,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     itemCount = recMap.ItemCount;
     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
-      MOD, meth, recMap.ItemCount, tostring(topRec), digestString );
+      MOD, meth, recMap.ItemCount, tostring(topRec), tostring(digestString));
     subRec = aerospike:open_subrec( topRec, digestString );
     GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)", 
       MOD,meth,tostring(subRec));
@@ -1081,12 +1081,13 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
         digestString );
       error( ldte.ERR_SUBREC_OPEN );
     end
+    -- Add this open SubRec to our SubRec Context.
+    local rc = ldt_common.addSubRecToContext( srcCtrl, subRec, false);
+
   else
+    -- FOUND IT!!  No new SubRec open.
     GP=F and trace("[FOUND REC]<%s:%s>Rec DG(%s)", MOD, meth, digestString);
   end
-
-  -- Add this open SubRec to our SubRec Context.
-  local rc = ldt_common.addSubRecToContext( srcCtrl, subRec, false);
 
   GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
     MOD, meth, tostring(subRec), digestString );
@@ -1121,12 +1122,12 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
     error( ldte.ERR_INTERNAL );
   end
 
-  info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth,
+  GP=F and info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth,
     tostring(digestString));
 
   local dirtyStatus = dirtyMap[digestString] == DM_DIRTY or dirty == true;
   if( dirtyStatus == true ) then
-    info("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
+    GP=F and info("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
       MOD, meth, tostring(digestString));
   else
     rc = aerospike:close_subrec( subRec );
@@ -1184,7 +1185,7 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
   -- Lua Call Context.  However, we DO have to mark the record as DIRTY
   -- so that we don't try to close it when we're looking for available
   -- slots when trying to close a clean Sub-Rec.
-  info("[REMEMBER]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
+  GP=F and info("[REMEMBER]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
   rc = aerospike:update_subrec( subRec );
 
   dirtyMap[digestString] = DM_DIRTY;

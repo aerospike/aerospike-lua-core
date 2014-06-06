@@ -20,8 +20,9 @@ Large Data Types (LDTs).  LDTs exist only on the server, and thus must
 undergo some form of translation when passing between client and server.
 
 LSTACK is a server side type that can be manipulated ONLY by this file,
-lstack.lua.  We prevent any other direct manipulation -- any other program
-or process must use the lstack api provided by this program in order to
+lib_lstack.lua.  We prevent any other direct manipulation.  Any other program
+or process must use the LSTACK API provided by this program in order to
+manipulate an LSTACK instance.
 
 An LSTACK value -- stored in a record bin -- is represented by a Lua MAP
 object that comprises control information, a directory of records
@@ -174,8 +175,8 @@ the time and effort to read the file (it is an unlikely event).  The
 issue here is that we probably have to teach Aerospike how to transfer
 (and replicate) files as well as records.
 
-Design, V3.x. We will need to limit the amount of data that is held
-in a stack. We've added "StoreLimit" to the ldtMap, as a way to limit
+We limit the amount of data that is held in a stack.
+We've added "StoreLimit" to the ldtMap, as a way to limit
 the number of items.  Note that this can be used to limit both the
 storage and the read amounts.
 One way this could be used is to REUSE a cold LDR page when an LDR
@@ -184,7 +185,6 @@ must be considered carefully -- as the time and I/O spent messing
 with the cold directory and the cold LDR could be a performance hit.
 We'll have to consider how we might age these pages out gracefully
 if we can't cleverly reuse them (patent opportunity here).
-
 
 NOTE THAT ALL INSERTS ARE INTO HOT LIST -- and transforms are done
 there.  All UNTRANSFORMS are done reading from the List (Hot List or

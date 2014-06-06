@@ -1,8 +1,7 @@
--- Settings for Large List
--- settings_llist.lua:  September 05, 2013 (tjl)
+-- Settings for Large List (settings_llist.lua)
 --
--- Module Marker: Keep this in sync with the stated version
-local MOD="settings_llist_2014_04_18.A"; -- the module name used for tracing
+-- Module Marker: Track the last update of the file.
+local MOD="settings_llist_2014_06_05.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -10,66 +9,104 @@ local MOD="settings_llist_2014_04_18.A"; -- the module name used for tracing
 -- Use this flag to enable/disable global printing (the "detail" level
 -- in the server).
 -- ======================================================================
-local GP=true; -- Leave this ALWAYS true (but value seems not to matter)
+local GP;     -- Use this to control GLOBAL PRINT activities.
 local F=true; -- Set F (flag) to true to turn ON global print
 local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 
 -- ======================================================================
--- StoreMode (SM) values (which storage Mode are we using?)
+-- StoreMode (SM) values (which storage Mode: Binary or List?)
 local SM_BINARY ='B'; -- Using a Transform function to compact values
 local SM_LIST   ='L'; -- Using regular "list" mode for storing values.
+
+-- StoreState (SS) values (which "state" is the set in?)
+local SS_COMPACT ='C'; -- Using "single bin" (compact) mode
+local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
+
+-- KeyType (KT) values
+local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
+local KT_COMPLEX ='C'; -- the set value is complex. Use Function to get key.
 
 -- SetTypeStore (ST) values
 local ST_RECORD = 'R'; -- Store values (lists) directly in the Top Record
 local ST_SUBRECORD = 'S'; -- Store values (lists) in Sub-Records
 
--- HashType (HT) values
-local HT_STATIC  ='S'; -- Use a FIXED set of bins for hash lists
-local HT_DYNAMIC ='D'; -- Use a DYNAMIC set of bins for hash lists
+-- AS_BOOLEAN TYPE:
+-- There are apparently either storage or conversion problems with booleans
+-- and Lua and Aerospike, so rather than STORE a Lua Boolean value in the
+-- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
+-- is a character (defined here).  We're using Characters rather than
+-- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
+local AS_TRUE='T';
+local AS_FALSE='F';
 
--- In this early version of SET, we distribute values among lists that we
--- -- keep in the top record.  This is the default modulo value for that list
--- -- distribution.   Later we'll switch to a more robust B+ Tree version.
--- local DEFAULT_DISTRIB = 31;
--- -- Switch from a single list to distributed lists after this amount
--- local DEFAULT_THRESHOLD = 100;
+-- Switch from a single list to a Tree after this amount.
+local DEFAULT_THRESHOLD = 100;
 --
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
--- Put all of these values in a table:
+-- This table contains all of the fields that we use in the standard LLIST
+-- control map.  Some of these are runtime values (e.g. R_TotalCount) and
+-- some are configuration values (e.g. R_RootListMax).  Although only some
+-- of these are needed for configuration, we leave them all in here for
+-- completeness. (Last updated June 6, 2014)
+--
+-- Recall that the assignments here, a readable name to a single letter, is
+-- done to save space in the Lua Map Object.  We don't want to store full
+-- names in the actual LDT Bin value.  We instead store a single letter
+-- per field.
 local T = {
-  R_TotalCount          = 'T',-- A count of all "slots" used in LLIST
-  R_LeafCount           = 'c',-- A count of all Leaf Nodes
-  R_NodeCount           = 'C',-- A count of all Nodes (including Leaves)
-  R_StoreMode           = 'M',-- SM_LIST or SM_BINARY (applies to all nodes)
-  R_TreeLevel           = 'l',-- Tree Level (Root::Inner nodes::leaves)
-  R_KeyType             = 'k',-- Type of key (atomic, complex)
-  R_KeyUnique           = 'U',-- Are Keys Unique? (boolean)
-  R_TransFunc           = 't',-- Transform Func(from user to storage)
-  R_UnTransFunc         = 'u',-- Reverse transform (from storage to user)
-  R_StoreState          = 'S',-- Compact or Regular Storage
-  R_Threshold           = 'H',-- After this#:Move from compact to tree mode
-  R_KeyFunction         = 'F',-- Function to compute Key from Object
-  -- Key and Object Sizes, when using fixed length (byte array stuff)
+  -- Fields common to all LDTs (Configuration)
+  M_UserModule          = 'P';-- User's Lua file for overrides
+  M_KeyFunction         = 'F';-- Function to compute Key from Object
+  M_KeyType             = 'k';-- Type of key (atomic, complex)
+  M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
+  M_StoreLimit          = 'L';-- Storage Capacity Limit
+  M_Transform           = 't';-- Transform Object (from User to bin store)
+  M_UnTransform         = 'u';-- Reverse transform (from storage to user)
+
+  -- Fields Specific to Large List
+  --
+  -- Tree Level values (Runtime values) (Comment out)
+-- R_TotalCount          = 'T';-- A count of all "slots" used in LLIST
+-- R_LeafCount           = 'c';-- A count of all Leaf Nodes
+-- R_NodeCount           = 'C';-- A count of all Nodes (including Leaves)
+-- R_TreeLevel           = 'l';-- Tree Level (Root::Inner nodes::leaves)
+-- R_StoreState          = 'S';-- Compact or Regular Storage (dynamic)
+
+  -- Tree Settings (configuration)
+  R_KeyDataType         = 'd';-- Data Type of key (Number, Integer)
+  R_KeyUnique           = 'U';-- Are Keys Unique? (AS_TRUE or AS_FALSE))
+  R_Threshold           = 'H';-- After this#:Move from compact to tree mode
+
+  -- Key and Object Sizes, for fixed byte arrays (Configuration)
   R_KeyByteSize         = 'B',-- Fixed Size (in bytes) of Key
   R_ObjectByteSize      = 'b',-- Fixed Size (in bytes) of Object
-  -- Top Node Tree Root Directory
+
+  -- Top Node Tree Root Directory (Runtime Values) (Comment out)
+-- R_KeyByteArray        = 'J', -- Byte Array, when in compressed mode
+-- R_DigestByteArray     = 'j', -- DigestArray, when in compressed mode
+-- R_RootKeyList         = 'K',-- Root Key List, when in List Mode
+-- R_RootDigestList      = 'D',-- Digest List, when in List Mode
+-- R_CompactList         = 'Q',--Simple Compact List -- before "tree mode"
+
+  -- Top Node Tree Root Directory (Configuration)
   R_RootListMax         = 'R', -- Length of Key List (page list is KL + 1)
   R_RootByteCountMax    = 'r',-- Max # of BYTES for keyspace in the root
-  R_KeyByteArray        = 'J', -- Byte Array, when in compressed mode
-  R_DigestByteArray     = 'j', -- DigestArray, when in compressed mode
-  R_RootKeyList         = 'K',-- Root Key List, when in List Mode
-  R_RootDigestList      = 'D',-- Digest List, when in List Mode
-  R_CompactList         = 'Q',--Simple Compact List -- before "tree mode"
-  -- LLIST Inner Node Settings
+
+  -- LLIST Inner Node Settings (Configuration)
   R_NodeListMax         = 'X',-- Max # of items in a node (key+digest)
   R_NodeByteCountMax    = 'Y',-- Max # of BYTES for keyspace in a node
-  -- LLIST Tree Leaves (Data Pages)
+
+  -- LLIST Tree Leaves (Data Pages) (Configuration)
   R_LeafListMax         = 'x',-- Max # of items in a leaf node
   R_LeafByteCountMax    = 'y' -- Max # of BYTES for obj space in a leaf
+  
+  -- LLIST Tree Leaves (Data Pages) (Runtime values) (Comment out)
+-- R_LeftLeafDigest      = 'A';-- Record Ptr of Left-most leaf
+-- R_RightLeafDigest     = 'Z';-- Record Ptr of Right-most leaf
+  
 };
-
 
 -- ======================================================================
 -- Define a Table of Packages
@@ -83,14 +120,14 @@ local package = {};
     function package.StandardList( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_ATOMIC; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_ATOMIC; -- Atomic Keys
     ldtMap[T.R_Threshold] = DEFAULT_THRESHOLD; -- REDO after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -116,14 +153,14 @@ local package = {};
     function package.StandardMap( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Complex Object, but use Key Field
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex Object, but use Key Field
     ldtMap[T.R_Threshold] = DEFAULT_THRESHOLD; -- REDO after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -146,15 +183,15 @@ local package = {};
   function package.TestModeNumber( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_ATOMIC; -- Atomic Keys (A Number)
+    ldtMap[T.M_KeyType] = KT_ATOMIC; -- Atomic Keys (A Number)
     ldtMap[T.R_Threshold] = 20; -- Change to TREE Ops after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Unique values only.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Unique values only.
    
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 20; -- Length of Key List (page list is KL + 1)
@@ -177,15 +214,15 @@ local package = {};
   function package.TestModeNumberDup( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_ATOMIC; -- Atomic Keys (A Number)
+    ldtMap[T.M_KeyType] = KT_ATOMIC; -- Atomic Keys (A Number)
     ldtMap[T.R_Threshold] = 20; -- Change to TREE Ops after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = false; -- allow Duplicates
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_FALSE; -- allow Duplicates
    
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 20; -- Length of Key List (page list is KL + 1)
@@ -208,17 +245,17 @@ local package = {};
   function package.TestModeObjectDup( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Atomic Keys (A Number)
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys (A Number)
     ldtMap[T.R_Threshold] = 20; -- Change to TREE Ops after this many inserts
     -- Use the special function that simply returns the value held in
     -- the object's map field "key".
-    ldtMap[T.R_KeyFunction] = "keyExtract"; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = false; -- allow Duplicates
+    ldtMap[T.M_KeyFunction] = "keyExtract"; -- Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_FALSE; -- allow Duplicates
    
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 20; -- Length of Key List (page list is KL + 1)
@@ -242,17 +279,17 @@ local package = {};
   function package.TestModeObject( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Atomic Keys (A Number)
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys (A Number)
     ldtMap[T.R_Threshold] = 10; -- Change to TREE Ops after this many inserts
     -- Use the special function that simply returns the value held in
     -- the object's map field "key".
-    ldtMap[T.R_KeyFunction] = "keyExtract"; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Assume Unique Objects
+    ldtMap[T.M_KeyFunction] = "keyExtract"; -- Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Assume Unique Objects
    
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -275,16 +312,15 @@ local package = {};
   function package.TestModeList( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Complex Object (need key function)
-    -- ldtMap[T.R_BinName] = ldtBinName;
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex Object (need key function)
     ldtMap[T.R_Threshold] = 2; -- Change to TREE Operations after this many inserts
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Assume Unique Objects
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Assume Unique Objects
    
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -299,7 +335,6 @@ local package = {};
     ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
     return 0;
-   
   end -- package.TestModeList()
 
   -- ======================================================================
@@ -308,17 +343,15 @@ local package = {};
   function package.TestModeBinary( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = "compressTest4";
-    ldtMap[T.R_UnTransform] = "unCompressTest4";
+    ldtMap[T.M_Transform] = "compressTest4";
+    ldtMap[T.M_UnTransform] = "unCompressTest4";
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Complex Object (need key function)
-    -- ldtMap[T.R_BinName] = ldtBinName;
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex Object (need key function)
     ldtMap[T.R_Threshold] = 2; -- Change to TREE Mode after this many ops.
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
     return 0;
-
   end -- package.TestModeBinary( ldtMap )
 
   -- ======================================================================
@@ -333,15 +366,15 @@ local package = {};
         MOD, meth , tostring(ldtMap));
 
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
     ldtMap[T.R_Threshold] = 2; -- Rehash after this many have been inserted
-    ldtMap[T.R_KeyFunction] = "keyExtract"; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Just Unique keys for now.
+    ldtMap[T.M_KeyFunction] = "keyExtract"; -- Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Just Unique keys for now.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 4; -- Length of Key List (page list is KL + 1)
@@ -356,7 +389,6 @@ local package = {};
         MOD, meth , tostring(ldtMap));
 
     return 0;
-
   end -- package.DebugModeObject()
 
 
@@ -373,15 +405,15 @@ local package = {};
         MOD, meth , tostring(ldtMap));
 
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
     ldtMap[T.R_Threshold] = 2; -- Rehash after this many have been inserted
-    ldtMap[T.R_KeyFunction] = "keyExtract"; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = false; -- Assume there will be Duplicates
+    ldtMap[T.M_KeyFunction] = "keyExtract"; -- Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_FALSE; -- Assume there will be Duplicates
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 4; -- Length of Key List (page list is KL + 1)
@@ -392,8 +424,10 @@ local package = {};
     -- LLIST Tree Leaves (Data Pages)
     ldtMap[T.R_LeafListMax] = 4;  -- Max # of items
 
-    return 0;
+    GP=E and trace("[EXIT]<%s:%s> : ldtMap(%s)",
+        MOD, meth , tostring(ldtMap));
 
+    return 0;
   end -- package.DebugModeObjectDup()
 
 
@@ -409,15 +443,15 @@ local package = {};
         MOD, meth , tostring(ldtMap));
 
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_ATOMIC; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_ATOMIC; -- Atomic Keys
     ldtMap[T.R_Threshold] = 10; -- Rehash after this many have been inserted
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Just Unique keys for now.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Just Unique keys for now.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 10; -- Length of Key List (page list is KL + 1)
@@ -428,8 +462,10 @@ local package = {};
     -- LLIST Tree Leaves (Data Pages)
     ldtMap[T.R_LeafListMax] = 10;  -- Max # of items
 
-    return 0;
+    GP=E and trace("[EXIT]<%s:%s> : ldtMap(%s)",
+        MOD, meth , tostring(ldtMap));
 
+    return 0;
   end -- package.DebugModeList()
 
   -- ======================================================================
@@ -439,18 +475,17 @@ local package = {};
   function package.DebugModeBinary( ldtMap )
     
     -- General Parameters
-    ldtMap[T.R_Transform] = "compressTest4";
-    ldtMap[T.R_UnTransform] = "unCompressTest4";
+    ldtMap[T.M_Transform] = "compressTest4";
+    ldtMap[T.M_UnTransform] = "unCompressTest4";
     ldtMap[T.R_KeyCompare] = "debugListCompareEqual"; -- "Simple" list comp
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = 16; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_COMPLEX; -- special function for list compare.
-    -- ldtMap[T.R_BinName] = ldtBinName;
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- special function for list compare.
     ldtMap[T.R_Threshold] = 4; -- Rehash after this many have been inserted
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    return 0;
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
 
+    return 0;
   end -- package.DebugModeBinary( ldtMap )
 
   -- ======================================================================
@@ -463,17 +498,16 @@ local package = {};
       MOD, meth, tostring(ldtMap) );
     
     -- General Parameters
-    ldtMap[T.R_Transform] = nil;
-    ldtMap[T.R_UnTransform] = nil;
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
     ldtMap[T.R_KeyCompare] = nil;
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
-    ldtMap[T.R_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = 0; -- Don't waste room if we're not using it
-    ldtMap[T.R_KeyType] = KT_ATOMIC; -- Simple Number (atomic) compare
-    -- ldtMap[T.R_BinName] = ldtBinName;
+    ldtMap[T.M_KeyType] = KT_ATOMIC; -- Simple Number (atomic) compare
     ldtMap[T.R_Threshold] = 4; -- Rehash after this many have been inserted
-    ldtMap[T.R_KeyFunction] = nil; -- Special Attention Required.
-    ldtMap[T.R_KeyUnique] = true; -- Just Unique keys for now.
+    ldtMap[T.M_KeyFunction] = nil; -- No Special Attention Required.
+    ldtMap[T.R_KeyUnique] = AS_TRUE; -- Just Unique keys for now.
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 4; -- Length of Key List (page list is KL + 1)
@@ -545,30 +579,32 @@ local exports = {}
   -- Set the initial Store State.  Usually this is Compact Mode (a separate
   -- list), but it can be set to "regular", which will make it start in
   -- "Tree Mode".
-  -- Parm "value" must be either "SS_COMPACT" or "SS_REGULAR".
+  -- Parm "value" must be either SS_COMPACT ('C') or SS_REGULAR ('R').
   function exports.set_store_state( ldtMap, value )
     ldtMap[T.R_StoreState]       = value;
   end
 
-  -- StoreMode must be SM_LIST or SM_BINARY
+  -- StoreMode must be SM_LIST ('L') or SM_BINARY ('B').  Be sure that
+  -- Binary state is working (it was under construction last I looked
+  -- in June 2014).
   function exports.set_store_mode( ldtMap, value )
-    ldtMap[T.R_StoreMode]        = value;
+    ldtMap[T.M_StoreMode]        = value;
   end
 
   function exports.set_transform( ldtMap, value )
-    ldtMap[T.R_Transform]        = value;
+    ldtMap[T.M_Transform]        = value;
   end
 
   function exports.set_untransform( ldtMap, value )
-    ldtMap[T.R_UnTransform]      = value;
+    ldtMap[T.M_UnTransform]      = value;
   end
 
   function exports.set_store_limit( ldtMap, value )
-    ldtMap[T.R_StoreLimit]       = value;
+    ldtMap[T.M_StoreLimit]       = value;
   end
 
   function exports.set_key_function( ldtMap, value )
-    ldtMap[T.R_KeyFunction] = value;
+    ldtMap[T.M_KeyFunction] = value;
   end
 
   function exports.set_binary_store_size( ldtMap, value )
@@ -600,7 +636,7 @@ local exports = {}
   end
 
   function exports.set_key_type( ldtMap, value )
-    ldtMap[T.R_KeyType]      = value;
+    ldtMap[T.M_KeyType]      = value;
   end
 
   function exports.set_compact_list_threshold( ldtMap, value )

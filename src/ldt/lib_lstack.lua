@@ -17,13 +17,15 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_05_27.A";
+local MOD="lib_lstack_2014_06_04.A";
 
--- This variable holds the version of the code.  It would be in the form
--- of (Major.Minor), except that Lua does not store real numbers.  So, for
--- now, our version is just a simple integer.
--- We'll check this for Major design changes -- and try to maintain some
--- amount of inter-version compatibility.
+-- This variable holds the version of the code. It should match the
+-- stored version (the version of the code that stored the ldtCtrl object).
+-- If there's a mismatch, then some sort of upgrade is needed.
+-- This number is currently an integer because that is all that we can
+-- store persistently.  Ideally, we would store (Major.Minor), but that
+-- will have to wait until later when the ability to store real numbers
+-- is eventually added.
 local G_LDT_VERSION = 2;
 
 -- ======================================================================
@@ -652,6 +654,8 @@ end
 -- context and close all open subrecords.  Note that we may also need
 -- to mark them dirty -- but for now we'll update them in place (as needed),
 -- but we won't close them until the end.
+--
+-- Sub-Record functions now reside in the ldt_common.lua module.
 -- ======================================================================
 
 -- ======================================================================
@@ -773,7 +777,7 @@ end
   ldtMap[M_WarmTopFull] = AS_FALSE; --true when top LDR is full(for next write)
   ldtMap[M_WarmListDigestCount]  = 0; -- Number of Warm Data Record LDRs
   ldtMap[M_WarmListMax]          = 100; -- Number of Warm Data Record LDRs
-  ldtMap[M_WarmListTransfer]     = 2; -- Number of Warm Data Record LDRs
+  ldtMap[M_WarmListTransfer]     = 50; -- Number of Warm Data Record LDRs
   ldtMap[M_WarmTopEntryCount]    = 0; -- Count of entries in top warm LDR
   ldtMap[M_WarmTopByteCount]     = 0; -- Count of bytes used in top warm LDR
 
@@ -877,53 +881,6 @@ end -- initializeLdrMap()
 -- ======================================================================
 --
 -- ======================================================================
--- adjustLdtMap:
--- ======================================================================
--- Using the settings supplied by the caller in the stackCreate call,
--- we adjust the values in the LdtMap:
--- Parms:
--- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
--- (*) argListMap: Map of LDT Settings 
--- Return: The updated LDT Control.
--- -- ======================================================================
--- local function adjustLdtMap( ldtCtrl, argListMap )
---   local meth = "adjustLdtMap()";
---   local propMap = ldtCtrl[1];
---   local ldtMap = ldtCtrl[2];
--- 
---   GP=E and trace("[ENTER]: <%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
---     MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
--- 
---   -- Iterate thru the argListMap and adjust (override) the map settings 
---   -- based on the settings passed in during the stackCreate() call.
---   GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
---     MOD, meth, tostring(argListMap));
--- 
---   -- For the old style -- we'd iterate thru ALL arguments and change
---   -- many settings.  Now we process only packages this way.
---   for name, value in map.pairs( argListMap ) do
---     GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
---     MOD, meth, tostring( name ), tostring( value ));
---   
---     -- Process our "prepackaged" settings.  These now reside in the
---     -- settings file.  All of the packages are in a table, and thus are
---     -- looked up dynamically.
---     -- Notice that this is the old way to change settings.  The new way is
---     -- to use a "user module", which contains UDFs that control LDT settings.
---     if name == "Package" and type( value ) == "string" then
---       local ldtPackage = lstackPackage[value];
---       if( ldtPackage ~= nil ) then
---         ldtPackage( ldtMap );
---       end
---     end
---   end -- for each argument
--- 
---   GP=E and trace("[EXIT]:<%s:%s>:LDT Ctrl after Init(%s)",
---     MOD,meth,tostring(ldtCtrl));
---   return ldtCtrl;
--- end -- adjustLdtMap
-
--- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
 -- huge amounts of crap in the console.
 -- Show Size, First Element, Last Element
@@ -1005,7 +962,7 @@ end -- coldDirRecSummary()
 -- ======================================================================
 -- readEntryList()
 -- ======================================================================
--- This method reads the entry list from Hot, Warm and Cold Lists.
+-- This method reads the entry list from Hot List.
 -- It examines each entry, applies the inner UDF function (if applicable)
 -- and appends viable candidates to the result list.
 -- As always, since we are doing a stack, everything is in LIFO order, 
@@ -1092,6 +1049,126 @@ local function readEntryList( resultList, ldtCtrl, entryList, count, all)
     MOD, meth, numRead, summarizeList( resultList ));
   return numRead;
 end -- readEntryList()
+
+-- ======================================================================
+-- takeEntryList()
+-- ======================================================================
+-- This method takes elements from the Hot List.
+--
+-- It examines each entry, applies the inner UDF function (if applicable)
+-- and appends viable candidates to the result list.
+-- As always, since we are doing a stack, everything is in LIFO order, 
+-- which means we always read back to front.
+-- Parms:
+--   (*) resultList:
+--   (*) ldtCtrl:
+--   (*) entryList:
+--   (*) count:
+--   (*) all:
+-- Return:
+--   Implicit: entries are added to the resultList parameter
+--   Explicit:
+--   1:  numTaken: Number of Elements Taken.
+--   2:  empty: Boolean: true if hot list was left empty (needs backfill)
+-- ======================================================================
+local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
+
+  local meth = "takeEntryList()";
+  GP=E and trace("[ENTER]: <%s:%s> Count(%s) filter(%s) fargs(%s) all(%s)",
+      MOD,meth,tostring(count), tostring(G_Filter), tostring(G_FunctionArgs),
+      tostring(all));
+
+  -- Extract the property map and LDT map from the LDT Ctrl.
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  -- Iterate thru the entryList, gathering up items in the result list.
+  -- There are two modes:
+  -- (*) ALL Mode: Take the entire list, return all that qualify
+  -- (*) Count Mode: Take <count> or <entryListSize>, whichever is smaller
+  local numTaken = 0;
+  local numToTake = 0;
+  local listSize = list.size( entryList );
+  if all == true or count >= listSize then
+    numToTake = listSize;
+  else
+    numToTake = count;
+  end
+
+  GP=E and trace("\n [DEBUG]<%s> Take(%d) items from List(%s)",
+      meth, numToTake, tostring(entryList) );
+
+  GP=E and trace("\n [DEBUG]<%s> Add to ResultList(%s)",
+      meth, tostring(resultList));
+
+  -- Take back to front (LIFO order), up to "numToTake" entries
+  local readValue;
+  for i = listSize, 1, -1 do
+
+    -- Apply the transform to the item, if present
+    if( G_UnTransform ~= nil ) then
+      readValue = G_UnTransform( entryList[i] );
+    else
+      readValue = entryList[i];
+    end
+
+    -- After the transform, we can apply the filter, if it is present.  If
+    -- the value passes the filter (or if there is no filter), then add it
+    -- to the resultList.
+    local resultValue;
+    if( G_Filter ~= nil ) then
+      resultValue = G_Filter( readValue, fargs );
+    else
+      resultValue = readValue;
+    end
+
+    if( resultValue ~= nil ) then
+      list.append( resultList, readValue );
+    end
+
+    --  This is REALLY HIGH debug output.  Turn this on ONLY if there's
+    --  something suspect about the building of the result list.
+    --  GP=F and trace("[DEBUG]:<%s:%s>Appended Val(%s) to ResultList(%s)",
+    --    MOD, meth, tostring( readValue ), tostring(resultList) );
+    
+    numTaken = numTaken + 1;
+    if numTaken >= numToTake and all == false then
+      GP=E and trace("[Early EXIT]: <%s:%s> NumTake(%d) resultListSummary(%s)",
+        MOD, meth, numTaken, summarizeList( resultList ));
+      break;
+    end
+  end -- for each entry in the list
+
+  -- For however many we've taken, we need to remove that many from the
+  -- Hot List.  Recall that the Hot List is in reverse order, so we will
+  -- keep the unused remainder (the list front) with the "take" operator.
+  -- If we pop 6 elements from the list below, then we'll call
+  -- newList = list.take( size - pop )  
+  -- size = 16
+  -- pop = 6
+  -- new list is 1::10
+  -- |<=================>|<--------->|
+  --  1 2 3 4 5 6 7 8 9 0 a b c d e f
+  -- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  -- |A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P]
+  -- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  local newSize = listSize - numTaken;
+  local newHotList;
+  local empty = false;
+  if( newSize > 0 ) then
+    newHotList = list.take( entryList, spaceEstimate );
+  else
+    newHotList = list();
+    empty = true;
+  end
+  -- It will be the caller's job to backfill the Hot List from the Warm List.
+  ldtMap[M_HotEntryList] = newHotList;
+
+  GP=E and trace("[EXIT]<%s:%s> NumTaken(%d) Empty(%d) resultListSummary(%s)",
+    MOD, meth, numTaken, empty, summarizeList( resultList ));
+
+  return numTaken, empty;
+end -- takeEntryList()
 
 -- ======================================================================
 -- readByteArray()
@@ -1627,12 +1704,14 @@ end -- digestListRead()
 -- ======================================================================
 -- hotListRead()
 -- ======================================================================
+-- Read from the Hot List and return the contents in "resultList".
 -- Parms:
 -- (*) resultList: What's been accumulated so far -- add to this
 -- (*) ldtCtrl: Main LDT Control Structure
 -- (*) count: Only used when "all" flag is false.  Return this many items
 -- (*) all: Boolean: when true, read ALL
 -- Return 'count' items from the Hot List
+-- ======================================================================
 local function hotListRead( resultList, ldtCtrl, count, all)
   local meth = "hotListRead()";
   GP=E and trace("[ENTER]:<%s:%s>Count(%d) All(%s)",
@@ -1649,7 +1728,36 @@ local function hotListRead( resultList, ldtCtrl, count, all)
     MOD, meth, summarizeList(resultList) );
   return resultList;
 end -- hotListRead()
+
 -- ======================================================================
+-- hotListTake()
+-- ======================================================================
+-- Take from the Hot List and return the contents in "resultList".
+-- Parms:
+-- (*) resultList: What's been accumulated so far -- add to this
+-- (*) ldtCtrl: Main LDT Control Structure
+-- (*) count: Only used when "all" flag is false.  Return this many items
+-- (*) all: Boolean: when true, read ALL
+-- Return:
+-- 1: 'count' items from the Hot List
+-- 2: 'empty' -- boolean -- if the hot list was left EMPTY after the take.
+-- ======================================================================
+local function hotListTake( resultList, ldtCtrl, count, all)
+  local meth = "hotListTake()";
+  GP=E and trace("[ENTER]:<%s:%s>Count(%d) All(%s)",
+      MOD, meth, count, tostring( all ) );
+
+  local ldtMap = ldtCtrl[2];
+  local hotList = ldtMap[M_HotEntryList];
+
+  local numRead, empty = takeEntryList(resultList,ldtCtrl,hotList,count,all);
+
+  GP=E and trace("[DEBUG]<%s> HotListResult(%s)", meth, tostring(resultList));
+
+  GP=E and trace("[EXIT]:<%s:%s>resultListSummary(%s)",
+    MOD, meth, summarizeList(resultList) );
+  return resultList, empty;
+end -- hotListTake()
 
 -- ======================================================================
 -- extractHotListTransferList( ldtMap )
@@ -2664,7 +2772,6 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   return rc;
 end -- coldListInsert
 
-
 -- ======================================================================
 -- coldListRead()
 -- ======================================================================
@@ -2729,9 +2836,9 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     numRead = digestListRead(src, topRec, resultList, ldtCtrl, digestList,
                             countRemaining, all)
     if numRead <= 0 then
-        warn("[ERROR]:<%s:%s>:Cold List Read Error: Digest(%s)",
+      warn("[ERROR]:<%s:%s>:Cold List Read Error: Digest(%s)",
           MOD, meth, stringDigest );
-          return numRead;
+      return numRead;
     end
 
     totalNumRead = totalNumRead + numRead;
@@ -4139,7 +4246,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
-  warn("[ERROR]<%s:%s> Currently, this POP() function only PEEKS()", MOD, meth);
+  warn("[ERROR]<%s:%s> POP() currently accesses only the Hot List", MOD, meth);
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
@@ -4199,12 +4306,19 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   GP=F and trace("[DEBUG]<%s:%s> Pop with Count(%d) StoreLimit(%d)",
       MOD, meth, count, storeLimit );
 
-  -- Fetch from the Hot List, then the Warm List, then the Cold List.
+  -- Pop from the Hot List, then the Warm List, then the Cold List.
   -- Each time we decrement the count and add to the resultlist.
-  local resultList = hotListRead(resultList, ldtCtrl, count, all);
+  -- NOTE: Currently, we pop from hot list only.
+  local resultList, empty = hotListTake(resultList, ldtCtrl, count, all);
   local numRead = list.size( resultList );
   GP=F and trace("[DEBUG]: <%s:%s> HotListResult:Summary(%s)",
       MOD, meth, summarizeList(resultList));
+
+  -- For now -- we're popping ONLY from the Hot List.  Later we will
+  -- make this to work with the Warm/Cold List -- and backfill
+  -- HOT from warm, and warm from cold. (tjl June 2014)
+  -- =================================================================
+  --[[
 
   local warmCount = 0;
 
@@ -4254,6 +4368,8 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   -- Otherwise, go look for more in the Cold List.
   local coldCount = 
      coldListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
+  ]]--
+  -- =================================================================
 
   GP=E and trace("[EXIT]: <%s:%s>: Count(%d) ResultListSummary(%s)",
     MOD, meth, count, summarizeList(resultList));
@@ -4646,41 +4762,6 @@ function lstack.same( topRec, ldtBinName, val )
     return val;
   end
 end -- lstack.same()
-
--- ========================================================================
--- lstack.debug() -- Turn the debug setting on (1) or off (0)
--- ========================================================================
--- Turning the debug setting "ON" pushes LOTS of output to the console.
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) setting: 0 turns it off, anything else turns it on.
--- Result:
---   res = 0: all is well
---   res = -1: Some sort of error
--- ========================================================================
-function lstack.debug( topRec, setting )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.DEBUG ] <<<<<<<<<< \n");
-  local meth = "lstack.debug()";
-  local rc = 0;
-
-  GP=E and trace("[ENTER]: <%s:%s> setting(%s)", MOD, meth, tostring(setting));
-  if( setting ~= nil and type(setting) == "number" ) then
-    if( setting == 1 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug ON", MOD, meth );
-      F = true;
-    elseif( setting == 0 ) then
-      info("[DEBUG SET]<%s:%s> Turn Debug OFF", MOD, meth );
-      F = false;
-    else
-      info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-      rc = -1;
-    end
-  else
-    info("[DEBUG SET]<%s:%s> Unknown Setting(%s)",MOD,meth,tostring(setting));
-    rc = -1;
-  end
-  return rc;
-end -- lstack.debug()
 
 -- ======================================================================
 -- This is needed to export the function table for this module

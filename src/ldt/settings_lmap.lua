@@ -1,8 +1,7 @@
--- Settings for Large Map
--- settings_lmap.lua:  September 06, 2013 (tjl)
+-- Settings for Large Map (settings_lmap.lua)
 --
--- Module Marker: Keep this in sync with the stated version
-local MOD="settings_lmap_2013_09_06.a"; -- the module name used for tracing
+-- Module Marker: Track date and iteration of last change.
+local MOD="settings_lmap_2014_06_05.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -10,7 +9,7 @@ local MOD="settings_lmap_2013_09_06.a"; -- the module name used for tracing
 -- Use this flag to enable/disable global printing (the "detail" level
 -- in the server).
 -- ======================================================================
-local GP=true; -- Leave this ALWAYS true (but value seems not to matter)
+local GP;     -- Use for turning on Global Print
 local F=true; -- Set F (flag) to true to turn ON global print
 local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 
@@ -27,9 +26,33 @@ local ST_SUBRECORD = 'S'; -- Store values (lists) in Sub-Records
 local HT_STATIC  ='S'; -- Use a FIXED set of bins for hash lists
 local HT_DYNAMIC ='D'; -- Use a DYNAMIC set of bins for hash lists
 
+-- AS_BOOLEAN TYPE:
+-- There are apparently either storage or conversion problems with booleans
+-- and Lua and Aerospike, so rather than STORE a Lua Boolean value in the
+-- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
+-- is a character (defined here).  We're using Characters rather than
+-- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
+local AS_TRUE='T';
+local AS_FALSE='F';
+
+-- Our Hash Tables can operate in two modes:
+-- (*) Static (a fixed size Hash Table)
+-- (*) Dynamic (A variable size Hash Table that uses Linear Hash Algorithm)
+local HS_STATIC  = 'S';
+local HS_DYNAMIC = 'D';
+
+-- Currently, the default for the Hash Table Management is STATIC.  When
+-- it is ready (fully tested), we will enable DYNAMIC mode that uses Linear
+-- Hashing and has more graceful directory growth (and shrinkage).
+local DEFAULT_HASH_STATE = HS_STATIC;
+
+-- Max Size of a list in a hash cell anchor before we convert to a Sub-Record
 local DEFAULT_BINLIST_THRESHOLD = 4;
-local DEFAULT_THRESHOLD = 20;
-local DEFAULT_DISTRIB = 31;
+-- Max size of our Compact List before we convert to a full Hash Table.
+local DEFAULT_THRESHOLD = 10; -- Convert to Hash Table after this many items
+-- Initial Size of of a STATIC Hash Table.   Once we start to use Linear
+-- Hashing (dynamic growth) we'll set the initial size to be small.
+local DEFAULT_DISTRIB = 128;
 
 -- StoreState (SS) values (which "state" is the set in?)
 local SS_COMPACT ='C'; -- Using "single bin" (compact) mode
@@ -41,10 +64,17 @@ local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields unique to lset & lmap 
 local T = {
+
+  -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+  M_UserModule             = 'P'; -- User's Lua file for overrides
+  M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
+  M_KeyType                = 'k'; -- Type of Key (Always atomic for LMAP)
   M_StoreMode              = 'M'; -- SM_LIST or SM_BINARY
   M_StoreLimit             = 'L'; -- Used for Eviction (eventually)
-  M_Transform              = 't'; -- Transform object to Binary form
-  M_UnTransform            = 'u'; -- UnTransform object from Binary form
+  M_Transform              = 't'; -- Transform object to storage format
+  M_UnTransform            = 'u'; -- UnTransform from storage to Lua format
+  
+  -- Fields specific to LMAP
   M_LdrEntryCountMax       = 'e'; -- Max size of the LDR List
   M_LdrByteEntrySize       = 's'; -- Size of a Fixed Byte Object
   M_LdrByteCountMax        = 'b'; -- Max Size of the LDR in bytes
@@ -54,7 +84,10 @@ local T = {
   M_Modulo 				   = 'm'; -- Modulo used for Hash Function
   M_ThreshHold             = 'H'; -- Threshold: Compact->Regular state
   M_BinListThreshold       = 'l'; -- Threshold for converting from a
-                                      -- local binlist to sub-record.
+                                  -- cell anchor binlist to sub-record.
+  M_OverWrite              = 'o'; -- Allow Overwrite of a Value for a given
+                                  -- name.  If false (AS_FALSE), then we
+                                  -- throw a UNIQUE error.
 };
 -- ++======================++
 -- || Prepackaged Settings ||
@@ -73,7 +106,7 @@ local package = {};
 -- ======================================================================
 function package.StandardList( ldtMap )
   ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = 50000; -- default capacity MAX: 10,000
+  ldtMap[T.M_StoreLimit]            = 50000; -- default capacity MAX: 50,000
   ldtMap[T.M_Transform]             = nil; -- Not used in Std List
   ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
