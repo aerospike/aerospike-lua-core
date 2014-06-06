@@ -18,6 +18,7 @@
 -- ======================================================================
 
 -- A table to track whether we had sandboxed a function
+require('as')
 sandboxed = {}
 
 ldebug = debug;
