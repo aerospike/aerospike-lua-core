@@ -1719,7 +1719,7 @@ local function regularScan( src, topRec, ldtCtrl, resultMap )
           error( ldte.ERR_SUBREC_OPEN );
         end
         scanList( subRec[LDR_NLIST_BIN], subRec[LDR_VLIST_BIN], resultMap );
-        ldt_common.closeSubRec( src, subRec );
+        ldt_common.closeSubRec( src, subRec, false);
       else
         -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         -- When we do a Radix Tree, we will STILL end up with a SubRecord
@@ -2325,8 +2325,8 @@ local function regularDelete( src, topRec, ldtCtrl, searchName, resultMap )
   local position = searchList( ldtCtrl, nameList, searchName );
   if( position == 0 ) then
     -- Didn't find it -- report an error.
-    -- First -- Close the subRec.
-    ldt_common.closeSubRec( src, subRec );
+    -- First -- Close the subRec -- as NOT DIRTY.
+    ldt_common.closeSubRec( src, subRec, false);
 
     warn("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
     error( ldte.ERR_NOT_FOUND );
@@ -3558,7 +3558,7 @@ function lmap.dump( topRec, ldtBinName, src )
             error( ldte.ERR_SUBREC_OPEN );
           end
           scanList( subRec[LDR_NLIST_BIN], subRec[LDR_VLIST_BIN], resultMap );
-          ldt_common.closeSubRec( src, subRec );
+          ldt_common.closeSubRec( src, subRec, false);
         else
           -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
           -- When we do a Radix Tree, we will STILL end up with a SubRecord

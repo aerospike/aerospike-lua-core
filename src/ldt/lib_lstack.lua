@@ -1671,12 +1671,12 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
       GP=E and trace("[Early EXIT]:<%s:%s>totalAmountRead(%d) ResultList(%s) ",
         MOD, meth, totalAmountRead, tostring(resultList));
       -- We're done with this Sub-Rec.
-      ldt_common.closeSubRec( src, ldrRec );
+      ldt_common.closeSubRec( src, ldrRec, false);
       return totalAmountRead;
     end
 
     -- Done with this SubRec.  Close it.
-    ldt_common.closeSubRec( src, ldrRec );
+    ldt_common.closeSubRec( src, ldrRec, false);
 
     -- Get ready for the next iteration.  Adjust our numbers for the
     -- next round
@@ -2142,7 +2142,7 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
     
     ldt_common.updateSubRec( src, topWarmSubRec );
 
-    -- We're done with this Sub-Rec.
+    -- We're done with this Sub-Rec. Mark it closed, but it is dirty.
     ldt_common.closeSubRec( src, topWarmSubRec, true );
 
     GP=F and trace("[DEBUG]:<%s:%s>Calling SubRec Create: AGAIN!!", MOD, meth );

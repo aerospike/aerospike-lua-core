@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD = "lib_llist_2014_06_05.C";
+local MOD = "lib_llist_2014_06_09.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -1701,7 +1701,7 @@ local function printTree( src, topRec, ldtBinName )
       GP=F and trace("[SUBREC]<%s:%s> CloseSR(%s)", MOD, meth, digestString );
       -- No -- we don't close.  The SubRecContext handles everything.
       -- aerospike:close_subrec( nodeSubRec );
-      ldt_common.closeSubRec( src, nodeSubRec ); -- Mark it as available
+      ldt_common.closeSubRec( src, nodeSubRec, false); -- Mark it as available
     end -- for each node in the list
     -- If we're going around again, then the old childList is the new
     -- ParentList (as in, the nodeList for the next iteration)
@@ -1711,6 +1711,14 @@ local function printTree( src, topRec, ldtBinName )
   trace("\n ===========================================================\n");
   trace("\n <PT> <PT> <PT> <PT> <PT>   E N D   <PT> <PT> <PT> <PT> <PT>\n");
   trace("\n ===========================================================\n");
+ 
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
+
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- printTree()
@@ -3585,7 +3593,7 @@ local function getNextLeaf( src, topRec, leafSubRec  )
   -- Close the current leaf before opening the next one.  It should be clean,
   -- so closing is ok.
   -- aerospike:close_subrec( leafSubRec );
-  ldt_common.closeSubRec( src, leafSubRec );
+  ldt_common.closeSubRec( src, leafSubRec, false);
 
   if( nextLeafDigest ~= nil and nextLeafDigest ~= 0 ) then
     nextLeafDigestString = tostring( nextLeafDigest );
@@ -3906,9 +3914,9 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   if( status == ST_FOUND ) then
     rc = leafDelete( src, sp, topRec, ldtCtrl, key );
     if( rc == 0 ) then
-      -- rc = ldt_common.closeAllSubrecs( src );
+      rc = ldt_common.closeAllSubRecs( src );
       if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problems in closeAllSubrecs() SRC(%s)",
+        warn("[ERROR]<%s:%s> Problems in closeAllSubRecs() SRC(%s)",
           MOD, meth, tostring( src ));
         error( ldte.ERR_SUBREC_CLOSE );
       end
@@ -4144,11 +4152,11 @@ local function treeMin( topRec,ldtBinName, take )
   end -- tree extract
 
   -- Close ALL of the subrecs that might have been opened
-  -- rc = ldt_common.closeAllSubrecs( src );
-  if( rc < 0 ) then
-    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
-    error( ldte.ERR_SUBREC_CLOSE );
-  end
+  --rc = ldt_common.closeAllSubRecs( src );
+  --if( rc < 0 ) then
+  --  warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+  --  error( ldte.ERR_SUBREC_CLOSE );
+  --end
 
   GP=F and trace("[EXIT]<%s:%s>: Return(%s)", MOD, meth, tostring(resultValue));
   
@@ -4353,10 +4361,11 @@ function llist.add( topRec, ldtBinName, newValue, createSpec, src )
   -- This is a debug "Tree Print" 
   -- GP=F and printTree( src, topRec, ldtBinName );
 
-  -- Close ALL of the subrecs that might have been opened
-  -- rc = ldt_common.closeAllSubrecs( src );
+  -- Close ALL of the subrecs that might have been opened (just the read-only
+  -- ones).  All of the dirty ones will stay open.
+  rc = ldt_common.closeAllSubRecs( src );
   if( rc < 0 ) then
-    warn("[ERROR]<%s:%s> Problems in closeAllSubrecs() SRC(%s)",
+    warn("[ERROR]<%s:%s> Problems in closeAllSubRecs() SRC(%s)",
       MOD, meth, tostring( src ));
     error( ldte.ERR_SUBREC_CLOSE );
   end
@@ -4387,18 +4396,34 @@ end -- function llist.add()
 -- TODO: Convert this to use a COMMON local INSERT() function, not just
 -- call llist.add() and do all of its validation each time.
 -- =======================================================================
-function llist.add_all( topRec, ldtBinName, valueList, createSpec )
+function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LLIST ADD_ALL ] <<<<<<<<<<< \n");
 
   local meth = "insert_all()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueList(%s) createSpec(%s)",
   MOD, meth, tostring(ldtBinName), tostring(valueList), tostring(createSpec));
   
+  
+  -- DESIGN NOTE: All "outer" functions, like this one, will create a
+  -- "subrecContext" object, which will hold all of the open subrecords.
+  -- The key will be the DigestString, and the value will be the subRec
+  -- pointer.  At the end of the call, we will iterate thru the subrec
+  -- context and close all open subrecords.  Note that we may also need
+  -- to mark them dirty -- but for now we'll update them in place (as needed),
+  -- but we won't close them until the end.
+  -- This is needed for both the "convertList()" call, which makes multiple
+  -- calls to the treeInsert() function (which opens and closes subrecs) and
+  -- the regular treeInsert() call, which, in the case of a split, may do
+  -- a lot of opens/closes of nodes and leaves.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   local rc = 0;
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-      rc = llist.add( topRec, ldtBinName, valueList[i], createSpec );
+      rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
@@ -4510,7 +4535,7 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
   end -- tree search
 
   -- Close ALL of the subrecs that might have been opened
-  -- rc = ldt_common.closeAllSubrecs( src );
+  rc = ldt_common.closeAllSubRecs( src );
   if( rc < 0 ) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
@@ -4622,7 +4647,7 @@ function llist.find_min( topRec,ldtBinName, src)
   end -- tree search
 
   -- Close ALL of the subrecs that might have been opened
-  -- rc = ldt_common.closeAllSubrecs( src );
+  rc = ldt_common.closeAllSubRecs( src );
   if( rc < 0 ) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
@@ -4737,11 +4762,11 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
   end -- tree search
 
   -- Close ALL of the subrecs that might have been opened
-  -- rc = ldt_common.closeAllSubrecs( src );
-  -- if( rc < 0 ) then
-  --   warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
-  --   error( ldte.ERR_SUBREC_CLOSE );
-  -- end
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
 
   GP=F and trace("[EXIT]: <%s:%s>: Search Key(%s) Returns Sz(%d) List(%s)",
     MOD, meth, tostring(key), list.size(resultList), tostring(resultList));
@@ -4855,7 +4880,7 @@ function llist.remove( topRec, ldtBinName, key, src )
   -- probably did not change -- we don't need to udpate.
   if( rc == 0 ) then
     -- Close ALL of the subrecs that might have been opened
-    -- rc = ldt_common.closeAllSubrecs( src );
+    rc = ldt_common.closeAllSubRecs( src );
     if( rc < 0 ) then
       warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
       error( ldte.ERR_SUBREC_CLOSE );

@@ -1124,155 +1124,6 @@ local function listAppend( baseList, additionalList )
 end -- listAppend()
 
 -- =======================================================================
--- =======================================================================
--- =======================================================================
-
--- =============================
--- Begin SubRecord Function Area
--- =============================
--- ======================================================================
--- SUB RECORD CONTEXT DESIGN NOTE:
--- All "outer" functions, like insert(), search(), remove() that use
--- Sub-Records will employ the "subrecContext" object, which will hold all
--- of the subrecords that were opened during processing.  Note that with
--- B+ Trees, operations like insert() can potentially involve many subrec
--- operations -- and can also potentially revisit pages.  In addition,
--- we employ a "compact list", which gets converted into tree inserts when
--- we cross a threshold value, so that will involve MANY subrec "re-opens"
--- that would confuse the underlying infrastructure.
---
--- SubRecContext Design:
--- The key will be the DigestString, and the value will be the subRec
--- pointer.  At the end of an outer call, we will iterate thru the subrec
--- context and close all open subrecords.  Note that we may also need
--- to mark them dirty -- but for now we'll update them in place (as needed),
--- but we won't close them until the end.
--- ======================================================================
--- We are now using the ldt_common.createSubRecContext() function
--- ======================================================================
--- local function createSubrecContext()
-  -- local meth = "createSubrecContext()";
-  -- GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
--- 
-  -- local src = map();
-  -- src.ItemCount = 0;
--- 
-  -- GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
-  -- return src;
--- end -- createSubrecContext()
-
--- ======================================================================
--- Given an already opened subrec (probably one that was recently created),
--- add it to the subrec context.
--- ======================================================================
-local function addSubrecToContext( src, nodeRec )
-  local meth = "addSubrecContext()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
-
-  if( src == nil ) then
-    warn("[ERROR]<%s:%s> SubRec Pool is nil", MOD, meth );
-    error( ldte.ERR_SUBREC_POOL_DAMAGED );
-  end
-
-  local digest = record.digest( nodeRec );
-  local digestString = tostring( digest );
-  src[digestString] = nodeRec;
-
-  local itemCount = src.ItemCount;
-  src.ItemCount = itemCount + 1;
-
---  trace("\n[ADD SUBREC]<%s:%s> SRC(%s) nodeRec(%s) Digest(%s) IC(%d)\n",
---  MOD, meth, tostring(src), tostring(nodeRec), digestString, src.ItemCount);
-
-  -- Debug/Tracing to see what we're putting in the SubRec Context
---  if( F == true ) then
---    local propMap = nodeRec[SUBREC_PROP_BIN];
---    srcSummary( nodeRec, propMap );
---  end
-
-  GP=E and trace("[EXIT]: <%s:%s> : SRC(%s)", MOD, meth, tostring(src));
-  return 0;
-end -- addSubrecToContext()
-
--- ======================================================================
--- ======================================================================
-local function openSubrec( src, topRec, digestString )
-  local meth = "openSubrec()";
-  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
-    MOD, meth, tostring(topRec), digestString, tostring(src));
-
-  -- We have a global limit on the number of subrecs that we can have
-  -- open at a time.  If we're at (or above) the limit, then we must
-  -- exit with an error (better here than in the subrec code).
-  local itemCount = src.ItemCount;
-
-  local rec = src[digestString];
-  if( rec == nil ) then
-    if( itemCount >= G_OPEN_SR_LIMIT ) then
-      warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-        itemCount, G_OPEN_SR_LIMIT );
-      error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
-    end
-
-    src.ItemCount = itemCount + 1;
-    GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
-      MOD, meth, src.ItemCount, tostring(topRec), digestString );
-    rec = aerospike:open_subrec( topRec, digestString );
-    GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)",MOD,meth,tostring(rec));
-    if( rec == nil ) then
-      warn("[ERROR]<%s:%s> Subrec Open Failure: Digest(%s)", MOD, meth,
-        digestString );
-      error( ldte.ERR_SUBREC_OPEN );
-    end
-  else
-    GP=F and trace("[FOUND REC]: <%s:%s> : Rec(%s)", MOD, meth, tostring(rec));
-  end
-
-  -- Debug/Tracing to see what is in the SubRec Context
-  GP=F and srcSummary( rec, rec[SUBREC_PROP_BIN] );
-
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
-    MOD, meth, tostring(rec), digestString );
-  return rec;
-end -- openSubrec()
-
--- ======================================================================
--- ======================================================================
-local function closeAllSubrecs( src )
-  local meth = "closeAllSubrecs()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(src));
-
-  -- Iterate thru the SubRecContext and close all subrecords.
-  local digestString;
-  local rec;
-  local rc = 0;
-  for name, value in map.pairs( src ) do
-    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-    if( name == "ItemCount" ) then
-      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
-    else
-      digestString = name;
-      rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Would have closed SubRec(%s) Rec(%s)",
-      MOD, meth, digestString, tostring(rec) );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
-      --   MOD, meth, digestString, tostring(rec) );
-      -- rc = aerospike:close_subrec( rec );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing Results(%d)", MOD, meth, rc );
-    end
-  end -- for all fields in SRC
-
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  -- return rc;
-  return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
-end -- closeAllSubrecs()
-
--- ===========================
--- End SubRecord Function Area
--- ===========================
-
--- =======================================================================
 -- subRecSummary()
 -- =======================================================================
 -- Show the basic parts of the sub-record contents.  Make sure that this
@@ -1318,7 +1169,7 @@ end -- subRecSummary()
 -- when we create it.
 -- =======================================================================
 local function cellAnchorDump( topRec, cellAnchor )
-  local meth = "closeAllSubrecs()";
+  local meth = "cellAnchorDump()";
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(src));
 
   local resultMap = map();
@@ -1530,7 +1381,7 @@ local function subRecScan( src, topRec, ldtCtrl, resultList )
           error( ldte.ERR_SUBREC_OPEN );
         end
         scanList( subRec[LDR_LIST_BIN], resultList );
-        ldt_common.closeSubRec( src, subRec );
+        ldt_common.closeSubRec( src, subRec, false);
       else
         -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         -- When we do a Radix Tree, we will STILL end up with a SubRecord
@@ -1871,7 +1722,7 @@ local function subRecSearch( src, topRec, ldtCtrl, key )
     -- SPECIAL CASE :: ONLY ONE DIGEST FOR NOW.
     --
     local digestString = tostring( digestList[1] );
-    subrec  = openSubrec( src, toprec, digestString );
+    subrec  = ldt_common.openSubRec( src, toprec, digestString );
     valueList = subrec[LDR_LIST_BIN];
     if( valueList == nil ) then
       warn("[INTERNAL ERROR]<%s:%s> Cell Anchor ValueList NIL", MOD, meth );
@@ -2044,7 +1895,7 @@ local function cellAnchorInsert( src, topRec, propMap, ldtMap, key, newValue )
     local digestList = cellAnchor[X_DigestList];
     -- SPECIAL CASE :: ONLY ONE DIGEST IN THE LIST.
     local digestString = tostring( digestList[1] );
-    subrec  = openSubrec( src, toprec, digestString );
+    subrec  = ldt_common.openSubRec( src, toprec, digestString );
     valueList = subrec[LDR_LIST_BIN];
     if( valueList == nil ) then
       warn("[INTERNAL ERROR]<%s:%s> Cell Anchor ValueList NIL", MOD, meth );
@@ -2749,7 +2600,6 @@ local function subRecDelete(src, topRec, ldtCtrl, deleteValue, returnVal)
     end
 
     local digestString = tostring(digest);
-    -- local subRec = openSubrec( src, topRec, digestString );
     -- NOTE: openSubRec() does its own error checking. No more needed here.
     local subRec = ldt_common.openSubRec( src, topRec, digestString );
 
@@ -2772,7 +2622,7 @@ local function subRecDelete(src, topRec, ldtCtrl, deleteValue, returnVal)
   local position = searchList( ldtCtrl, valueList, deleteValue );
   if( position == 0 ) then
     -- Didn't find it -- report an error.  But First -- Close the subRec.
-    ldt_common.closeSubRec( src, subRec );
+    ldt_common.closeSubRec( src, subRec, false);
 
     warn("[NOT FOUND]<%s:%s> deleteVal(%s)", MOD, meth, tostring(deleteValue));
     error( ldte.ERR_NOT_FOUND );

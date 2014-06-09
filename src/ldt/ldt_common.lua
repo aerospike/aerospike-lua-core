@@ -1,6 +1,6 @@
 -- Large Data Type (LDT) Common Functions
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_04.B";
+local MOD="ldt_common_2014_06_09.D";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -159,9 +159,11 @@ local BF_LDT_BIN     = 1; -- Main LDT Bin (Restricted)
 local BF_LDT_HIDDEN  = 2; -- LDT Bin::Set the Hidden Flag on this bin
 local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 
--- Our Dirty Map really has only ONE setting for a Digest value.
--- It is either dirty, or it isn't.   So, we just check for DIRTY, or nothing.
+-- Our Dirty Map has two settings:  Dirty and Busy.
+-- Dirty means that it has been written, and thus cannot be closed.
+-- Busy means that it is read-only, but currently in use and cannot be closed.
 local DM_DIRTY = 'D';
+local DM_BUSY  = 'B';
 
 -- We maintain a pool, or "context", of sub-records that are open.  That allows
 -- us to look up subRecs and get the open reference, rather than bothering
@@ -729,10 +731,10 @@ local function cleanSRC( srcCtrl )
       subRec = value;
       -- If this guy is CLEAN (not dirty) then we can close it and free up
       -- a slot for a NEW Sub-Rec to come in.
-      if( dirtyMap[digestString] == DM_DIRTY or dirtyMap[digestString] == true )
-      then
-        info("[DEBUG]<%s:%s> Can't close a Dirty Sub-Rec: Dig(%s)", MOD, meth,
-          digestString );
+      local state = dirtyMap[digestString];
+      if( state == DM_DIRTY or state == DM_BUSY ) then
+        trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD, meth,
+          tostring( state), tostring( digestString ));
       else
         rc = aerospike:close_subrec( subRec );
         if( rc ~= nil and rc < 0 ) then
@@ -787,6 +789,8 @@ function ldt_common.addSubRecToContext( srcCtrl, subRec, dirty )
   recMap[digestString] = subRec;
   if( dirty ~= nil and dirty == true ) then
     dirtyMap[digestString] = DM_DIRTY;
+  else
+    dirtyMap[digestString] = DM_BUSY;
   end
 
   local itemCount = recMap.ItemCount;
@@ -876,7 +880,8 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   --
   -- Update and close the ESR.  We're done with it.
   -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update", MOD,meth);
+  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update",
+      MOD,meth);
   rc = aerospike:update_subrec( esrRec );
   if( rc == nil or rc == 0 ) then
     -- aerospike:close_subrec( esrRec );
@@ -1062,8 +1067,8 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     if( itemCount >= G_OPEN_SR_LIMIT ) then
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
       if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
-        warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
-          itemCount, G_OPEN_SR_LIMIT );
+        warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d): After clean",
+            MOD, meth, itemCount, G_OPEN_SR_LIMIT );
         error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
       end
     end
@@ -1100,10 +1105,14 @@ end -- openSubRec()
 -- Close the sub-Record -- providing it is NOT dirty.  For all dirty
 -- sub-Records, we have to wait until the end of the UDF call, as THAT is
 -- when all dirty sub-Records get written out and closed.
--- ALSO, for PRODUCTION USE, we will not bother to actually close the
--- records here, but we MAY mark them as no longer needed -- which will
--- make it easier to find one to close later if we run out of
--- buffer pool space.
+--
+-- ALSO, for PRODUCTION USE, we do not actually close the records here,
+-- but instead we mark them as no longer busy -- which will make it possible
+-- to close it when we issue a CLEAN on the Sub-Rec Pool.
+-- Parms:
+-- (*) srcCtrl:
+-- (*) digestString:
+-- (*) dirty: Optional Parm: True or other (false or nil)
 -- ======================================================================
 function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
   local meth = "closeSubRecDigestString()";
@@ -1125,9 +1134,14 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
   GP=F and info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth,
     tostring(digestString));
 
+  if dirty == nil then
+    dirty = false;
+  end
+
   local dirtyStatus = dirtyMap[digestString] == DM_DIRTY or dirty == true;
-  if( dirtyStatus == true ) then
-    GP=F and info("[NOTICE]<%s:%s> Can't close Dirty Record: Digest(%s)",
+
+  if( dirtyStatus ) then
+    GP=F and info("[NOTICE]<%s:%s> Can't close Dirty or Busy Record: Digest(%s)",
       MOD, meth, tostring(digestString));
   else
     rc = aerospike:close_subrec( subRec );
@@ -1137,7 +1151,8 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
 
   GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
     MOD, meth, tostring(subRec), tostring(digestString), tostring(rc));
-  return rc;
+  -- TODO: close_subrec() is apparently returning NIL right now -- must fix.
+  return 0;
 end -- closeSubRecDigestString()
 
 -- ======================================================================
@@ -1216,9 +1231,8 @@ end -- markSubRecDirty()
 -- ======================================================================
 -- closeAllSubRecs()
 -- ======================================================================
--- Ok -- so we no longer actually call "close all" because it is not
--- needed in the current Sub-Record infrastructure.  Currently, the
--- Sub-Recs are all closed by the Aerospike Sub-Record management code.
+-- Close all Read-only Sub-Recs, because that's how we free up Sub-Recs
+-- that we know are no longer busy.
 -- ======================================================================
 function ldt_common.closeAllSubRecs( srcCtrl )
   local meth = "closeAllSubRecs()";
@@ -1239,17 +1253,19 @@ function ldt_common.closeAllSubRecs( srcCtrl )
     else
       digestString = name;
       rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Would have closed SubRec(%s) Rec(%s)",
+      GP=F and trace("[DEBUG]<%s:%s>: Calling close on SubRec(%s) Rec(%s)",
       MOD, meth, digestString, tostring(rec) );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
-      --   MOD, meth, digestString, tostring(rec) );
-      -- rc = aerospike:close_subrec( rec );
-      -- GP=F and trace("[DEBUG]<%s:%s>: Closing Results(%d)", MOD, meth, rc );
+      GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
+        MOD, meth, digestString, tostring(rec) );
+      rc = ldt_common.closeSubRecDigestString( srcCtrl, digestString, false );
+      if( rc < 0 ) then
+        warn("[ERROR]<%s:%s> Problems closing Record(%s)", MOD, meth,
+          tostring(digestString));
+      end
     end
   end -- for all fields in SRC
 
   GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  -- return rc;
   return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
 end -- closeAllSubRecs()
 
