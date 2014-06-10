@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_06_04.A"; 
+local MOD="lib_lset_2014_06_09.C"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,11 +42,11 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug Instrument
-local DEBUG=false; -- turn on for more elaborate state dumps.
+local DEBUG=true; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSET Main Functions >>
@@ -878,7 +878,7 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   list.append( ldtCtrl, propMap );
   list.append( ldtCtrl, ldtMap );
   topRec[ldtBinName]            = ldtCtrl;
-  record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
+  record.set_flags( topRec, ldtBinName, BF_LDT_BIN ); -- must set every time
 
   GP=F and trace("[DEBUG]: <%s:%s> : LSET Summary after Init(%s)",
       MOD, meth , ldtSummaryString(ldtCtrl));
@@ -998,7 +998,7 @@ local function setupNewBin( topRec, binNum )
   -- This bin must now be considered HIDDEN:
   GP=E and trace("[DEBUG]: <%s:%s> Setting BinName(%s) as HIDDEN",
                  MOD, meth, binName );
-  record.set_flags(topRec, binName, BF_LDT_HIDDEN );
+  record.set_flags(topRec, binName, BF_LDT_HIDDEN ); -- special bin
 
   GP=E and trace("[EXIT]: <%s:%s> BinNum(%d) BinName(%s)",
                  MOD, meth, binNum, binName );
@@ -1168,7 +1168,7 @@ end -- subRecSummary()
 -- here.  Notice that this means that we have to init the hashDir correctly
 -- when we create it.
 -- =======================================================================
-local function cellAnchorDump( topRec, cellAnchor )
+local function cellAnchorDump( src, topRec, cellAnchor )
   local meth = "cellAnchorDump()";
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(src));
 
@@ -1194,7 +1194,9 @@ local function cellAnchorDump( topRec, cellAnchor )
       local listSize = list.size( digestList );
       for i = 0, listSize, 1 do
         local digestString = tostring( digestList[i] );
-        local subRec = aerospike:open_subrec( topRec, digestString );
+        -- local subRec = aerospike:open_subrec( topRec, digestString );
+        local subRec =
+            ldt_common.openSubRec( src, topRec, digestString );
         resultMap[i] = subRecSummary( subrec );
         aerospike:close_subrec(subrec);
       end -- for()
@@ -1620,57 +1622,6 @@ local function initializeSubRec( topRec, ldtCtrl, subRec )
 end -- initializeSubRec()
 
 -- ======================================================================
--- Create a new subRec and initialize it.
--- Parms:
--- (*) src: subrecContext: The pool of open subrecords
--- (*) topRec: The main AS Record holding the LDT
--- (*) ldtCtrl: Main LDT Control Structure
--- (*) valueList: List of values (or nil)
--- NOTE: Remember that we must create an ESR when we create the first leaf
--- but that is the caller's job
--- Contents of a Leaf Record:
--- (1) SUBREC_PROP_BIN: Main record Properties go here
--- (2) LSR_CTRL_BIN:    Main Leaf Control structure
--- (3) LSR_LIST_BIN:    Object List goes here
--- (4) LSR_BINARY_BIN:  Packed Binary Array (if used) goes here
--- ======================================================================
-local function createSubRec( src, topRec, ldtCtrl, valueList )
-  local meth = "createSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
-
-  -- Extract the property map and control map from the ldt bin list.
-  local propMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Remember to add this to the SRC
-  local subRec = aerospike:create_subrec( topRec );
-  if( subRec == nil ) then
-    warn("[ERROR]<%s:%s> Problems Creating Subrec", MOD, meth );
-    error( ldte.ERR_SUBREC_CREATE );
-  end
-
-  -- Increase the Subrec Count
-  local subrecCount = propMap[PM_SubRecCount];
-  propMap[PM_SubRecCount] = subrecCount + 1;
-
-  local rc = initializeSubRec( topRec, ldtCtrl, subRec, firstValue );
-  if( rc >= 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s>Leaf Init OK", MOD, meth );
-    rc = aerospike:update_subrec( subRec );
-  else
-    warn("[ERROR]<%s:%s> Problems initializing Leaf(%d)", MOD, meth, rc );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  -- Must wait until subRec is initialized before it can be added to SRC.
-  -- It should be ready now.
-  addSubrecToContext( src, subRec );
-
-  GP=F and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return subRec;
-end -- createSubRec()
-
--- ======================================================================
 -- subRecSearch()
 -- ======================================================================
 -- Search the contents of this cellAnchor.
@@ -1838,6 +1789,65 @@ end -- newCellAnchor()
 
 
 -- ======================================================================
+-- createHashSubRec() Create a new Hash Cell Sub-Rec and initialize it.
+-- ======================================================================
+-- Create and initialize the Sub-Rec for Hash.
+-- All LDT sub-records have a properties bin that holds a map that defines
+-- the specifics of the record and the LDT.
+-- >> (14 char name limit) 12345678901234 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+local SUBREC_PROP_BIN   = "SR_PROP_BIN";
+--
+-- The LDT Data Records (LDRs) use the following bins:
+-- The SUBREC_PROP_BIN mentioned above, plus
+-- >> (14 char name limit) 12345678901234 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+local LDR_CTRL_BIN      = "LdrControlBin";  
+local LDR_LIST_BIN      = "LdrListBin";  
+local LDR_BNRY_BIN      = "LdrBinaryBin";
+-- ======================================================================
+-- Parms:
+-- (*) src: subrecContext: The pool of open subrecords
+-- (*) topRec: The main AS Record holding the LDT
+-- (*) ldtCtrl: Main LDT Control Structure
+-- Contents of a Node Record:
+-- (1) SUBREC_PROP_BIN: Main record Properties go here
+-- (2) LDR_CTRL_BIN:    Main Node Control structure
+-- (3) LDR_LIST_BIN:    Value List goes here
+-- (4) LDR_BNRY_BIN:    Packed Binary Array (if used) goes here
+-- ======================================================================
+local function createHashSubRec( src, topRec, ldtCtrl )
+  local meth = "createHashSubRec()";
+  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
+
+  -- Extract the property map and control map from the ldt bin list.
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  -- Create the Aerospike Sub-Record, initialize the Bins (Ctrl, List).
+  -- The ldt_common.createSubRec() handles the record type and the SRC.
+  -- It also kicks out with an error if something goes wrong.
+  local subRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_SUB );
+  local ldrPropMap = subRec[SUBREC_PROP_BIN];
+  local ldrCtrlMap = map();
+
+  -- Set up the Sub-Rec Ctrl Map - Still not sure what's in here.
+  -- ldrCtrlMap[???] = 0;
+
+  -- Store the new maps in the record.
+  -- subRec[SUBREC_PROP_BIN] = ldrPropMap;
+  subRec[LDR_CTRL_BIN]    = ldrCtrlMap;
+  subRec[LDR_LIST_BIN] = list(); -- Holds the Items
+  -- subRec[LDR_BNRY_BIN] = nil; -- not used (yet)
+
+  -- NOTE: The SubRec business is Handled by subRecCreate().
+  -- Also, If we had BINARY MODE working for inner nodes, we would initialize
+  -- the Key BYTE ARRAY here.
+
+  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
+  return nodeSubRec;
+end -- createHashSubRec()
+
+
+-- ======================================================================
 -- cellAnchorInsert()
 -- ======================================================================
 -- Perform an insert into an existing Cell Anchor.
@@ -1848,60 +1858,39 @@ end -- newCellAnchor()
 -- Parms:
 -- (*) src: The sub-rec context
 -- (*) topRec: The top DB Record:
--- (*) propMap: The LDT Property Map
--- (*) ldtMap: The LDT Control Structure
+-- (*) ldtCtrl: The LDT Control Structure
 -- (*) key: The value to search for
 -- (*) newValue: Value to be inserted
 -- RETURN:
 --  0: ok
 -- -1: Unique Value violation
 -- ======================================================================
-local function cellAnchorInsert( src, topRec, propMap, ldtMap, key, newValue )
+local function cellAnchorInsert( src, topRec, ldtCtrl, key, newValue )
   local meth = "cellAnchorInsert()";
   
   GP=E and trace("[ENTER]:<%s:%s> Key(%s) Value(%s) ldtMap(%s)", MOD, meth,
     tostring(key), tostring(newValue), tostring(ldtMap));
   
+  local propMap = ldtCtrl[1];  
+  local ldtMap = ldtCtrl[2];
+
   -- See which state the cellAnchor is in: (List, SingleSubRec, MultiSubRec).
   -- If the sub-rec count is zero, then there's only a list present.
   local valueList;
   local position;
+  local subRec
   local rc = 0;
   if( cellAnchor[X_SubRecordCount] == 0 ) then
-    -- Do a List Search and List Insert
+    -- We are in LIST MODE:  Do a List Search and List Insert
     valueList = cellAnchor[X_ValueList];
     if( valueList == nil ) then
       valueList = list();
       list.append( valueList, newValue );
-    else
-      -- Search the list.  If found complain, if not, append.
-      -- Later -- check for rehash.
-      position = searchList( ldtMap, valueList, key );
-      if( position > 0 ) then
-        warn("[UNIQUE ERROR]<%s:%s> Position(%d) searchKey(%s)",
-          MOD, meth, position, tostring(key));
-        error( ldte.ERR_UNIQUE_KEY );
-      end
-      
-      info("[ATTENTION!!!] Please check for LIST LENGTH!!");
-      info("[ATTENTION!!!] If we exceed LIST LENGTH, we should Rehash!!");
-
-      list.append( valueList, newValue );
+      return 0;  -- All is well
     end
-  else
-    -- Ok -- so we have sub-records.  Version 1 -- let's search the subrec
-    -- and if not found, insert.  This is all very similar to the above
-    -- list code, except that it's the list from the subrec.
-    local digestList = cellAnchor[X_DigestList];
-    -- SPECIAL CASE :: ONLY ONE DIGEST IN THE LIST.
-    local digestString = tostring( digestList[1] );
-    subrec  = ldt_common.openSubRec( src, toprec, digestString );
-    valueList = subrec[LDR_LIST_BIN];
-    if( valueList == nil ) then
-      warn("[INTERNAL ERROR]<%s:%s> Cell Anchor ValueList NIL", MOD, meth );
-      error( ldte.ERR_INTERNAL );
-    end
-
+    -- Search the list.  If found complain, if not, append.
+    -- If we get a viable candidate, then we have to check for rehash before
+    -- we can do the insert.
     position = searchList( ldtMap, valueList, key );
     if( position > 0 ) then
       warn("[UNIQUE ERROR]<%s:%s> Position(%d) searchKey(%s)",
@@ -1909,15 +1898,54 @@ local function cellAnchorInsert( src, topRec, propMap, ldtMap, key, newValue )
       error( ldte.ERR_UNIQUE_KEY );
     end
 
-    -- Not found.  So, append the item and reassign the list to the subrec.
-    list.append( valueList, newValue );
-    subrec[LDR_LIST_BIN] = valueList;
-    rc = aerospike:update_subrec( subrec );
-    if( rc == nil or rc == 0 ) then
-      rc = 0;
-    else
-      error( ldte.ERR_CREATE );
+    -- You'd think that either size mechanism would work: #valueList or
+    -- list.size(valueList), but apparently #valueList doesn't reliably
+    -- return the correct size.  TODO: Fix that later.
+    local valueListSize = list.size(valueList);
+    if( valueListSize < ldtMap[M_ThreshHold] ) then
+      -- No worries, append to the list and leave. Otherwise, we drop
+      -- down into the Sub-Record case.
+      list.append( valueList, newValue );
+      -- All is well.
+      return 0;
     end
+    -- Create A Sub-Rec and drop into Sub-Rec section below.
+    subRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_SUB );
+    list.append( valueList, newValue );
+    subRec[LDR_LIST_BIN] = valueList;
+    ldt_common.updateSubRec( src, subRec );
+    return 0;
+  end -- end of List Mode, start of Sub-Rec Mode
+
+      
+  -- Ok -- so we have sub-records.  Version 1 -- let's search the subRec
+  -- and if not found, insert.  This is all very similar to the above
+  -- list code, except that it's the list from the subRec.
+  local digestList = cellAnchor[X_DigestList];
+  -- SPECIAL CASE :: ONLY ONE DIGEST IN THE LIST.
+  local digestString = tostring( digestList[1] );
+  subRec  = ldt_common.openSubRec( src, toprec, digestString );
+  valueList = subRec[LDR_LIST_BIN];
+  if( valueList == nil ) then
+    warn("[INTERNAL ERROR]<%s:%s> Cell Anchor ValueList NIL", MOD, meth );
+    error( ldte.ERR_INTERNAL );
+  end
+
+  position = searchList( ldtMap, valueList, key );
+  if( position > 0 ) then
+    warn("[UNIQUE ERROR]<%s:%s> Position(%d) searchKey(%s)",
+      MOD, meth, position, tostring(key));
+    error( ldte.ERR_UNIQUE_KEY );
+  end
+
+  -- Not found.  So, append the item and reassign the list to the subRec.
+  list.append( valueList, newValue );
+  subRec[LDR_LIST_BIN] = valueList;
+  ldt_common.updateSubRec( src, subRec ); -- Mark this dirty.
+  if( rc == nil or rc == 0 ) then
+    rc = 0;
+  else
+    error( ldte.ERR_CREATE );
   end -- else sub-record case
 
   GP=E and trace("[EXIT]<%s:%s>Insert Results: RC(%d) Value(%s) binList(%s)",
@@ -1992,7 +2020,7 @@ local function localSubRecInsert( src, topRec, ldtCtrl, newValue, stats )
       hashDirectory[binCell] = newCellAnchor( newValue ); 
     else
       -- Else we have a real Cell Anchor, so insert there.
-      cellAnchorInsert( src, topRec, ldtCtrl, newValue );
+      cellAnchorInsert( src, topRec, ldtCtrl, key, newValue );
     end
   end
 
@@ -2028,10 +2056,11 @@ end -- localSubRecInsert
 -- So -- copy out all of the items from the compact list, null out the
 -- compact list and then reinsert them into the regular hash directory.
 -- Parms:
+-- (*) src
 -- (*) topRec
 -- (*) ldtCtrl
 -- ======================================================================
-local function subRecRehashSet( topRec, ldtCtrl )
+local function subRecRehashSet( src, topRec, ldtCtrl )
   local meth = "subRecRehashSet()";
   GP=E and trace("[ENTER]:<%s:%s> !!!! SUBREC REHASH !!!! ", MOD, meth );
   GP=E and trace("[ENTER]:<%s:%s> !!!! SUBREC REHASH !!!! ", MOD, meth );
@@ -2046,6 +2075,9 @@ local function subRecRehashSet( topRec, ldtCtrl )
   end
 
   ldtMap[M_StoreState] = SS_REGULAR; -- now in "regular" (modulo) mode
+  -- Get a copy of the compact List.  If this doesn't work as expected, then
+  -- we will have to get a real "list.take()" copy.
+  local listCopy = ldtMap[M_CompactList];
   ldtMap[M_CompactList] = nil; -- zero out before we insert in regular mode
   
   -- Rebuild. Insert into the hash diretory.
@@ -2064,7 +2096,7 @@ local function subRecRehashSet( topRec, ldtCtrl )
   ldtMap[M_HashDirectory] = hashDirectory;
 
   for i = 1, list.size(listCopy), 1 do
-    localsubRecInsert(src, topRec, ldtCtrl, listCopy[i], 0); -- no count update
+    localSubRecInsert(src, topRec, ldtCtrl, listCopy[i], 0); -- no count update
   end
 
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
@@ -2428,7 +2460,7 @@ local function subRecInsert( src, topRec, ldtCtrl, newValue )
     totalCount >= ldtMap[M_ThreshHold]
   then
     GP=F and trace("[DEBUG]<%s:%s> CALLING REHASH BEFORE INSERT", MOD, meth);
-    subRecRehashSet( topRec, ldtBinName, ldtCtrl );
+    subRecRehashSet( src, topRec, ldtCtrl );
   end
 
   -- Call our local multi-purpose insert() to do the job.(Update Stats)
@@ -2476,8 +2508,7 @@ end -- function subRecInsert()
 -- ======================================================================
 -- listDelete()
 -- ======================================================================
--- General List Delete function that can be used to delete items, employees
--- or pesky Indian Developers (usually named "Raj").
+-- General List Delete function that can be used to delete items.
 -- RETURN:
 -- A NEW LIST that no longer includes the deleted item.
 -- ======================================================================
@@ -2742,7 +2773,7 @@ end -- function topRecDelete()
 -- shown in the result.
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
-local function subRecDump( topRec, ldtCtrl )
+local function subRecDump( src, topRec, ldtCtrl )
   local meth = "subRecDump()";
   GP=E and trace("[ENTER]<%s:%s>LDT(%s)", MOD, meth,ldtSummaryString(ldtCtrl));
 
@@ -2765,7 +2796,7 @@ local function subRecDump( topRec, ldtCtrl )
   local hashDirectory = ldtMap[M_HashDirectory];
   for j = 0, (distrib - 1), 1 do
     local cellAnchor = hashDirectory[j];
-    resultMap[j] = cellAnchorDump( topRec, cellAnchor );
+    resultMap[j] = cellAnchorDump( src, topRec, cellAnchor );
   end -- for each cell
 
   GP=E and trace("[EXIT]<%s:%s>ResultList(%s)",MOD,meth,tostring(resultList));
@@ -2827,7 +2858,7 @@ end -- topRecDump();
 -- shown in the result.
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
-local function localDump( topRec, ldtBinName )
+local function localDump( src, topRec, ldtBinName )
   local meth = "localDump()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s)", MOD, meth,tostring(ldtBinName));
 
@@ -2845,7 +2876,7 @@ local function localDump( topRec, ldtBinName )
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Destroy
-    resultMap = subRecDump( topRec, ldtCtrl );
+    resultMap = subRecDump( src, topRec, ldtCtrl );
   else
     -- Use the TopRec style Destroy (this is default if the subrec style
     -- is not specifically requested).
@@ -2938,7 +2969,6 @@ local function subRecDestroy( src, topRec, ldtCtrl )
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
-    -- local esrRec = aerospike:open_subrec( topRec, esrDigestString );
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
       rc = aerospike:remove_subrec( esrRec );
@@ -3717,7 +3747,7 @@ function lset.dump( topRec, ldtBinName, src )
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-  localDump( topRec, ldtBinName ); -- Dump out our entire LDT structure.
+  localDump( src, topRec, ldtBinName ); -- Dump out our entire LDT structure.
 
   -- Another key difference between dump and scan : 
   -- dump prints things in the logs and returns a 0

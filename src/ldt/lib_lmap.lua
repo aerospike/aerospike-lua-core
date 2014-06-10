@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_06_05.B"; 
+local MOD="lib_lmap_2014_06_09.E"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -86,25 +86,25 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ======================================================================
 
 -- ======================================================================
--- -- Aerospike Database Server Functions:
--- -- ======================================================================
--- -- Aerospike Record Functions:
--- -- status = aerospike:create( topRec )
--- -- status = aerospike:update( topRec )
--- -- status = aerospike:remove( rec ) (not currently used)
--- --
--- -- Aerospike SubRecord Functions:
--- -- newRec = aerospike:create_subrec( topRec )
--- -- rec    = aerospike:open_subrec( topRec, digestString )
--- -- status = aerospike:update_subrec( childRec )
--- -- status = aerospike:close_subrec( childRec )
--- -- status = aerospike:remove_subrec( subRec ) 
--- --
--- -- Record Functions:
--- -- digest = record.digest( childRec )
--- -- status = record.set_type( topRec, recType )
--- -- status = record.set_flags( topRec, binName, binFlags )
--- -- ======================================================================
+-- Aerospike Database Server Functions:
+-- ======================================================================
+-- Aerospike Record Functions:
+-- status = aerospike:create( topRec )
+-- status = aerospike:update( topRec )
+-- status = aerospike:remove( rec ) (not currently used)
+--
+-- Aerospike SubRecord Functions:
+-- newRec = aerospike:create_subrec( topRec )
+-- rec    = aerospike:open_subrec( topRec, digestString )
+-- status = aerospike:update_subrec( childRec )
+-- status = aerospike:close_subrec( childRec )
+-- status = aerospike:remove_subrec( subRec ) 
+--
+-- Record Functions:
+-- digest = record.digest( childRec )
+-- status = record.set_type( topRec, recType )
+-- status = record.set_flags( topRec, binName, binFlags )
+-- ======================================================================
 --
 -- ++==================++
 -- || External Modules ||
@@ -483,9 +483,8 @@ end -- resetPtrs()
 -- SubRecContext Design:
 -- The key will be the DigestString, and the value will be the subRec
 -- pointer.  At the end of an outer call, we will iterate thru the sub-rec
--- context and close all open sub-records.  Note that we may also need
--- to mark them dirty -- but for now we'll update them in place (as needed),
--- but we won't close them until the end.
+-- context and close all open sub-records.
+-- Pages that are Dirty or Busy (in-use) cannot be closed.
 -- ======================================================================
 -- We are now using the ldt_common SubRec functions:
 -- e.g. ldt_common.createSubRecContext() function
@@ -910,7 +909,7 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   -- allocating a subrecord for just one or two items.  As soon as we pass
   -- the threshold (e.g. 4), then we'll convert to a sub-record.
   ldtMap[M_HashCellMaxList]   = 4; --Keep lists small in the cells.
-	  
+ 
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
   -- then we know that the main LDT record type has already been set.
   -- Otherwise, we should set it. This function will check, and if necessary,
@@ -1376,8 +1375,9 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   topRec[ldtBinName] = ldtCtrl; -- store in the record
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  -- NOTE: The Caller will write out the LDT bin.
-  return 0;
+  -- NOTE: The Caller will write out the LDT bin.  Return the ldtCtrl for
+  -- convenience (so the caller doesn't need to extract it from topRec).
+  return ldtCtrl;
 end -- setupLdtBin( topRec, ldtBinName ) 
 
 -- ======================================================================
@@ -1600,8 +1600,8 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
   local subRecCount = ldtMap[M_ListDigestCount]; 
   ldtMap[M_ListDigestCount] = (subRecCount + 1);
 
-  -- Update the SubRec -- actually, this is currently mostly a no-op since
-  -- we can't actually write sub-recs until the end of the Lua Context.
+  -- Mark this Sub-Rec as dirty -- so that it doesn't get reclaimed until
+  -- the end of the overall Lua call.
   ldt_common.updateSubRec( src, newSubRec );
 
   GP=E and trace("[EXIT]<%s:%s> SR PropMap(%s) Name-list: %s value-list: %s ",
@@ -2558,6 +2558,8 @@ local function convertCompactToSubRec( src, topRec, ldtCtrl, newName, newValue )
   local meth = "convertCompactToSubRec()";
   GP=E and trace("[ENTER]:<%s:%s> NewName(%s) NewVal(%s)", 
      MOD, meth, tostring(newName), tostring(newValue));
+
+  GP=B and trace("[REHASH!!]:<%s:%s> Convert to SubRec", MOD, meth );
 
   -- Get the list, make a copy, then iterate thru it, re-inserting each one.
   -- If we are calling rehashSet, we probably have only one list which we

@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD = "lib_llist_2014_06_09.A";
+local MOD = "lib_llist_2014_06_09.E";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -47,7 +47,7 @@ local F=true; -- Set F (flag) to true to turn ON global print
 local E=true; -- Set F (flag) to true to turn ON Enter/Exit print
 local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;      -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1699,8 +1699,7 @@ local function printTree( src, topRec, ldtBinName )
         printLeaf( nodeSubRec );
       end
       GP=F and trace("[SUBREC]<%s:%s> CloseSR(%s)", MOD, meth, digestString );
-      -- No -- we don't close.  The SubRecContext handles everything.
-      -- aerospike:close_subrec( nodeSubRec );
+      -- Mark the SubRec as "done" (available).
       ldt_common.closeSubRec( src, nodeSubRec, false); -- Mark it as available
     end -- for each node in the list
     -- If we're going around again, then the old childList is the new
@@ -1712,7 +1711,7 @@ local function printTree( src, topRec, ldtBinName )
   trace("\n <PT> <PT> <PT> <PT> <PT>   E N D   <PT> <PT> <PT> <PT> <PT>\n");
   trace("\n ===========================================================\n");
  
-  -- Close ALL of the subrecs that might have been opened
+  -- Release ALL of the read-only subrecs that might have been opened.
   rc = ldt_common.closeAllSubRecs( src );
   if( rc < 0 ) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
@@ -2308,13 +2307,11 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
       GP=F and trace("[DEBUG]<%s:%s> LEAF NODE Search", MOD, meth );
       resultMap = searchObjectList( ldtMap, objectList, searchKey );
       if( resultMap.Status == 0 ) then
-        info("FOO ONE");
         GP=F and trace("[DEBUG]<%s:%s> LEAF Search Result::Pos(%d) Cnt(%d)",
           MOD, meth, resultMap.Position, objectCount);
         updateSearchPath( sp, propMap, ldtMap, nodeRec,
                   resultMap.Position, objectCount );
       else
-        info("FOO TWO");
         GP=F and trace("[SEARCH ERROR]<%s:%s> LeafSrch Result::Pos(%d) Cnt(%d)",
           MOD, meth, resultMap.Position, keyCount);
       end
@@ -2598,7 +2595,7 @@ end -- populateNode()
 -- ======================================================================
 -- Create a new Inner Node Page and initialize it.
 -- ======================================================================
--- initializeNode( Interior Tree Nodes )
+-- createNodeRec( Interior Tree Nodes )
 -- ======================================================================
 -- Set the values in an Inner Tree Node Control Map and Key/Digest Lists.
 -- There are potentially FIVE bins in an Interior Tree Node Record:
@@ -2663,18 +2660,10 @@ local function createNodeRec( src, topRec, ldtCtrl )
   nodeSubRec[NSR_KEY_LIST_BIN] = list(); -- Holds the keys
   nodeSubRec[NSR_DIGEST_BIN] = list(); -- Holds the Digests -- the Rec Ptrs
 
-  -- We must tell the system what type of record this is (sub-record)
-  -- Handled by the subRecCreate()
-  -- record.set_type( nodeSubRec, RT_SUB );
-
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( nodeSubRec );
-
-  -- If we had BINARY MODE working for inner nodes, we would initialize
+  -- NOTE: The SubRec business is Handled by subRecCreate().
+  -- Also, If we had BINARY MODE working for inner nodes, we would initialize
   -- the Key BYTE ARRAY here.  However, the real savings would be in the
   -- leaves, so it may not be much of an advantage to use binary mode in nodes.
-
-  -- NOTE: SubRec already added to the SR Context.
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return nodeSubRec;
@@ -3912,31 +3901,13 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   local status = treeSearch( src, topRec, sp, ldtCtrl, key );
 
   if( status == ST_FOUND ) then
-    rc = leafDelete( src, sp, topRec, ldtCtrl, key );
-    if( rc == 0 ) then
-      rc = ldt_common.closeAllSubRecs( src );
-      if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problems in closeAllSubRecs() SRC(%s)",
-          MOD, meth, tostring( src ));
-        error( ldte.ERR_SUBREC_CLOSE );
-      end
-    end
+    -- leafDelete() always returns zero.
+    leafDelete( src, sp, topRec, ldtCtrl, key );
   else
     rc = ERR_NOT_FOUND;
   end
 
-  -- All of the subrecords were written out in the respective insert methods,
-  -- so if all went well, we'll now update the top record. Otherwise, we
-  -- will NOT udate it.
-  if( rc == 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s>::Updating TopRec", MOD, meth );
-    rc = aerospike:update( topRec );
-    if ( rc ~= 0 ) then
-      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-      error( ldte.ERR_TOPREC_UPDATE );
-    end 
-  end
-
+  -- NOTE: The caller will take care of updating the parent Record (topRec).
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(newValue), tostring(rc));
   return rc;
@@ -4150,13 +4121,6 @@ local function treeMin( topRec,ldtBinName, take )
     -- non-zero tree present.  Any other error will kick out of Lua.
     resultObject = treeMinGet( sp, ldtCtrl, take );
   end -- tree extract
-
-  -- Close ALL of the subrecs that might have been opened
-  --rc = ldt_common.closeAllSubRecs( src );
-  --if( rc < 0 ) then
-  --  warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
-  --  error( ldte.ERR_SUBREC_CLOSE );
-  --end
 
   GP=F and trace("[EXIT]<%s:%s>: Return(%s)", MOD, meth, tostring(resultValue));
   

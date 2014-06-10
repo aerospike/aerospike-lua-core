@@ -178,6 +178,89 @@ function dump( topRec, ldtBinName )
   return lmap.dump( topRec, ldtBinName, src );
 end
 
+
+-- =======================================================================
+-- Bulk Number Load Operations
+-- =======================================================================
+-- Add significant amounts to an LDT -- to aid in testing LMAP.
+-- From "startValue", add "count" many more items, incrementing by 1 each time.
+-- If the caller wants a pseudo-random pattern, she has some options:
+-- (1) Call this function with random intervals -- like this:
+--    (2..299, 1..99, 5..599, 3..399)
+-- (2) Call this function with interleaved ranges (increment by, say, 3)
+--    (0..299<incr 3>, 1..299<incr 3>, 2..299<incr 3>
+--    First Range:  0, 3, 6, 9 ...
+--    Second Range: 1, 4, 7, 10 ...
+--    Third Range:  2, 5, 8, 11 ...
+-- (3) Build a similar function that doesn't increment, but instead uses
+--     math.random.  Notice, however, that if we use random, then we have to
+--     configure it correctly so that it doesn't complain about duplicates.
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) startValue: The starting value to be inserted
+-- (*) count:   The Number of values to insert
+-- (*) incr:  The amount to increment each time to get the next value.
+--            if (-1), then use the RANDOM function
+-- (*) createSpec: The map or module that contains Create Settings
+-- =======================================================================
+function
+bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
+  local meth = "bulk_number_load()";
+  info("[ENTER]<%s:%s> Bin(%s) SV(%s) C(%s) Incr(%s) CS(%s)", MOD, meth,
+    tostring(ldtBinName), tostring(startValue), tostring(count), 
+    tostring(incr), tostring(createSpec));
+
+  -- Check the input values for non-nil
+  if startValue == nil or count == nil or incr == nil then
+    warn("Input Error: nil Parameters: startValue(%s) Count(%s) Incr(%s)",
+      tostring(startValue), tostring(count), tostring(incr));
+    error("Nil Input Parameters");
+  end
+
+  -- Check the input values for valid types (numbers only)
+  if type(startValue) ~= "number" or type(count) ~= "number" or
+     type(incr) ~= "number"
+  then
+    warn("Input Error: Bad Param types: startValue(%s) Count(%s) Incr(%s)",
+      type(startValue), type(count), type(incr));
+    error("Bad Input Parameter Types");
+  end
+
+  -- Init our subrecContext. .  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  local src = ldt_common.createSubRecContext();
+
+  local rc = 0;
+  local value;
+  local valueString;
+  local rand = false;
+  if( incr == -1 ) then
+    -- set up for RANDOM values, not incremented values
+    rand = true;
+    incr = 1;
+  end
+  for i = 1, count*incr, incr do
+    if rand then
+      value = math.random(1, 10000);
+    else
+      value = startValue + i;
+    end
+    valueString = "ABC" .. value;
+    rc = lmap.put( topRec, ldtBinName, value, valueString, createSpec, src );
+    if ( rc < 0 ) then
+        warn("<%s:%s>RC (%d) from PUT: Name(%s) Val(%s)",MOD, meth, rc,
+          tostring(value), tostring(valueString));
+        error("INTERNAL ERROR");
+    end
+  end
+
+  info("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
+  return rc;
+end -- bulk_number_load()
+
 -- ========================================================================
 --   _     ___  ___  ___  ______ 
 --  | |    |  \/  | / _ \ | ___ \

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_06_04.A";
+local MOD="lib_lstack_2014_06_09.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -815,60 +815,6 @@ end
   GP=E and trace("[EXIT]:<%s:%s>:", MOD, meth );
   return ldtCtrl;
 end -- initializeLdtCtrl()
-
--- ======================================================================
-
--- ======================================================================
--- initializeLdrMap()
--- ======================================================================
--- Set the values in a LDT Data Record (LDR) Control Bin map. LDR Records
--- hold the actual data for both the WarmList and ColdList.
--- This function represents the "type" LDR MAP -- all fields are
--- defined here.
--- Here are the in an LDR Record:
--- (*) ldrRec[LDR_PROP_BIN]: The propery Map (defined here)
--- (*) ldrRec[LDR_CTRL_BIN]: The control Map (defined here)
--- (*) ldrRec[LDR_LIST_BIN]: The Data Entry List (when in list mode)
--- (*) ldrRec[LDR_BNRY_BIN]: The Packed Data Bytes (when in Binary mode)
---
--- When we call this method, we have just created a LDT SubRecord.  Thus,
--- we must check to see if that is the FIRST one, and if so, we must also
--- create the Existence Sub-Record for this LDT.
--- ======================================================================
-local function initializeLdrMap(src,topRec,ldrRec,ldrPropMap,ldrMap,ldtCtrl)
-  local meth = "initializeLdrMap()";
-  GP=E and trace("[ENTER]: <%s:%s> src(%s) ldtCtrl(%s)", MOD, meth,
-    tostring( src ), ldtSummaryString( ldtCtrl ));
-
-  local ldtPropMap = ldtCtrl[1];
-  local ldtMap     = ldtCtrl[2];
-
-  ldrPropMap[PM_RecType]      = RT_SUB;
-  ldrPropMap[PM_ParentDigest] = record.digest( topRec );
-  ldrPropMap[PM_SelfDigest]   = record.digest( ldrRec );
-  --  Not doing Log stuff yet
-  --  ldrPropMap[PM_LogInfo]      = ldtPropMap[M_LogInfo];
-
-  --  Use Top level LDT entry for mode and max values
-  ldrMap[LDR_ByteEntrySize]   = ldtMap[M_LdrByteEntrySize];
-  ldrMap[LDR_ByteEntryCount]  = 0;  -- A count of Byte Entries
-
-  -- If this is the first LDR, then it's time to create an ESR for this
-  -- LDT.
-  if( ldtPropMap[PM_EsrDigest] == nil or ldtPropMap[PM_EsrDigest] == 0 ) then
-    ldtPropMap[PM_EsrDigest] = createAndInitESR(src,topRec, ldtCtrl );
-  end
-
-  local ldtPropMap = ldtCtrl[1];
-  ldrPropMap[PM_EsrDigest] = ldtPropMap[PM_EsrDigest];
-  GP=F and trace("LDR MAP: [%s:%s:%s]", tostring(ldrPropMap[PM_SelfDigest]),
-    tostring(ldrPropMap[PM_EsrDigest]), tostring(ldrPropMap[PM_ParentDigest]));
-
-  -- Set the type of this record to LDT SUB(it might already be set by another
-  -- LDT in this same record).
-  record.set_type( ldrRec, RT_SUB ); -- LDT Type Sub-Record
-
-end -- initializeLdrMap()
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1941,7 +1887,7 @@ local function   warmListSubRecCreate( src, topRec, ldtCtrl )
   -- NOTE: This may not be needed -- we may wish to update the topRec ONLY
   -- after all of the underlying SUB-REC  operations have been done.
   -- Update the top (LDT) record with the newly updated ldtMap;
-  info("[WARNING]<%s:%s> NOT UPDATING TOPREC in Warm Create", MOD, meth );
+  -- info("[WARNING]<%s:%s> NOT UPDATING TOPREC in Warm Create", MOD, meth );
   -- topRec[ ldtBinName ] = ldtCtrl;
   -- record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
@@ -2248,35 +2194,6 @@ local function releaseStorage( topRec, ldtCtrl, digestList )
 end -- releaseStorage()
 
 -- ======================================================================
--- Update the ColdDir Page pointers -- used on initial create
--- and subsequent ColdDir page creates.  Each Cold Dir Page has a
--- Previous and Next pointer (in the form of a digest).
--- Parms:
--- (*) coldDirRec:
--- (*) prevDigest:  Set PrevPage ptr, if not nil
--- (*) nextDigest:  Set NextPage ptr, if not nil
--- ======================================================================
--- THIS FUNCTION IS NOT CURRENTLY USED.  That might be an error.  Check.
--- TODO: Check on why we're not using this function.
--- ======================================================================
-local function setPagePointers( src, coldDirRec, prevDigest, nextDigest )
-  local meth = "setLeafPagePointers()";
-  GP=E and trace("[ENTER]<%s:%s> prev(%s) next(%s)",
-    MOD, meth, tostring(prevDigest), tostring(nextDigest) );
-  leafMap = leafRec[LSR_CTRL_BIN];
-  if( prevDigest ~= nil ) then
-    leafMap[LF_PrevPage] = prevDigest;
-  end
-  if( prevDigest ~= nil ) then
-    leafMap[LF_NextPage] = nextDigest;
-  end
-  leafRec[LSR_CTRL_BIN] = leafMap;
-  ldt_common.updateSubRec( src, leafRec );
-
-  GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
-end -- setPagePointers()
-
--- ======================================================================
 -- coldDirHeadCreate()
 -- ======================================================================
 -- Set up a new Head Directory page for the cold list.  The Cold List Dir
@@ -2437,7 +2354,7 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     subrecsDeleted = list.size(ldrDeleteList) + list.size(dirDeleteList);
 
     -- releaseStorage( src, topRec, ldtCtrl, deleteList );
-  end -- end -- cases for when we remove OLD storage
+  end -- cases for when we remove OLD storage
 
   -- If we did some deletes -- clean that all up now.
   -- Update the various statistics (item and subrec counts)
@@ -2468,8 +2385,7 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     -- subrec and set up the common properties.  All of the CH-specific
     -- stuff goes here.
     -- Remember to add the newColdHeadRec to the SRC.
-    local newColdHeadRec =
-      ldt_common.createSubRec( src, topRec, ldtCtrl, RT_CDIR );
+    local newColdHeadRec = ldt_common.createSubRec(src,topRec,ldtCtrl,RT_CDIR);
     -- The SubRec is created and the PropMap is set up. So, now we
     -- finish the job and set up the rest.
     local newColdHeadMap     = map();

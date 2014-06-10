@@ -1,6 +1,23 @@
 -- Large Data Type (LDT) Common Functions
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+--
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_09.D";
+local MOD="ldt_common_2014_06_09.J";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -29,6 +46,10 @@ local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=true; -- turn on for more elaborate state dumps.
 
+-- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
+-- the updates to the end -- at the close of Lua.
+local DO_EARLY_SUBREC_UPDATES=false;
+
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -49,7 +70,7 @@ local DEBUG=true; -- turn on for more elaborate state dumps.
 --
 -- SUB-RECORD CONTEXT FUNCTIONS
 -- ldt_common.createSubRecContext()
--- ldt_common.createSubRec( srcCtrl, topRec, recType )
+-- ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 -- ldt_common.closeSubRec( srcCtrl, digestString )
 -- ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
 -- ldt_common.updateSubRec( srcCtrl, subRec )
@@ -877,22 +898,21 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
 
   -- NOTE: We no longer Update the ESR early.  It gets written and closed
   -- when the Lua Context closes.
-  --
-  -- Update and close the ESR.  We're done with it.
-  -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF ESR subRec Update",
-      MOD,meth);
-  rc = aerospike:update_subrec( esrRec );
-  if( rc == nil or rc == 0 ) then
-    -- aerospike:close_subrec( esrRec );
-  else
-    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+  -- However, for testing purposes, we allow EARLY subrec Updates.
+  if DO_EARLY_SUBREC_UPDATES then
+    -- Update the ESR.  We're done with it (but updated SubRecs can't be closed
+    -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
+    info("[NOTE]<%s:%s> Performing Direct Update of ESR subRec", MOD,meth);
+    rc = aerospike:update_subrec( esrRec );
+    if( rc ~= nil and rc == 0 ) then
+      warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_SUBREC_UPDATE );
+    end
   end
  
-  -- Add this open ESR SubRec to our SubRec Context.
+  -- Add this open ESR SubRec to our SubRec Context, which implicitly 
+  -- marks it as dirty.
   ldt_common.addSubRecToContext( srcCtrl, esrRec, true );
-
 
   GP=E and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
     MOD, meth, tostring(esrDigest));
@@ -966,7 +986,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
     warn("[ERROR]<%s:%s>Problems Creating New Subrec (%s)", MOD,meth );
     error( ldte.ERR_SUBREC_CREATE );
   end
-  record.set_type( newSubRec, RT_SUB ); -- Always RT_SUB.
+  record.set_type( newSubRec, RT_SUB ); -- Always RT_SUB for this call.
 
   local subRecDigest = record.digest( newSubRec );
   local topRecDigest = record.digest( topRec );
@@ -992,18 +1012,25 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
 
-  GP=F and info("[REMEMBER]<%s:%s> Remember to turn OFF SubRec Update", MOD,meth);
-  rc = aerospike:update_subrec( newSubRec );
-  if( rc ~= nil and rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_SUBREC_UPDATE );
+  -- NOTE: We no longer Update the SubRecs early.  They get written and closed
+  -- when the Lua Context closes.
+  -- However, for testing purposes, we allow EARLY subrec Updates.
+  if DO_EARLY_SUBREC_UPDATES then
+    -- TEMPORARILY -- WRITE OUT THE SUBREC.
+    info("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
+    rc = aerospike:update_subrec( newSubRec );
+    if( rc ~= nil and rc == 0 ) then
+      warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_SUBREC_UPDATE );
+    end
   end
-
+ 
   -- Update the LDT sub-rec count.  Remember that any changes to a record
   -- are remembered until the final Lua Close, then the record(s) will be
   -- flushed to storage.
   local subRecCount = propMap[PM_SubRecCount];
   propMap[PM_SubRecCount] = subRecCount + 1;
+  -- This will mark the SubRec as dirty.
   local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
 
   GP=E and info("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
@@ -1174,6 +1201,46 @@ function ldt_common.closeSubRec( srcCtrl, subRec, dirty )
   return ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty );
 end -- closeSubRec()
 
+
+-- ======================================================================
+-- markUnBusy()
+-- ======================================================================
+-- Do not close the sub-rec, but instead mark the sub-rec as NOT BUSY if
+-- it is currently "DM_BUSY" (as in, "in use").  When it comes time to clean,
+-- we can safely close any non-busy sub-recs, but we cannot close dirty ones.
+-- Parms:
+-- (*) srcCtrl:
+-- (*) digestString:
+-- ======================================================================
+function ldt_common.markUnBusy( srcCtrl, digestString )
+  local meth = "markUnBusy()";
+  GP=E and trace("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
+    MOD, meth, tostring(digestString), tostring(srcCtrl));
+
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
+  local itemCount = recMap.ItemCount;
+  local rc = 0;
+
+  local subRec = recMap[digestString];
+  if( subRec == nil ) then
+    warn("[INTERNAL ERROR]<%s:%s> Rec not found for Digest(%s) in map(%s)",
+      MOD, meth, tostring(digestString), tostring(recMap));
+    error( ldte.ERR_INTERNAL );
+  end
+
+  local cleaned = 0;
+  local subRecStatus = dirtyMap[digestString];
+  if( subRecStatus ~= nil and subRecStatus == DM_BUSY ) then
+    dirtyMap[digestString] = nil;
+    cleaned = 1;
+  end
+
+  GP=E and trace("[EXIT]<%s:%s> Digest(%s) Cleaned(%d)",
+    MOD, meth, tostring(digestString), cleaned);
+  return 0;
+end -- markUnBusy()
+
 -- ======================================================================
 -- updateSubRec()
 -- ======================================================================
@@ -1196,12 +1263,23 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
   local digest = record.digest( subRec );
   local digestString = tostring( digest );
 
+  -- NOTE: We no longer Update the SubRecs early.  They get written and closed
+  -- when the Lua Context closes.
+  -- However, for testing purposes, we allow EARLY subrec Updates.
+  if DO_EARLY_SUBREC_UPDATES then
+    -- TEMPORARILY -- WRITE OUT THE SUBREC.
+    info("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
+    rc = aerospike:update_subrec( subRec );
+    if( rc ~= nil and rc == 0 ) then
+      warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_SUBREC_UPDATE );
+    end
+  end
+
   -- Note that we DO NOT want to update the SubRec before the END of the
   -- Lua Call Context.  However, we DO have to mark the record as DIRTY
   -- so that we don't try to close it when we're looking for available
   -- slots when trying to close a clean Sub-Rec.
-  GP=F and info("[REMEMBER]<%s:%s> Be SURE to turn off SubRec UPDATE",MOD,meth);
-  rc = aerospike:update_subrec( subRec );
 
   dirtyMap[digestString] = DM_DIRTY;
 
@@ -1253,15 +1331,9 @@ function ldt_common.closeAllSubRecs( srcCtrl )
     else
       digestString = name;
       rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Calling close on SubRec(%s) Rec(%s)",
+      GP=F and trace("[DEBUG]<%s:%s>: Marking UNBUSY: SubRec(%s) Rec(%s)",
       MOD, meth, digestString, tostring(rec) );
-      GP=F and trace("[DEBUG]<%s:%s>: Closing SubRec: Digest(%s) Rec(%s)",
-        MOD, meth, digestString, tostring(rec) );
-      rc = ldt_common.closeSubRecDigestString( srcCtrl, digestString, false );
-      if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problems closing Record(%s)", MOD, meth,
-          tostring(digestString));
-      end
+      ldt_common.markUnBusy( srcCtrl, digestString );
     end
   end -- for all fields in SRC
 
