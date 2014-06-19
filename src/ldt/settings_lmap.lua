@@ -1,7 +1,23 @@
 -- Settings for Large Map (settings_lmap.lua)
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
 --
--- Module Marker: Track date and iteration of last change.
-local MOD="settings_lmap_2014_06_05.A"; -- the module name used for tracing
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- Track the date and iteration of the last update:
+local MOD="settings_lmap_2014_06_17.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -10,8 +26,8 @@ local MOD="settings_lmap_2014_06_05.A"; -- the module name used for tracing
 -- in the server).
 -- ======================================================================
 local GP;     -- Use for turning on Global Print
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 
 -- ======================================================================
 -- StoreMode (SM) values (which storage Mode are we using?)
@@ -46,10 +62,47 @@ local HS_DYNAMIC = 'D';
 -- Hashing and has more graceful directory growth (and shrinkage).
 local DEFAULT_HASH_STATE = HS_STATIC;
 
--- Max Size of a list in a hash cell anchor before we convert to a Sub-Record
-local DEFAULT_BINLIST_THRESHOLD = 4;
--- Max size of our Compact List before we convert to a full Hash Table.
-local DEFAULT_THRESHOLD = 10; -- Convert to Hash Table after this many items
+-- ======================================================================
+-- NOTE: It's important that these three values remain consistent with
+-- the matching variable names in the ldt/lib_lset.lua file.
+-- ======================================================================
+-- Switch from CompactList to Hash Table with this many objects.
+-- The thresholds vary depending on expected object size.
+local DEFAULT_LARGE_THRESHOLD  =    5; -- Objs over 100 kb
+local DEFAULT_MEDIUM_THRESHOLD = 20;   -- Objs around 1 kb
+local DEFAULT_SMALL_THRESHOLD  = 100;  -- Objs under  20kb
+local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
+
+-- The BIN LIST THRESHOLD is the number of items in a single Hash Cell
+-- that we can have before we convert the Hash Cell Contents into a Sub-Rec.
+-- For Large Items (e.g. 100kb), we really can't tolerate even a SINGLE
+-- object in the hash directory -- because that could easily blow out the
+-- Top Record.  For medium size objects we can tolerate some, and for small
+-- objects we can tolerate a lot.
+local DEFAULT_LARGE_BINLIST_THRESHOLD  = 0; -- can't have any.
+local DEFAULT_MEDIUM_BINLIST_THRESHOLD = 4; 
+local DEFAULT_SMALL_BINLIST_THRESHOLD  = 10; 
+local DEFAULT_BINLIST_THRESHOLD        = DEFAULT_MEDIUM_BINLIST_THRESHOLD;
+
+-- The default starting Hash Directory Size.  When we switch to Dynamic
+-- (Linear) Hashing, we'll start Small and work our way up.
+local DEFAULT_MODULO = 128; -- The default HashTable Size
+
+local DEFAULT_THRESHOLD = DEFAULT_MEDIUM_THRESHOLD; -- a catch-all
+
+-- ======================================================================
+-- Default Capacity -- should be high, but not too high.  If the user wants
+-- to go REALLY high, they should specify that.  If we don't pick a value,
+-- then the user will hit a storage limit error without warning.
+-- ======================================================================
+local DEFAULT_LARGE_CAPACITY   =   5000;
+local DEFAULT_MEDIUM_CAPACITY  =  50000;
+local DEFAULT_SMALL_CAPACITY   = 500000;
+
+local DEFAULT_CAPACITY         = DEFAULT_MEDIUM_CAPACITY;
+local DEFAULT_TEST_CAPACITY    =  20000;
+
+
 -- Initial Size of of a STATIC Hash Table.   Once we start to use Linear
 -- Hashing (dynamic growth) we'll set the initial size to be small.
 local DEFAULT_DISTRIB = 128;
@@ -106,19 +159,86 @@ local package = {};
 -- ======================================================================
 function package.StandardList( ldtMap )
   ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = 50000; -- default capacity MAX: 50,000
+  ldtMap[T.M_StoreLimit]            = DEFAULT_CAPACITY;
   ldtMap[T.M_Transform]             = nil; -- Not used in Std List
   ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- 100 objects per subrec
+  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHHOLD;
+  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.StandardList()
+
+-- ======================================================================
+-- This is the configuration for Large Objects (around 100kb).  We can afford
+-- to store only a few of these per subrecord, as well as only a few in
+-- our compact list.
+-- Package = "ListLargeObject"
+-- Sub-Record Design, List Mode, Full Object Compare, limit 10,000 Objects
+-- ======================================================================
+function package.ListLargeObject( ldtMap )
+  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[T.M_StoreLimit]            = DEFAULT_LARGE_CAPACITY;
+  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
+  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
+  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
+  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
+  ldtMap[T.M_ThreshHold]            = DEFAULT_LARGE_THRESHHOLD;
+  ldtMap[T.M_LdrEntryCountMax]      = 8; -- Num objects per subrec
+  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
+  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
+  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+end -- package.ListLargeObject()
+
+-- ======================================================================
+-- This is the configuration for Medium Objects (around 1kb).  We use
+-- LIST storage (as opposed to BINARY).
+-- Package = "ListMediumObject"
+-- Sub-Record Design, List Mode, Full Object Compare, limit 50,000 Objects
+-- ======================================================================
+function package.ListMediumObject( ldtMap )
+  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[T.M_StoreLimit]            = DEFAULT_MEDIUM_CAPACITY;
+  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
+  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
+  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
+  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
+  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHHOLD;
+  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
+  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
+  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
+  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+end -- package.ListMediumObject()
+
+-- ======================================================================
+-- This is the configuration for Small Objects (under 100bytes).  With small
+-- objects we can afford larger list limits
+-- Package = "ListSmallObject"
+-- Sub-Record Design, List Mode, Full Object Compare, limit 10,000 Objects
+-- ======================================================================
+function package.ListSmallObject( ldtMap )
+  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[T.M_StoreLimit]            = DEFAULT_SMALL_CAPACITY;
+  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
+  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
+  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
+  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
+  ldtMap[T.M_ThreshHold]            = DEFAULT_SMALL_THRESHHOLD;
+  ldtMap[T.M_LdrEntryCountMax]      = 200; -- Num objects per subrec
+  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
+  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
+  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+end -- package.ListSmallObject()
 
 -- ======================================================================
 -- Package = "TestModeNumber"
@@ -132,7 +252,7 @@ function package.TestModeNumber( ldtMap )
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
   ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- 100 objects per subrec
+  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
@@ -152,7 +272,7 @@ function package.TestModeObject( ldtMap )
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
   ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- 100 objects per subrec
+  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
@@ -171,7 +291,7 @@ function package.TestModeObjectKey( ldtMap )
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
   ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- 100 objects per subrec
+  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir

@@ -1,7 +1,24 @@
 -- Settings for Large List (settings_llist.lua)
 --
--- Module Marker: Track the last update of the file.
-local MOD="settings_llist_2014_06_05.A"; -- the module name used for tracing
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- Track the date and iteration of the last update:
+local MOD="settings_llist_2014_06_17.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -9,9 +26,9 @@ local MOD="settings_llist_2014_06_05.A"; -- the module name used for tracing
 -- Use this flag to enable/disable global printing (the "detail" level
 -- in the server).
 -- ======================================================================
-local GP;     -- Use this to control GLOBAL PRINT activities.
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local GP;     -- Global Print Instrument
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 
 -- ======================================================================
 -- StoreMode (SM) values (which storage Mode: Binary or List?)
@@ -39,8 +56,10 @@ local ST_SUBRECORD = 'S'; -- Store values (lists) in Sub-Records
 local AS_TRUE='T';
 local AS_FALSE='F';
 
--- Switch from a single list to a Tree after this amount.
-local DEFAULT_THRESHOLD = 100;
+-- Switch from a single Compact list to a B+ Tree after this amount.
+local DEFAULT_LARGE_THRESHOLD  =    5; -- Objs over 100 kb
+local DEFAULT_MEDIUM_THRESHOLD = 100;  -- Objs around 1 kb
+local DEFAULT_SMALL_THRESHOLD  = 500;  -- Objs under  20kb
 --
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
@@ -143,6 +162,121 @@ local package = {};
 
     return 0;
   end -- package.StandardList()
+
+  -- ======================================================================
+  -- This is the configuration for Large Ordered Lists that hold Large
+  -- Objects, which are assumed to be about 100 kilobytes.  With large objects,
+  -- we will be keeping our lists small so that we don't overflow the
+  -- B+ Tree Leaf pages.
+  --
+  -- Package = "ListLargeObject"
+  -- ======================================================================
+    function package.ListLargeObject( ldtMap )
+    
+    -- General Parameters
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
+    ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.R_Threshold] = DEFAULT_LARGE_THRESHOLD; -- Convert Compact to tree
+    ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
+
+    -- Top Node Tree Root Directory
+    ldtMap[T.R_RootListMax] = 5; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
+    
+    -- LLIST Inner Node Settings.  Note that these are keys, so we will 
+    -- actually assume relatively small keys, even though the objs themselves
+    -- are large.  Keep inner nodes as if they are 20 to 50 byte keys.
+    ldtMap[T.R_NodeListMax] = 200;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
+
+    -- LLIST Tree Leaves (Data Pages)
+    ldtMap[T.R_LeafListMax] = 8;  -- Max # of items
+    ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
+
+    return 0;
+  end -- package.ListLargeObject()
+
+  -- ======================================================================
+  -- This is the configuration for Large Ordered Lists that hold Medium-size
+  -- objects, assumed to be around 1 kilobytes.  With medium-size objects,
+  -- we can afford to keep around 100 objects in our compact list and
+  -- our B+ Leaves.  Also, we are assuming that the user will be using
+  -- the "key" field, so no implicit KeyFunction() is defined.
+  --
+  -- Package = "ListMediumObject"
+  -- ======================================================================
+    function package.ListMediumObject( ldtMap )
+    
+    -- General Parameters
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
+    ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.R_Threshold] = DEFAULT_MEDIUM_THRESHOLD; -- Convert Compact to tree
+    ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
+
+    -- Top Node Tree Root Directory
+    ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
+    
+    -- LLIST Inner Node Settings.  Note that these are keys, so we will 
+    -- actually assume relatively small keys, even though the objs themselves
+    -- are large.  Keep inner nodes as if they are 20 to 50 byte keys.
+    ldtMap[T.R_NodeListMax] = 200;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
+
+    -- LLIST Tree Leaves (Data Pages)
+    ldtMap[T.R_LeafListMax] = 100;  -- Max # of items
+    ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
+
+    return 0;
+  end -- package.ListMediumObject()
+
+
+  -- ======================================================================
+  -- This is the configuration for Large Ordered Lists that hold Small
+  -- objects, assumed to be between 20 to 100 bytes.  With small objects,
+  -- we can afford to keep around 500 objects in our compact list and
+  -- our B+ Leaves.  Also, we are assuming that the user will be using
+  -- the "key" field, so no implicit KeyFunction() is defined.
+  --
+  -- Package = "ListSmallObject"
+  -- ======================================================================
+    function package.ListSmallObject( ldtMap )
+    
+    -- General Parameters
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
+    ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys from complex objects
+    ldtMap[T.R_Threshold] = DEFAULT_SMALL_THRESHOLD; -- Convert Compact to tree
+    ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
+
+    -- Top Node Tree Root Directory
+    ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
+    
+    -- LLIST Inner Node Settings.  Note that these are keys, so we will 
+    -- actually assume relatively small keys, even though the objs themselves
+    -- are large.  Keep inner nodes as if they are 20 to 50 byte keys.
+    ldtMap[T.R_NodeListMax] = 200;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
+
+    -- LLIST Tree Leaves (Data Pages)
+    -- TODO: Raise this value to 500 when we switch to Binary Search.
+    ldtMap[T.R_LeafListMax] = 200;  -- Max # of items
+    ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
+
+    return 0;
+  end -- package.ListSmallObject()
 
   -- ======================================================================
   -- This is the standard configuration for Complex Objects.

@@ -1,8 +1,24 @@
--- Settings for Large Stack 
--- settings_lstack.lua:  August 29, 2013
+-- Settings for Large Stack :: settings_lstack.lua
 --
--- Module Marker: Keep this in sync with the stated version
-local MOD="settings_lstack_2013_08_29.a"; -- the module name used for tracing
+-- ======================================================================
+-- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- to Aerospike, Inc. under one or more contributor license agreements.
+--
+-- Licensed under the Apache License, Version 2.0 (the "License");
+-- you may not use this file except in compliance with the License.
+-- You may obtain a copy of the License at
+--
+--  http://www.apache.org/licenses/LICENSE-2.0
+--
+-- Unless required by applicable law or agreed to in writing, software
+-- distributed under the License is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+-- See the License for the specific language governing permissions and
+-- limitations under the License.
+-- ======================================================================
+
+-- Track the date and iteration of the last update:
+local MOD="settings_lstack_2014_06_17.A";
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -10,9 +26,9 @@ local MOD="settings_lstack_2013_08_29.a"; -- the module name used for tracing
 -- Use this flag to enable/disable global printing (the "detail" level
 -- in the server).
 -- ======================================================================
-local GP=true; -- Leave this ALWAYS true (but value seems not to matter)
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local GP;      -- Global Print Instrument.
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 
 -- ======================================================================
 -- StoreMode (SM) values (which storage Mode are we using?)
@@ -20,13 +36,19 @@ local SM_BINARY ='B'; -- Using a Transform function to compact values
 local SM_LIST   ='L'; -- Using regular "list" mode for storing values.
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
--- Main LSO Map Field Name Mapping
+-- Main LDT Map Field Name Mapping
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local T = {
-  M_StoreMode              = 'M', -- List or Binary Mode
-  M_StoreLimit             = 'S', -- Max Item Count for stack
-  M_Transform              = 't', -- User's Transform function
-  M_UnTransform            = 'u', -- User's UNTransform function
+  -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+  M_UserModule             = 'P'; -- User's Lua file for overrides
+  M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
+  M_KeyType                = 'k'; -- Type of Key (Always atomic for LMAP)
+  M_StoreMode              = 'M'; -- SM_LIST or SM_BINARY
+  M_StoreLimit             = 'L'; -- Max Items: Used for Eviction (eventually)
+  M_Transform              = 't'; -- Transform object to storage format
+  M_UnTransform            = 'u'; -- UnTransform from storage to Lua format
+
+  -- LSTACK specific values
   M_LdrEntryCountMax       = 'e', -- Max # of entries in an LDR
   M_LdrByteEntrySize       = 's', -- Fixed Size of a binary Object in LDR
   M_LdrByteCountMax        = 'b', -- Max # of bytes in an LDR
@@ -66,18 +88,18 @@ local package = {};
 -- Package = "StandardList"
 -- ======================================================================
 function package.StandardList( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_LIST;
   ldtMap[T.M_Transform]        = nil;
   ldtMap[T.M_UnTransform]      = nil;
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 100; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -86,22 +108,96 @@ function package.StandardList( ldtMap )
 end -- package.StandardList()
 
 -- ======================================================================
--- Package = "TestModeList"
+-- For very Large Objects (around 100kb) we use a much smaller list size
+-- for the Hot List and a smaller list for the SubRecords (LDR).
+-- Package = "ListLargeObject"
 -- ======================================================================
-function package.TestModeList( ldtMap )
-  -- General LSO Parms:
+function package.ListLargeObject( ldtMap )
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_LIST;
   ldtMap[T.M_Transform]        = nil;
   ldtMap[T.M_UnTransform]      = nil;
-  ldtMap[T.M_StoreLimit]       = 20000; -- 20k entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  ldtMap[T.M_LdrEntryCountMax] = 8; -- Max # of items in an LDR (List Mode)
+  ldtMap[T.M_LdrByteEntrySize] = 0; -- Byte size of a fixed size Byte Entry
+  ldtMap[T.M_LdrByteCountMax]  = 0; -- Max # of BYTES in an LDR (binary mode)
+  -- Hot Entry List Settings: List of User Entries
+  ldtMap[T.M_HotListMax]       = 8; -- Max # for the List, when we transfer
+  ldtMap[T.M_HotListTransfer]  = 4; -- How much to Transfer at a time
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
+  ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
+  -- Cold Directory List Settings: List of Directory Pages
+  ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
+  ldtMap[T.M_ColdDirRecMax]    = 100; -- Max# of Cold DIRECTORY Records
+end -- package.ListLargeObject()
+
+-- ======================================================================
+-- For Medium Objects (around 1kb), we use middle of the road numbers.
+-- Package = "ListMediumObject"
+-- ======================================================================
+function package.ListMediumObject( ldtMap )
+  -- General LSTACK Parms:
+  ldtMap[T.M_StoreMode]        = SM_LIST;
+  ldtMap[T.M_Transform]        = nil;
+  ldtMap[T.M_UnTransform]      = nil;
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 100; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
+  ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
+  -- Cold Directory List Settings: List of Directory Pages
+  ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
+  ldtMap[T.M_ColdDirRecMax]    = 10; -- Max# of Cold DIRECTORY Records
+end -- package.ListMediumObject()
+
+-- ======================================================================
+-- For Small Objects (under 100 bytes), can use larger lists because we
+-- can pack more objects in 
+-- Package = "ListSmallObject"
+-- ======================================================================
+function package.ListSmallObject( ldtMap )
+  -- General LSTACK Parms:
+  ldtMap[T.M_StoreMode]        = SM_LIST;
+  ldtMap[T.M_Transform]        = nil;
+  ldtMap[T.M_UnTransform]      = nil;
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  ldtMap[T.M_LdrEntryCountMax] = 200; -- Max # of items in an LDR (List Mode)
+  ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
+  ldtMap[T.M_LdrByteCountMax]  = 0; -- Max # of BYTES in an LDR (binary mode)
+  -- Hot Entry List Settings: List of User Entries
+  ldtMap[T.M_HotListMax]       = 200; -- Max # for the List, when we transfer
+  ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
+  ldtMap[T.M_WarmListMax]      = 200; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
+  -- Cold Directory List Settings: List of Directory Pages
+  ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
+  ldtMap[T.M_ColdDirRecMax]    = 100; -- Max# of Cold DIRECTORY Records
+end -- package.ListSmallObject()
+
+-- ======================================================================
+-- Package = "TestModeList"
+-- ======================================================================
+function package.TestModeList( ldtMap )
+  -- General LSTACK Parms:
+  ldtMap[T.M_StoreMode]        = SM_LIST;
+  ldtMap[T.M_Transform]        = nil;
+  ldtMap[T.M_UnTransform]      = nil;
+  ldtMap[T.M_StoreLimit]       = 20000; -- 20k entries
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  ldtMap[T.M_LdrEntryCountMax] = 100; -- Max # of items in an LDR (List Mode)
+  ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
+  ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
+  -- Hot Entry List Settings: List of User Entries
+  ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
+  ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -115,19 +211,19 @@ end -- package.TestModeList()
 -- compressed with the "compressTest4()" function.
 -- ======================================================================
 function package.TestModeBinary( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_BINARY;
   ldtMap[T.M_Transform]        = "compressTest4";
   ldtMap[T.M_UnTransform]      = "unCompressTest4";
   ldtMap[T.M_StoreLimit]       = 20000; -- 20k entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 100; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -143,19 +239,19 @@ end -- package.TestModeBinary()
 -- (*) Binary Storage (uses a compacted representation)
 -- ======================================================================
 function package.ProdListValBinStore( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_BINARY;
   ldtMap[T.M_Transform]        = "listCompress_5_18";
   ldtMap[T.M_UnTransform]      = "listUnCompress_5_18";
   ldtMap[T.M_StoreLimit]       = 20000; -- 20k entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 200; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 18;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -170,19 +266,19 @@ end -- package.ProdListValBinStore()
 -- use LIST MODE.
 -- ======================================================================
 function package.DebugModeObject( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_LIST;
   ldtMap[T.M_Transform]        = nil;
   ldtMap[T.M_UnTransform]      = nil;
   ldtMap[T.M_StoreLimit]       = 5000; -- 5000 entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 4; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 0; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 4; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 2; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 4; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 2; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -198,19 +294,19 @@ end -- package.DebugModeObject()
 -- use LIST MODE.
 -- ======================================================================
 function package.DebugModeList( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_LIST;
   ldtMap[T.M_Transform]        = nil;
   ldtMap[T.M_UnTransform]      = nil;
   ldtMap[T.M_StoreLimit]       = 200; -- 200 entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 4; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 0; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 4; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 2; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 4; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 2; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
@@ -225,19 +321,19 @@ end -- package.DebugModeList()
 -- use BINARY MODE.
 -- ======================================================================
 function package.DebugModeBinary( ldtMap )
-  -- General LSO Parms:
+  -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_BINARY;
   ldtMap[T.M_Transform]        = "compressTest4";
   ldtMap[T.M_UnTransform]      = "unCompressTest4";
   ldtMap[T.M_StoreLimit]       = 200; -- 200 entries
-  -- LSO Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 4; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 16;  -- Byte size of a fixed size Byte Entry
   ldtMap[T.M_LdrByteCountMax]  = 65; -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 4; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 2; -- How much to Transfer at a time
-  -- Warm Digest List Settings: List of Digests of LSO Data Records
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 4; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 2; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages

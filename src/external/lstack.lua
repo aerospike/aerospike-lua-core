@@ -129,6 +129,9 @@ function peek( topRec, ldtBinName, peekCount )
 end -- peek()
 
 function filter( topRec, ldtBinName, peekCount, userModule, filter, fargs )
+    info("[FILTER] Bin(%s) Count(%s) userModule(%s) filter(%s) fargs(%s)",
+    tostring(ldtBinName), tostring(peekCount), tostring(userModule),
+    tostring(filter), tostring(fargs));
   return lstack.peek(topRec,ldtBinName,peekCount,userModule,filter,fargs, nil );
 end -- peek_then_filter()
 
@@ -407,6 +410,95 @@ bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
   info("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
   return rc;
 end -- bulk_number_load()
+
+
+-- =======================================================================
+-- Bulk Object Load Operations
+-- =======================================================================
+-- Add Objects to Large Stack -- to aid in testing the auxilliary features
+-- such as filters, compression, etc.
+-- This will be based on the "PERSON OBJECT", which has the following fields:
+-- Note that only FirstName, and LastName are required.
+--
+-- "FirstName": User First Name (String)
+-- "LastName": User Last Name (String)
+-- "DOB": User data of birth (String)
+-- "SSNum": User social security number (Number)
+-- "HomeAddr": User Home Address (String)
+-- "HomePhone": User Home Phone Number (Number)
+-- "CellPhone": User Cell Phone Number (Number)
+-- "DL": User Driver's License number (String)
+-- "UserPref": User Preferences (Map)
+-- "UserCom": User Comments (List)
+-- "Hobbies": User Hobbies (list)
+--
+-- Although this function takes the same parameters as bulk_number_load(), the
+-- values are used differently.
+--
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) startValue: The starting value to be inserted
+-- (*) count:   The Number of values to insert
+-- (*) incr:  The amount to increment each time to get the next value.
+--            if (-1), then use the RANDOM function
+-- (*) createSpec: The map or module that contains Create Settings
+-- =======================================================================
+function
+bulk_object_load(topRec, ldtBinName, startValue, count, incr, createSpec)
+  local meth = "bulk_object_load()";
+  info("[ENTER]<%s:%s> Bin(%s) SV(%s) C(%s) Incr(%s) CS(%s)", MOD, meth,
+    tostring(ldtBinName), tostring(startValue), tostring(count), 
+    tostring(incr), tostring(createSpec));
+
+  -- Check the input values for non-nil
+  if startValue == nil or count == nil or incr == nil then
+    warn("Input Error: nil Parameters: startValue(%s) Count(%s) Incr(%s)",
+      tostring(startValue), tostring(count), tostring(incr));
+    error("Nil Input Parameters");
+  end
+
+  -- Check the input values for valid types (numbers only)
+  if type(startValue) ~= "number" or type(count) ~= "number" or
+     type(incr) ~= "number"
+  then
+    warn("Input Error: Bad Param types: startValue(%s) Count(%s) Incr(%s)",
+      type(startValue), type(count), type(incr));
+    error("Bad Input Parameter Types");
+  end
+
+  -- Init our subrecContext. .  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  local src = ldt_common.createSubRecContext();
+
+  local rc = 0;
+  local value;
+  if( incr == -1 ) then
+    -- set up for RANDOM values, not incremented values
+    rand = true;
+    incr = 1;
+  end
+  local personObject;
+  for i = 1, count*incr, incr do
+    if rand then
+      value = math.random(1, 10000);
+    else
+      value = startValue + i;
+    end
+    personObject = ldt_common.createPersonObject( value, incr );
+
+  rc = lstack.push( topRec, ldtBinName, personObject, createSpec, src );
+      if ( rc < 0 ) then
+          warn("<%s:%s>Error Return from Add Value(%d)",MOD, meth, rc );
+          error("INTERNAL ERROR");
+      end
+  end
+
+  info("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
+  return rc;
+end -- bulk_object_load()
 
 -- ========================================================================
 --   _      _____ _____ ___  _____  _   __

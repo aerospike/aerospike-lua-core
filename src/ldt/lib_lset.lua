@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_06_09.C"; 
+local MOD="lib_lset_2014_06_18.E"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,11 +42,11 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug Instrument
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSET Main Functions >>
@@ -273,12 +273,26 @@ local LDT_TYPE_LSET   = "LSET";
 local AS_TRUE='T';
 local AS_FALSE='F';
 
+-- =======================================================================
+-- NOTE: It is important that the next values stay consistent
+-- with the same variables in the ldt/settings_lset.lua file.
+-- ===========================================================<Begin>=====
 -- In this early version of SET, we distribute values among lists that we
 -- keep in the top record.  This is the default modulo value for that list
--- distribution.   Later we'll switch to a more robust B+ Tree version.
-local DEFAULT_DISTRIB = 31;
+-- distribution.
+local DEFAULT_MODULO = 128;
+
 -- Switch from a single list to distributed lists after this amount
 local DEFAULT_THRESHOLD = 20;
+
+-- Switch from a SMALL list in the cell anchor to a full Sub-Rec.
+local DEFAULT_BINLIST_THRESHOLD = 4;
+
+-- Define the default value for the "Unique Identifier" function.
+-- User can override the function name, if they so choose.
+local UI_FUNCTION_DEFAULT = "unique_identifier";
+--
+-- ===========================================================<End>=======
 
 -- Use this to test for CtrlMap Integrity.  Every map should have one.
 local MAGIC="MAGIC";     -- the magic value for Testing LSET integrity
@@ -569,6 +583,10 @@ local G_Transform = nil;
 local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
+
+-- Special Function -- if supplied by the user in the "userModule", then
+-- we call that UDF to adjust the LDT configuration settings.
+local G_SETTINGS = "adjust_settings";
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -870,7 +888,7 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   -- Complex will work for both atomic/complex.
   ldtMap[M_KeyType]          = KT_COMPLEX; -- Most things will be complex
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
-  ldtMap[M_Modulo]           = DEFAULT_DISTRIB;
+  ldtMap[M_Modulo]           = DEFAULT_MODULO;
   ldtMap[M_ThreshHold]       = 101; -- Rehash after this many inserts
   ldtMap[M_BinListThreshold] = 4; -- Threshold for converting from a
 
@@ -2723,8 +2741,8 @@ local function topRecDelete( topRec, ldtCtrl, deleteValue, returnVal)
       end
 
       -- APPLY FILTER HERE, if we have one.
-      if filterFunction ~= nil then
-        resultFiltered = filterFunction( liveObject, fargs );
+      if G_Filter ~= nil then
+        resultFiltered = G_Filter( liveObject, G_FunctionArgs );
       else
         resultFiltered = liveObject;
       end
@@ -2971,7 +2989,8 @@ local function subRecDestroy( src, topRec, ldtCtrl )
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = aerospike:remove_subrec( esrRec );
+      -- rc = aerospike:remove_subrec( esrRec );
+      rc = ldt_common.removeSubRec( esrRec );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -3493,7 +3512,7 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
     return resultObject;
   end
 
-    return 0;
+  return 0;
 end -- function lset.remove()
 
 -- ========================================================================

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_06_09.E"; 
+local MOD="lib_lmap_2014_06_18.F"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -448,6 +448,10 @@ local G_Transform = nil;
 local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
+
+-- Special Function -- if supplied by the user in the "userModule", then
+-- we call that UDF to adjust the LDT configuration settings.
+local G_SETTINGS = "adjust_settings";
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -3266,8 +3270,6 @@ function lmap.destroy( topRec, ldtBinName, src )
   end
 
   -- Extract the property map and Ldt control map from the Ldt bin list.
-
-  -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
@@ -3280,11 +3282,13 @@ function lmap.destroy( topRec, ldtBinName, src )
   -- then the ESR will be ZERO.
   local esrDigest = propMap[PM_EsrDigest];
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
+    GP=F and trace("[DEBUG]<%s:%s> ESR Digest exists", MOD, meth );
     local esrDigestString = tostring(esrDigest);
-    GP=f and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = aerospike:remove_subrec( esrRec );
+--    rc = aerospike:remove_subrec( esrRec );
+      rc = ldt_common.removeSubRec( src, esrRec );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -3311,14 +3315,17 @@ function lmap.destroy( topRec, ldtBinName, src )
   local ldtCount = recPropMap[RPM_LdtCount];
   if( ldtCount <= 1 ) then
     -- Remove this bin
+    GP=F and trace("[DEBUG]<%s:%s> Remove LDT CTRL BIN", MOD, meth );
     topRec[REC_LDT_CTRL_BIN] = nil;
   else
+    GP=F and trace("[DEBUG]<%s:%s> LDT CTRL BIN: Decr LDT cnt", MOD, meth );
     recPropMap[RPM_LdtCount] = ldtCount - 1;
     topRec[REC_LDT_CTRL_BIN] = recPropMap;
     record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
   end
   
   -- Mark the enitre control-info structure nil 
+  GP=F and trace("[DEBUG]<%s:%s> NULL out LDT Bin(%s)", MOD, meth, ldtBinName);
   topRec[ldtBinName] = nil;
 
   rc = aerospike:update( topRec );

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_06_09.B";
+local MOD="lib_lstack_2014_06_18.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -185,9 +185,8 @@ local LDT_TYPE_LSTACK = "LSTACK";
 -- of open subrecs.
 local G_OPEN_SR_LIMIT = 20;
 
--- When the user wants to override the default settings, or register some
--- functions, the user module with the "adjust_settings" function will be
--- used.
+-- Special Function -- if supplied by the user in the "userModule", then
+-- we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
 
 -- ++====================++
@@ -588,8 +587,16 @@ local function ldtDebugDump( ldtCtrl )
   info("\n\n <><><><><><><><><> [ LDT LSTACK SUMMARY ] <><><><><><><><><> \n");
 
   if ( ldtCtrl == nil ) then
-    warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
+    warn("[ERROR]<%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
     resultMap.ERROR =  "EMPTY LDT BIN VALUE";
+    info("<<<%s>>>", tostring(resultMap));
+    return 0;
+  end
+
+  if ( type(ldtCtrl) ~= "userdata" ) then
+    warn("[ERROR]<%s:%s>: LDT BIN VALUE (ldtCtrl) is bad.  Type(%s)",
+      MOD, meth, type(ldtCtrl));
+    resultMap.ERROR =  "BAD LDT BIN VALUE";
     info("<<<%s>>>", tostring(resultMap));
     return 0;
   end
@@ -969,7 +976,7 @@ local function readEntryList( resultList, ldtCtrl, entryList, count, all)
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
-      resultValue = G_Filter( readValue, fargs );
+      resultValue = G_Filter( readValue, G_FunctionArgs );
     else
       resultValue = readValue;
     end
@@ -1063,7 +1070,7 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
-      resultValue = G_Filter( readValue, fargs );
+      resultValue = G_Filter( readValue, G_FunctionArgs );
     else
       resultValue = readValue;
     end
@@ -1140,8 +1147,9 @@ end -- takeEntryList()
 -- ======================================================================
 local function readByteArray( resultList, ldtCtrl, ldrSubRec, count, all)
   local meth = "readByteArray()";
-  GP=E and trace("[ENTER]: <%s:%s> Count(%s) func(%s) fargs(%s) all(%s)",
-    MOD,meth,tostring(count), tostring(func), tostring(fargs), tostring(all));
+  GP=E and trace("[ENTER]: <%s:%s> Count(%s) filter(%s) fargs(%s) all(%s)",
+    MOD, meth, tostring(count), tostring(G_Filter), tostring(G_FunctionArgs),
+    tostring(all));
             
   local ldtMap = ldtCtrl[2];
 
@@ -1213,7 +1221,7 @@ local function readByteArray( resultList, ldtCtrl, ldrSubRec, count, all)
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
-      resultValue = G_Filter( readValue, fargs );
+      resultValue = G_Filter( readValue, G_FunctionArgs );
     else
       resultValue = readValue;
     end
@@ -1264,8 +1272,8 @@ end -- readByteArray()
 -- ======================================================================
 local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
   local meth = "ldrInsertList()";
-  GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s)",
-    MOD, meth, listIndex, tostring( insertList ) );
+  GP=E and trace("[ENTER]<%s:%s> LDR_SR(%s) Index(%d) List(%s)",
+    MOD, meth, tostring(ldtSubRec), listIndex, tostring( insertList ) );
 
   GP=F and trace("[DEBUG]<%s:%s> LDT MAP(%s)", MOD, meth, tostring(ldtMap));
 
@@ -2083,9 +2091,6 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
   end
   local itemsLeft = totalEntryCount - countWritten;
   if itemsLeft > 0 then
-    -- This should NOT be needed.  We set this ONCE on create.
-    --record.set_type( topWarmSubRec, RT_SUB );
-    
     ldt_common.updateSubRec( src, topWarmSubRec );
 
     -- We're done with this Sub-Rec. Mark it closed, but it is dirty.
@@ -2157,7 +2162,7 @@ end -- warmListInsert
 -- deliver the digestList to a component that can schedule the digest
 -- to be cleaned up later.
 -- ======================================================================
--- THIS FUNCTION NEEDS REVIEW (it is currently used)
+-- TODO: THIS FUNCTION NEEDS REVIEW (it is currently IN-USE!)
 -- ======================================================================
 local function releaseStorage( topRec, ldtCtrl, digestList )
   local meth = "releaseStorage()";
@@ -2180,7 +2185,8 @@ local function releaseStorage( topRec, ldtCtrl, digestList )
       for i = 1, listSize, 1 do
         digestString = tostring( digestList[i] );
         local subrec = ldt_common.openSubRec( src, topRec, digestString );
-        rc = aerospike:remove_subrec( subrec );
+        -- rc = aerospike:remove_subrec( subRec );
+        rc = ldt_common.removeSubRec( subRec );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         else
@@ -2715,8 +2721,6 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
 
   -- If there is no Cold List, then return immediately -- nothing read.
   if(ldtMap[M_ColdDirListHead] == nil or ldtMap[M_ColdDirListHead] == 0) then
-    GP=F and trace("[WARNING]: <%s:%s> LDT MAP COLD LIST Head is Nil/ZERO",
-      MOD, meth, count, tostring( all ));
     return 0;
   end
 
@@ -3283,7 +3287,7 @@ local function locatePosition( topRec, ldtCtrl, sp, position )
   local digestListPosition = 0;    -- if non-zero, we're cold or warm list
   local entryListPosition = 0;     -- The place in the entry list.
 
-  info("[NOTICE!!]<%s:%s> This is LIST MODE ONLY", MOD, meth );
+  GP=F and trace("[NOTICE!!]<%s:%s> This is LIST MODE ONLY", MOD, meth );
   -- TODO: Must be extended for BINARY -- MODE.
   if( ldtMap[M_StoreMode] == SM_LIST ) then
     local hotListAmount = list.size( ldtMap[M_HotEntryList] );
@@ -3293,18 +3297,18 @@ local function locatePosition( topRec, ldtCtrl, sp, position )
     local warmListPart = (warmFullCount * warmListMax) + warmTopEntries;
     local warmListAmount = hotListPart + warmListPart;
     if( position <= hotListLimit ) then
-      info("[Status]<%s:%s> In the Hot List", MOD, meth );
+      GP=F and trace("[Status]<%s:%s> In the Hot List", MOD, meth );
       -- It's a hot list position:
       entryListPosition = position;
     elseif( position <= warmListSize ) then
-      info("[Status]<%s:%s> In the Warm List", MOD, meth );
+      GP=F and trace("[Status]<%s:%s> In the Warm List", MOD, meth );
       -- Its a warm list position: Subtract off the HotList portion and then
       -- calculate where in the Warm list we are.  Integer divide to locate
       -- the LDR, modulo to locate the warm List Position in the LDR
       local remaining = position - hotListAmount;
       -- digestListPosition = 
     else
-      info("[Status]<%s:%s> In the Cold List", MOD, meth );
+      GP=F and trace("[Status]<%s:%s> In the Cold List", MOD, meth );
       -- It's a cold list position: Subract off the Hot and Warm List portions
       -- to isolate the Cold List part.
     end
@@ -3394,7 +3398,8 @@ function lstack_delete_subrecs( src, topRec, ldtBinName )
         MOD, meth, digestString );
       subrec = ldt_common.openSubRec( src, topRec, digestString );
       if( subrec ~= nil ) then
-        rc = aerospike:remove_subrec( subrec );
+        -- rc = aerospike:remove_subrec( subrec );
+        rc = ldt_common.removeSubRec( subrec );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         else
@@ -3436,12 +3441,18 @@ local function processModule( ldtCtrl, moduleName )
       error( ldte.ERR_USER_MODULE_BAD );
     end
 
-    local userModule = require(moduleName);
-    if( userModule == nil ) then
+    local createModuleRef = require(moduleName);
+
+    GP=F and trace("[STATUS]<%s:%s> moduleName(%s) Mod Ref(%s)", MOD, meth,
+      tostring(moduleName), tostring(createModuleRef));
+
+    if( createModuleRef == nil ) then
       warn("[ERROR]<%s:%s>User Module(%s) not valid", MOD, meth, moduleName);
       error( ldte.ERR_USER_MODULE_NOT_FOUND );
     else
-      local userSettings =  userModule[G_SETTINGS];
+      local userSettings =  createModuleRef[G_SETTINGS];
+      GP=F and trace("[DEBUG]<%s:%s> Process user Settings(%s) Func(%s)",
+        MOD, meth, tostring(createModuleRef[G_SETTINGS]), tostring(userSettings));
       if( userSettings ~= nil ) then
         userSettings( ldtMap ); -- hope for the best.
         ldtMap[M_UserModule] = moduleName;
@@ -3497,8 +3508,10 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   topRec[ldtBinName] = ldtCtrl; -- store in the record
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  -- NOTE: The Caller will write out the LDT bin.
-  return 0;
+  -- NOTE: The Caller will write out the LDT bin.  Also, call Create() will
+  -- use the ldtCtrl return value, rather than re-access the Top-Record to
+  -- get it.
+  return ldtCtrl;
 end -- setupLdtBin()
 
 -- ========================================================================
@@ -3770,7 +3783,7 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
   -- Set up the Write Functions (Transform).  But, just in case we're
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
@@ -3870,7 +3883,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
   -- Set up the Write Functions (Transform).  But, just in case we're
   -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
 
@@ -3985,9 +3998,9 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
 
   local meth = "lstack.peek()";
-  GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) func(%s) fargs(%s)",
+  GP=E and trace("[ENTER]<%s:%s> Bin(%s) Cnt(%s) Mod((%s) filter(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(peekCount),
-    tostring(func), tostring(fargs) );
+    tostring(userModule), tostring(filter), tostring(fargs) );
 
   -- Some simple protection of faulty records or bad bin names
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -4001,7 +4014,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
 
   -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
     ldt_common.setReadFunctions(ldtMap, userModule, filter );
   G_FunctionArgs = fargs;
@@ -4171,7 +4184,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
 
   -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
   -- Note that KeyFunction would be used only for special TIMESTACK function.
-  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
+  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
     ldt_common.setReadFunctions(ldtMap, userModule, filter );
   G_FunctionArgs = fargs;
@@ -4604,7 +4617,8 @@ function lstack.destroy( topRec, ldtBinName, src )
     GP=f and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = aerospike:remove_subrec( esrRec );
+      -- rc = aerospike:remove_subrec( esrRec );
+      rc = ldt_common.removeSubRec( esrRec );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else

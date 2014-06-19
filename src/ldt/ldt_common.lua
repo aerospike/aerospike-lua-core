@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_09.J";
+local MOD="ldt_common_2014_06_18.E";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -40,11 +40,11 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
 -- the updates to the end -- at the close of Lua.
@@ -76,6 +76,7 @@ local DO_EARLY_SUBREC_UPDATES=false;
 -- ldt_common.updateSubRec( srcCtrl, subRec )
 -- ldt_common.markSubRecDirty( srcCtrl, digestString )
 -- ldt_common.closeAllSubRecs( srcCtrl )
+-- ldt_common.removeSubRec( srcCtrl, digestString )
 --
 -- ldt_common.setLdtRecordType( topRec )
 -- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
@@ -97,6 +98,9 @@ local DO_EARLY_SUBREC_UPDATES=false;
 -- ldt_common.listInsert( valList, newValue, position )
 -- ldt_common.listDelete( objectList, position )
 -- ldt_common.validateList( valList )
+--
+-- OBJECT FUNCTIONS
+-- ldt_common.createPersonObject( flavor, skew )
 
 -- ======================================================================
 -- Using These Functions:
@@ -391,7 +395,8 @@ local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
 -- -----------------------------------------------------------------------
 function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
   local meth = "setKeyFunction()";
-  GP=E and trace("[ENTER]<%s:%s>Looking for Key Function", MOD, meth );
+  GP=E and trace("[ENTER]<%s:%s> Required(%s) CurFP(%s)", MOD, meth,
+    tostring(required), tostring(currentFunctionPtr));
 
   -- If there is ALREADY a non-NULL Key Function Ptr (passed in by the
   -- caller who apparently forgot to check), then just give that ptr
@@ -399,6 +404,8 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
   if( currentFunctionPtr ~= nil ) then
       return currentFunctionPtr;
   end
+
+  local createModuleRef; -- Hold the imported module table
 
   -- Look in the Create Module first, then check the Function Table.
   -- The Name of the key function is stored in the ldtMap -- get that name
@@ -416,7 +423,7 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
       -- Look in the Create Module, and if that's not found, then look
       -- in the system function table.
       if( createModule ~= nil ) then
-        local createModuleRef = require(createModule);
+        createModuleRef = require(createModule);
         if(createModuleRef ~= nil and createModuleRef[keyFunctionName] ~= nil)
         then
           keyFunctionPtr = createModuleRef[keyFunctionName];
@@ -471,13 +478,15 @@ end -- setKeyFunction()
 -- -----------------------------------------------------------------------
 function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   local meth = "setReadFunctions()";
-  GP=E and trace("[ENTER]<%s:%s> Process Filter(%s)",
-    MOD, meth, tostring(filter));
+  GP=E and trace("[ENTER]<%s:%s> userModule(%s) Filter(%s)",
+    MOD, meth, tostring(userModule), tostring(filter));
 
   -- Do the Filter First. If not nil, then process.  Complain if things
   -- go badly.
   local createModule = ldtMap[M_UserModule];
   local L_Filter = nil;
+  local userModuleRef;   -- Hold the imported user module table
+  local createModuleRef; -- Hold the imported create module table
   
   if( filter ~= nil ) then
     if( type(filter) ~= "string" or filter == "" ) then
@@ -486,23 +495,57 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
       error( ldte.ERR_FILTER_BAD );
     else
       -- Ok -- so far, looks like we have a valid filter name, 
+      -- info("<CHECK><%s:%s>userModule(%s) filter(%s)", MOD, meth,
+        -- tostring(userModule), tostring(filter));
+      
       if( userModule ~= nil and type(userModule) == "string" ) then
-        local userModuleRef = require(userModule);
+        userModuleRef = require(userModule);
+
+        -- info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s) Ref(%s)", MOD,
+        -- meth, tostring(filter), tostring(userModule), tostring(userModuleRef));
+
         if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
           L_Filter = userModuleRef[filter];
+          -- info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s)", MOD, meth,
+          -- tostring(filter), tostring(userModule));
+        else
+          -- info("[NOTE]<%s:%s> <NO> Filter(%s) from UserMod(%s) M(%s)",MOD,meth,
+          -- tostring(filter), tostring(userModule), tostring(userModuleRef));
         end
       end
+
+      -- info("[POST USER MOD] L_Filter(%s) createModule(%s)",
+        -- tostring(L_Filter), tostring(createModule));
+
       -- If we didn't find a good filter, keep looking.  Try the createModule.
+      -- The createModule should already have been checked for validity.
       if( L_Filter == nil and createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[filter] ~= nil ) then
+        -- info("<CHECK><%s:%s>CREATE Module(%s) filter(%s)", MOD, meth,
+          -- tostring(createModule), tostring(filter));
+
+        createModuleRef = require(createModule);
+
+        -- info("[NOTE]<%s:%s> Require UserModule(%s) Ref(%s)", MOD, meth,
+          -- tostring(createModule), tostring(createModuleRef));
+
+        if(createModuleRef ~= nil and createModuleRef[filter] ~= nil) then
           L_Filter = createModuleRef[filter];
+          -- info("[NOTE]<%s:%s> Set Filter(%s) from CreateModule(%s)", MOD, meth,
+          -- tostring(filter), tostring(createModule));
+        else
+          -- info("[NOTE]<%s:%s> <NO> Filter(%s) from CreateModule(%s)", MOD, meth,
+          -- tostring(filter), tostring(CreateModule));
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
       -- one of the standard Functions.
       if( L_Filter == nil and functionTable ~= nil ) then
         L_Filter = functionTable[filter];
+        -- info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
+        -- tostring(filter), tostring(createModule));
+      else
+        -- info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
+          -- tostring(L_Filter), tostring( functionTable ));
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
@@ -526,8 +569,8 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
     else
       -- Ok -- so far, looks like we have a valid untransformation func name, 
       if( createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[untrans] ~= nil ) then
+        createModuleRef = require(createModule);
+        if(createModuleRef ~= nil and createModuleRef[untrans] ~= nil) then
           L_UnTransform = createModuleRef[untrans];
         end
       end
@@ -572,6 +615,7 @@ function ldt_common.setWriteFunctions( ldtMap )
   -- Look in the create module first, then the UdfFunctionTable to find
   -- the transform function (if there is one).
   local createModule = ldtMap[M_UserModule];
+  local createModuleRef; -- Hold the imported module table
   local trans = ldtMap[M_Transform];
   local L_Transform;
   if( trans ~= nil ) then
@@ -582,8 +626,8 @@ function ldt_common.setWriteFunctions( ldtMap )
     else
       -- Ok -- so far, looks like we have a valid transformation func name, 
       if( createModule ~= nil ) then
-        local createModuleRef = require(createModule);
-        if( createModuleRef ~= nil and createModuleRef[trans] ~= nil ) then
+        createModuleRef = require(createModule);
+        if(createModuleRef ~= nil and createModuleRef[trans] ~= nil) then
           L_Transform = createModuleRef[trans];
         end
       end
@@ -729,9 +773,7 @@ local function cleanSRC( srcCtrl )
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
 
-  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
-  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
-  info("[ENTER]<%s:%s> <<<<<<<<<<<<<<< CLEAN !! >>>>>>>>>>>>>>>>>",MOD,meth);
+  GP=F and trace("[ENTER]<%s:%s> CLEAN the SubRec Context Pool", MOD,meth);
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
@@ -1219,7 +1261,6 @@ function ldt_common.markUnBusy( srcCtrl, digestString )
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
-  local itemCount = recMap.ItemCount;
   local rc = 0;
 
   local subRec = recMap[digestString];
@@ -1340,6 +1381,49 @@ function ldt_common.closeAllSubRecs( srcCtrl )
   GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
   return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
 end -- closeAllSubRecs()
+
+-- ======================================================================
+-- Remove this SubRec from the pool and also close system subrecRemove()
+-- ======================================================================
+function ldt_common.removeSubRec( srcCtrl, digestString )
+  local meth = "removeSubRec()";
+  GP=E and trace("[ENTER]<%s:%s> src(%s) DigestStr(%s)", MOD, meth,
+    tostring(srcCtrl), tostring(digestString));
+
+  local recMap = srcCtrl[1];
+  local dirtyMap = srcCtrl[2];
+
+  -- If the subRec digestString is valid, then remove it from the SRC and
+  -- make the call to actually remove the SubRec.
+  if ( digestString == nil or type(digestString) ~= "string" ) then
+    info("[WARNING]<%s:%s> Attempt to remove invalid SubRec(%s)", MOD, meth,
+      tostring(digestString));
+    return -1;
+  end
+
+  -- If it's not already open, which is possible, then try to open it,
+  -- because apparently we can remove only open sub-recs.
+  local subRec = recMap[digestString];
+  if ( subRec ~= nil ) then
+    if ( recMap[digestString] ~= nil ) then
+      -- We can do this blind -- since whether or not it's there, we're removing
+      -- it from both maps.
+      dirtyMap[digestString] = nil;
+      recMap[digestString] = nil;
+      local itemCount = recMap.ItemCount;
+      recMap.ItemCount = itemCount - 1;
+    end
+  else
+    GP=F and trace("[DEBUG]<%s:%s> remove non-open SubRec(%s)", MOD, meth,
+      tostring(digestString));
+    subRec = aerospike:open_subrec( topRec, digestString );
+  end
+
+  local rc = aerospike:remove_subrec( subRec );
+
+  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
+  return rc; -- Mask the error for now:: TODO::@TOBY::Figure this out.
+end -- removeSubRec()
 
 -- ===========================
 -- End SubRecord Function Area
@@ -2075,6 +2159,62 @@ function ldt_common.validateList( valList )
     return true;
 end -- ldt_common.validateList()
 
+ldt_common.FirstNames = {"Kunta", "Bob", "Kevin"}
+ldt_common.LastNames = {"Kinte", "Anderson", "Johnson"}
+
+-- =======================================================================
+-- createPersonObject( flavor, skew )
+-- =======================================================================
+-- Create a Person Object that will be used in testing LDTs, especially
+-- filters, key functions, unique_value functions and compression functions.
+--
+-- Note that only FirstName, and LastName are required.
+-- 
+-- "FirstName": User First Name (String)
+-- "LastName": User Last Name (String)
+-- "DOB": User data of birth (String)
+-- "SSNum": User social security number (Number)
+-- "HomeAddr": User Home Address (String)
+-- "HomePhone": User Home Phone Number (Number)
+-- "CellPhone": User Cell Phone Number (Number)
+-- "DL": User Driver's License number (String)
+-- "UserPref": User Preferences (Map)
+-- "UserCom": User Comments (List)
+-- "Hobbies": User Hobbies (list)
+-- 
+-- The algorithm used here to create relatively unique values is to take
+-- various factors  of the input parameters to extract names from lists.
+--
+-- Parms:
+-- (*) flavor: Picks the main type of object
+-- (*) skew:   Used to offset the main type and inject different details
+-- Return:
+-- a Map containing interesting values
+-- -- =======================================================================
+function ldt_common.createPersonObject( flavor, skew )
+    local meth = "createPersonObject()";
+    GP=F and trace("[ENTER]: <%s:%s> flavor(%s) skew(%s) ", MOD, meth,
+      tostring(flavor), tostring(skew));
+
+    local newObject = map();
+    local flavorIndex = (flavor % 3) + 1;
+    local skewIndex = ((flavor * 2 + skew) % 3) + 1;
+    newObject.FirstName = ldt_common.FirstNames[flavorIndex];
+    newObject.LastName = ldt_common.LastNames[skewIndex];
+    newObject.DOB = "03/27/1950";
+    newObject.SSNum = 123456789;
+    newObject.HomeAddr = "17 West Cherry Tree Lane";
+    newObject.HomePhone = "(408) 555-3549";
+    newObject.CellPhone = "(408) 555-2063";
+    newObject.DL = "C6988872";
+    newObject.UserPref = "Standard";
+    newObject.UserCom = {"Good Documentation", "Needs better examples"};
+    newObject.Hobbies = {"Tennis", "Golf", "Game of Thrones", "Volleyball"};
+
+    GP=F and trace("[EXIT]<%s:%s> Result Object(%s)", MOD, meth,
+      tostring(newObject));
+  return newObject;
+end
 
 -- ========================================================================
 -- Return the ldt_commonm MAP (or table) that contains all of the functions

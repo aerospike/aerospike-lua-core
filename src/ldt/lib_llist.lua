@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD = "lib_llist_2014_06_09.E";
+local MOD = "lib_llist_2014_06_18.E";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -43,9 +43,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set F (flag) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set F (flag) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local GD;      -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -468,6 +468,10 @@ local G_Transform = nil;
 local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
+
+-- Special Function -- if supplied by the user in the "userModule", then
+-- we call that UDF to adjust the LDT configuration settings.
+local G_SETTINGS = "adjust_settings";
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -1955,7 +1959,7 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, position, keyCount)
 end -- updateSearchPath()
 
 -- ======================================================================
--- scanList(): Scan a List
+-- listScan(): Scan a List
 -- ======================================================================
 -- Whether this list came from the Leaf or the Compact List, we'll search
 -- thru it and look for matching items -- applying the FILTER on all objects
@@ -1967,8 +1971,6 @@ end -- updateSearchPath()
 -- (*) ldtMap:
 -- (*) resultList:
 -- (*) searchKey:
--- (*) func:
--- (*) fargs:
 -- (*) flag: Termination criteria: key ~= val or key > val
 -- Return: A, B, where A is the instruction and B is the return code
 -- A: Instruction: 0 (SCAN_DONE==stop), 1 (SCAN_CONTINUE==continue scanning)
@@ -2021,7 +2023,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
       -- This one qualifies -- save it in result -- if it passes the filter.
       local filterResult = liveObject;
       if( G_Filter ~= nil ) then
-        filterResult = G_Filter( liveObject, fargs );
+        filterResult = G_Filter( liveObject, G_FunctionArgs );
       end
       if( filterResult ~= nil ) then
         list.append( resultList, liveObject );
@@ -2037,7 +2039,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
       -- done and it's time to leave.
       if(uniqueKey == AS_TRUE and searchKey ~= nil and flag == CR_EQUAL) then
         scanStatus = SCAN_DONE;
-        info("[BREAK]<%s:%s> SCAN DONE", MOD, meth);
+        GP=F and trace("[BREAK]<%s:%s> SCAN DONE", MOD, meth);
         break;
       end
     else
@@ -2070,8 +2072,6 @@ end -- listScan()
 -- (*) ldtMap:
 -- (*) resultList:
 -- (*) searchKey:
--- (*) func:
--- (*) fargs:
 -- (*) flag:
 -- Return: A, B, where A is the instruction and B is the return code
 -- A: Instruction: 0 (stop), 1 (continue scanning)
@@ -2125,8 +2125,6 @@ end -- scanByteArray()
 -- (*) ldtMap:
 -- (*) resultList:
 -- (*) searchKey:
--- (*) func:
--- (*) fargs:
 -- (*) flag:
 -- Return: A, B, where A is the instruction and B is the return code
 -- A: Instruction: 0 (stop), 1 (continue scanning)
@@ -4084,11 +4082,10 @@ local function treeMin( topRec,ldtBinName, take )
   end
 
   -- set up the Read Functions (UnTransform, Filter)
-  -- setKeyFunction( ldtMap, true );
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   G_Filter, G_UnTransform =
-      ldt_common.setReadFunctions( ldtMap, userModule, filter );
-  G_FunctionArgs = fargs;
+      ldt_common.setReadFunctions( ldtMap, userModule, nil );
+  G_FunctionArgs = nil;
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
@@ -4284,7 +4281,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec, src )
   local ldtMap  = ldtCtrl[2];
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
+  G_KeyFunction = ldt_common.setKeyFunction( ldtMap, 1, G_KeyFunction ); 
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_Transform = ldt_common.setWriteFunctions( ldtMap );
   
@@ -4414,6 +4411,7 @@ end -- function llist.add_all()
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) key
+-- (*) userModule
 -- (*) func:
 -- (*) fargs:
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
@@ -4443,7 +4441,6 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
   local ldtMap  = ldtCtrl[2];
 
   -- set up the Read Functions (UnTransform, Filter)
-  -- setKeyFunction( ldtMap, true );
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   G_Filter, G_UnTransform =
       ldt_common.setReadFunctions( ldtMap, userModule, filter );
@@ -4557,11 +4554,10 @@ function llist.find_min( topRec,ldtBinName, src)
   end
 
   -- set up the Read Functions (UnTransform, Filter)
-  -- setKeyFunction( ldtMap, true );
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   G_Filter, G_UnTransform =
-      ldt_common.setReadFunctions( ldtMap, userModule, filter );
-  G_FunctionArgs = fargs;
+      ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_FunctionArgs = nil;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -4666,7 +4662,6 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
   local ldtMap  = ldtCtrl[2];
 
   -- set up the Read Functions (UnTransform, Filter)
-  -- setKeyFunction( ldtMap, true );
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   G_Filter, G_UnTransform =
       ldt_common.setReadFunctions( ldtMap, userModule, filter );
@@ -4693,7 +4688,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
     position = resultMap.Position;
 
     if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
-      info("[FOUND]<%s:%s> CL: Found first element at (%d)",MOD,meth,position);
+      GP=F and trace("[FOUND]<%s:%s> CL: Found first element at (%d)",MOD,meth,position);
     end
 
     resultA, resultB = 
@@ -4764,7 +4759,7 @@ function llist.filter( topRec, ldtBinName, userModule, filter, fargs, src )
   local meth = "filter()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) module(%s) func(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(userModule),
-    tostring(func), tostring(fargs));
+    tostring(filter), tostring(fargs));
 
   return llist.find( topRec, ldtBinName, nil, userModule, filter, fargs, src );
 end -- llist.filter()
@@ -4798,7 +4793,6 @@ function llist.remove( topRec, ldtBinName, key, src )
   local ldtMap  = ldtCtrl[2];
   --
   -- Set up the Read Functions (KeyFunction, Transform, Untransform)
-  -- setKeyFunction( ldtMap, true )
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, true, G_KeyFunction ); 
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
 
@@ -4819,7 +4813,7 @@ function llist.remove( topRec, ldtBinName, key, src )
     resultMap = searchObjectList( ldtMap, objectList, key );
     if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
       ldtMap[R_CompactList] =
-        ldt_common.deleteListUnique(objectList, key, resultMap.Position);
+        ldt_common.listDeleteUnique(objectList, resultMap.Position);
     else
       error( ldte.ERR_NOT_FOUND );
     end
@@ -4918,10 +4912,11 @@ function llist.destroy( topRec, ldtBinName, src)
   local esrDigest = propMap[PM_EsrDigest];
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
-    info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = aerospike:remove_subrec( esrRec );
+      -- rc = aerospike:remove_subrec( esrRec );
+      rc = ldt_common.removeSubRec( esrRec );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -5018,11 +5013,11 @@ function llist.config( topRec, ldtBinName )
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  info("POST VALIDATE");
+  -- info("POST VALIDATE");
 
   local config = ldtSummary( ldtCtrl );
 
-  info("POST SUMMARY");
+  -- info("POST SUMMARY");
 
   GP=F and trace("[EXIT]: <%s:%s> : config(%s)",
     MOD, meth, tostring(config) );

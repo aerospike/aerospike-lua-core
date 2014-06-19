@@ -7,7 +7,7 @@
 -- Version 08.08.0:    Last Update: (August 08, 2013) tjl
 
 -- Keep this global value in sync with (above) version
-local MOD="UdfFunctionTable_2013_09_19.a"; -- the module name used for tracing
+local MOD="UdfFunctionTable_2014_06_14.B"; -- the module name used for tracing
 
 -- Table of Functions: Used for Transformation and Filter Functions in
 -- conjunction with Large Stack Objects (LSO) and Large Sets (LSET).
@@ -54,7 +54,7 @@ local MOD="UdfFunctionTable_2013_09_19.a"; -- the module name used for tracing
 -- When "F" is true, the trace() call is executed.  When it is false,
 -- the trace() call is NOT executed (regardless of the value of GP)
 -- ======================================================================
-local GP=true; -- Leave this set to true.
+local GP;     -- We assign T or F to this to generate Global Print
 local F=true; -- Set F (flag) to true to turn ON global print
 
 -- ======================
@@ -122,12 +122,15 @@ end
 -- The rangeFilter will contain a LIST of MAPs, where each map contains
 -- the data we need to evaluate each field:
 -- (*) map.FieldName
--- (*) map.BottomValue
--- (*) map.TopValue
+-- (*) map.MinValue
+-- (*) map.MaxValue
 -- We use the Less Than or Equal Operator and Greater Than or Equal Operator
 -- for this general-purpose range filter. Obviously, if a user wants
 -- something else -- they should write their own specific filter, which will
 -- no doubt be faster as well.
+-- Return:
+-- FILTER OK: Return Object
+-- FILTER NO: Return nil.
 -- ======================================================================
 function UdfFunctionTable.rangeFilter( dbObject, arglist )
   local meth = "rangeFilter()";
@@ -152,15 +155,19 @@ function UdfFunctionTable.rangeFilter( dbObject, arglist )
       error( ldte.ERR_INTERNAL );
     end
     dbValue = dbObject[ fieldMap.FieldName ];
+    if( dbValue == nil ) then
+      result = false;
+      break;
+    end
     if( type(dbValue) == "userdata" ) then
       warn("[ERROR]<%s:%s> FieldName(%s)must be an atomic val", MOD, meth,
         tostring( fieldMap.FieldName ) )
       error( ldte.ERR_INTERNAL );
     end
 
-    local lowVal = fieldMap.BottomValue;
+    local lowVal = fieldMap.MinValue;
     local lowResult = (lowVal == nil) or (dbValue >= lowVal );
-    local hiVal = fieldMap.TopValue;
+    local hiVal = fieldMap.MaxValue;
     local hiResult = (hiVal == nil) or (dbValue <= hiVal );
 
     if not( lowResult and hiResult ) then 
@@ -169,12 +176,11 @@ function UdfFunctionTable.rangeFilter( dbObject, arglist )
     end
   end -- for each term in arglist
   
-
   GP=F and trace("[EXIT]: <%s:%s> Result(%s) \n", MOD, meth, tostring(result));
-  if result == true then
-      return dbObject
+  if result then
+    return dbObject
   else
-      return nil
+    return nil
   end
 
 end -- rangeFilter
