@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_18.E";
+local MOD="ldt_common_2014_06_18.F";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -48,7 +48,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
 -- the updates to the end -- at the close of Lua.
-local DO_EARLY_SUBREC_UPDATES=false;
+local DO_EARLY_SUBREC_UPDATES=true;
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
