@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_llist_2014_06_17.A"; -- the module name used for tracing
+local MOD="settings_llist_2014_06_20.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -164,8 +164,47 @@ local package = {};
   end -- package.StandardList()
 
   -- ======================================================================
+  -- This is the configuration for Large Ordered Lists that hold JUMBO
+  -- Objects, which are assumed to be about 100 kilobytes.  With JUMBO objects,
+  -- we will be keeping our lists small so that we don't overflow the
+  -- B+ Tree Leaf pages.
+  -- However, we STILL assume that the KEY value is not much over 100 bytes.
+  --
+  -- Package = "ListJumboObject"
+  -- ======================================================================
+    function package.ListJumboObject( ldtMap )
+    
+    -- General Parameters
+    ldtMap[T.M_Transform] = nil;
+    ldtMap[T.M_UnTransform] = nil;
+    ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
+    ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
+    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.R_Threshold] = DEFAULT_LARGE_THRESHOLD; -- Convert Compact to tree
+    ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
+
+    -- Top Node Tree Root Directory
+    ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
+    
+    -- LLIST Inner Node Settings.  Note that these are keys, so we will 
+    -- actually assume relatively small keys, even though the objs themselves
+    -- are large.  Keep inner nodes as if they are 20 to 50 byte keys.
+    ldtMap[T.R_NodeListMax] = 200;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
+
+    -- LLIST Tree Leaves (Data Pages)
+    ldtMap[T.R_LeafListMax] = 8;  -- Max # of items
+    ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
+
+    return 0;
+  end -- package.ListJumboObject()
+
+
+  -- ======================================================================
   -- This is the configuration for Large Ordered Lists that hold Large
-  -- Objects, which are assumed to be about 100 kilobytes.  With large objects,
+  -- Objects, which are assumed to be about 10 kilobytes.  With large objects,
   -- we will be keeping our lists small so that we don't overflow the
   -- B+ Tree Leaf pages.
   --
@@ -184,7 +223,7 @@ local package = {};
     ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
 
     -- Top Node Tree Root Directory
-    ldtMap[T.R_RootListMax] = 5; -- Length of Key List (page list is KL + 1)
+    ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
     ldtMap[T.R_RootByteCountMax] = 0; -- Max bytes for key space in the root
     
     -- LLIST Inner Node Settings.  Note that these are keys, so we will 
@@ -194,7 +233,7 @@ local package = {};
     ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
 
     -- LLIST Tree Leaves (Data Pages)
-    ldtMap[T.R_LeafListMax] = 8;  -- Max # of items
+    ldtMap[T.R_LeafListMax] = 100;  -- Max # of items
     ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
     return 0;
@@ -232,7 +271,7 @@ local package = {};
     ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
 
     -- LLIST Tree Leaves (Data Pages)
-    ldtMap[T.R_LeafListMax] = 100;  -- Max # of items
+    ldtMap[T.R_LeafListMax] = 200;  -- Max # of items
     ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
     return 0;

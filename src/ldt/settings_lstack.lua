@@ -108,11 +108,11 @@ function package.StandardList( ldtMap )
 end -- package.StandardList()
 
 -- ======================================================================
--- For very Large Objects (around 100kb) we use a much smaller list size
+-- For Jumbo Objects (around 100kb) we use a much smaller list size
 -- for the Hot List and a smaller list for the SubRecords (LDR).
--- Package = "ListLargeObject"
+-- Package = "ListJumboObject"
 -- ======================================================================
-function package.ListLargeObject( ldtMap )
+function package.ListJumboObject( ldtMap )
   -- General LSTACK Parms:
   ldtMap[T.M_StoreMode]        = SM_LIST;
   ldtMap[T.M_Transform]        = nil;
@@ -124,6 +124,33 @@ function package.ListLargeObject( ldtMap )
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 8; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 4; -- How much to Transfer at a time
+  -- Warm Digest List Settings: List of Digests of LSTACK Data Records
+  ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
+  -- Cold Directory List Settings: List of Directory Pages
+  ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
+  ldtMap[T.M_ColdDirRecMax]    = 100; -- Max# of Cold DIRECTORY Records
+end -- package.ListJumboObject()
+
+
+-- ======================================================================
+-- For Large Objects (around 10kb) we use a small list size
+-- for the Hot List and a small list for the SubRecords (LDR), but not
+-- as small as the list size for JUMBO objects (above).
+-- Package = "ListLargeObject"
+-- ======================================================================
+function package.ListLargeObject( ldtMap )
+  -- General LSTACK Parms:
+  ldtMap[T.M_StoreMode]        = SM_LIST;
+  ldtMap[T.M_Transform]        = nil;
+  ldtMap[T.M_UnTransform]      = nil;
+  -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
+  ldtMap[T.M_LdrEntryCountMax] = 20; -- Max # of items in an LDR (List Mode)
+  ldtMap[T.M_LdrByteEntrySize] = 0; -- Byte size of a fixed size Byte Entry
+  ldtMap[T.M_LdrByteCountMax]  = 0; -- Max # of BYTES in an LDR (binary mode)
+  -- Hot Entry List Settings: List of User Entries
+  ldtMap[T.M_HotListMax]       = 20; -- Max # for the List, when we transfer
+  ldtMap[T.M_HotListTransfer]  = 10; -- How much to Transfer at a time
   -- Warm Digest List Settings: List of Digests of LSTACK Data Records
   ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
   ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
@@ -144,7 +171,7 @@ function package.ListMediumObject( ldtMap )
   -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
   ldtMap[T.M_LdrEntryCountMax] = 100; -- Max # of items in an LDR (List Mode)
   ldtMap[T.M_LdrByteEntrySize] = 0;  -- Byte size of a fixed size Byte Entry
-  ldtMap[T.M_LdrByteCountMax]  = 2000; -- Max # of BYTES in an LDR (binary mode)
+  ldtMap[T.M_LdrByteCountMax]  = 0;  -- Max # of BYTES in an LDR (binary mode)
   -- Hot Entry List Settings: List of User Entries
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
@@ -178,7 +205,7 @@ function package.ListSmallObject( ldtMap )
   ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
-  ldtMap[T.M_ColdDirRecMax]    = 100; -- Max# of Cold DIRECTORY Records
+  ldtMap[T.M_ColdDirRecMax]    = 10; -- Max# of Cold DIRECTORY Records
 end -- package.ListSmallObject()
 
 -- ======================================================================

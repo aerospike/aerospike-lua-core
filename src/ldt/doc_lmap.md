@@ -75,41 +75,60 @@
 -- Visual Depiction
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- 
+--(Standard "Sub-Record" Mode)
+-- +----+----+---+-----+---+-----+
+-- |User|User|...|LMAP |...|User |
+-- |Bin |Bin |   |Bin  |   |Bin  |
+-- |1   |2   |...|     |...|N    |
+-- +----+----+---+-----+---+-----+
+--                 |        
+--                 V       
+--           +========+                                   
+--           | LMAP   |                                    
+--           | control|                                        
+--           +<><><><>+                                       
+--           |Hash Dir|                                       
+--           +VVVVVVVV+                          LDR 1        
+--           |Digest 1|+----------------------->+--------+    
+--           |--------|              LDR 2      |Entry 1 |    
+--           |Digest 2|+------------>+--------+ |Entry 2 |    
+--           +--------+              |Entry 1 | |   o    |    
+--           | o o o  |              |Entry 2 | |   o    |    
+--           |--------|    LDR N     |   o    | |   o    |    
+--           |Digest N|+->+--------+ |   o    | |Entry n |    
+--           +<><><><>+   |Entry 1 | |   o    | +--------+
+--                        |Entry 2 | |Entry n |
+--                        |   o    | +--------+
+--                        |   o    |
+--                        |   o    |
+--                        |Entry n |
+--                        +--------+
 --
---(Standard Mode)
--- +-----+-----+-----+-----+----------------------------------+
--- |User |User |. .  |LMAP |LMAP |. . .|LMAP |                |
--- |Bin 1|Bin 2|     |Bin  |Bin  |     |Bin  |                |
--- |     |     |. .  |Name |Name |. . .|Name |                |
--- +-----+-----+-----+-----+----------------------------------+
---                      |     +------------------------------------>+---------+                      
---                      V                                           | LMAP    |    
---               +---------+                                        | control |
---   		     | LMAP    |                                        | bin     |
---               | control |		                                | bin     |
---               | bin     |		                                +---------+ 						 LDR 1	
---   		     +---------+                          LDR 1			|Digest 1 |	+---------------------->+--------+							--         	    |Digest 1 |+----------------------->+--------+	   |---------|              LDR 2      |Entry 1 |
---               |---------|              LDR 2      |Entry 1 |		|Digest 2 |+------------>+--------+ |Entry 2 |
---               |Digest 2 |+------------>+--------+ |Entry 2 |	    +---------+              |Entry 1 | |   o    |
---               +---------+              |Entry 1 | |   o    |	    | o o o   |              |Entry 2 | |   o    |
---               | o o o   |              |Entry 2 | |   o    |		|---------|				 |   o    |	|Entry n |
---               |---------|    LDR N     |   o    | |   o    |		|Digest N |				 |Entry n |	+--------+
---               |Digest N |+->+--------+ |   o    | |Entry n |		+---------+				 +--------+
---               +---------+   |Entry 1 | |   o    | +--------+
---                             |Entry 2 | |Entry n |
---                             |   o    | +--------+
---                             |   o    |
---                             |   o    |
---                             |Entry n |
---                             +--------+
 --
---  
+-- (Sub-Record)
+-- +------+------+----- +------+
+-- | LDT  | Name |Value |Binary|
+-- | CTRL | List |List  |Value |
+-- |      |      |      |Array |
+-- +------+------+----- +------+
+--    |      |      |      |     
+--    V      V      V      V    
+-- +------+------+------+------+                                  
+-- | Ctrl |Entry |Entry| Bits  | 
+-- |Struct|Entry |Entry| Bits  | 
+-- | o o o|Entry |Entry| Bits  | 
+-- +------+Entry |Entry| Bits  |
+--        |o o o |o o o| o o o | 
+--        |Entry |Entry| Bits  | 
+--        +------+-----+-------+
+--
+--
 --
 -- (Compact Mode)
 -- +-----+-----+-----+-----+----------------------------------------+
--- |User |User |. .  |LMAP |                
--- |Bin 1|Bin 2|     |Bin  |                
--- |     |     |. .  |Name |                  
+-- |User |User |. .  |LMAP |                                        |
+-- |Bin 1|Bin 2|     |Bin  |                                        |
+-- |     |     |. .  |     |                                        |
 -- +-----+-----+-----+-----+----------------------------------------+
 --                      |        
 --                      V       
@@ -117,13 +136,13 @@
 --                    | LMAP    |
 --                    | control |
 --                    | info    |
---   		          +---------+                         
+--                     +---------+                         
 --                    | Entry 1 |
 --                    | Entry 2 |
---					  | ..  o ..|
---					  | ..  o ..|
---					  | ..  o ..|
---					  | ..  o ..|
+--                    | ..  o ..|
+--                    | ..  o ..|
+--                    | ..  o ..|
+--                    | ..  o ..|
 --                    | Entry n |
 --                    +---------+  
 --
@@ -171,7 +190,7 @@
 -- 
 -- i. What are some bounds on the lmap_insert ?
 -- *  For starters, when in compact mode, we can only insert upto M_Threshold
---	  after which we can only continue in regular-mode 
+--      after which we can only continue in regular-mode 
 -- *  If we are in regular-mode, how many entries will each LDR list (pointed 
 --    to by a single digest have a max of ? That is determined by the M_Topfull
 --    variable that is actually a ldt-bin level attribute but it gets set and 
@@ -181,7 +200,7 @@
 --     SM_LIST or SM_BINARY is present for both LSET and LSTACK. But StoreState
 --     which determines whether the LDT is operating in compact or standard 
 --     mode is present only for LSET and NOT in LSTACK. In the case of LSTACK
--- 	   the transfer-count and overflow counters acts as rehashing techniques. 
+--        the transfer-count and overflow counters acts as rehashing techniques. 
 --     Since LMAP is a hybrid LSET + Warm-list LDT, it has both the defines. 
 --     LMAP however does not have any Transfer metric, because there is no 
 --     notion of a transfer or overflow in LMAP. As in the case of LSET, the
@@ -191,7 +210,7 @@
 -- i. Unlike lstack which grows as a list but is read in reverse as a stack, 
 --    lmap digest entries are meant to behave as a simple, oops hashed linear
 --    list. So a lmap search is very much similar to the lset-search of hash-matching, 
--- 	  except that in the case of lset, we would hash to find the correct bin, 
+--       except that in the case of lset, we would hash to find the correct bin, 
 --    but in the case of lmap, we look-up by bin-name, but hash to find the 
 --    digest entry amongst the list-indices (in the case of standard mode) or
 --    hash to find the actual entry index itself (in the case of compact mode. 
@@ -203,7 +222,7 @@
 --    entry in our ldr-list-bin, obtain the list-entry corresponding to it,
 --    hash this list-entry over M_Modulo digest-bins and then insert the 
 --    digest into that index pointing to the top of LDR list of entries.
--- 	  LSTACK appends digests to a list, LMAP hashes over M_Modulo to obtain
+--       LSTACK appends digests to a list, LMAP hashes over M_Modulo to obtain
 --    this result. 
 -- 
 -- k. There is also no notion of a TOP in LMAP unlike LMAP. In stack, the top
@@ -242,10 +261,10 @@
 --    the new list back to the digest-entry. Again, we must remember that 
 --    lmap deletion is DELINKING. DO NOT DELETE THE SUBREC FOR LMAP_DELETE.
 -- 
--- 	  How does LMAP search work ?
+--       How does LMAP search work ?
 -- 
 -- a. In compact mode, LMAP search is similar to LSET. We simply scan through
--- 	  the first and only lmap-bin-name and return 0 if the element is found or
+--       the first and only lmap-bin-name and return 0 if the element is found or
 --    return an error if the element is not found in the set or if the lmap bin
 --    name does not at all exist on the system. When the search-value is not 
 --    specified, we return all the elemnets of the first and only bin. 

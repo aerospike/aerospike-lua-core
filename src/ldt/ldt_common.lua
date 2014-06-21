@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_18.F";
+local MOD="ldt_common_2014_06_20.K";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -40,9 +40,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -773,10 +773,11 @@ local function cleanSRC( srcCtrl )
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
 
-  GP=F and trace("[ENTER]<%s:%s> CLEAN the SubRec Context Pool", MOD,meth);
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
+
+  GP=F and trace("[DEBUG]<%s:%s> SRC State: IC(%d)",MOD,meth,recMap.ItemCount);
 
   -- Iterate thru the SubRecContext and close all CLEAN Sub-Records.
   -- Keep track of the count as we close them.
@@ -790,35 +791,44 @@ local function cleanSRC( srcCtrl )
     if( name == "ItemCount" ) then
       GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
     else
-      digestString = name;
-      subRec = value;
-      -- If this guy is CLEAN (not dirty) then we can close it and free up
-      -- a slot for a NEW Sub-Rec to come in.
-      local state = dirtyMap[digestString];
-      if( state == DM_DIRTY or state == DM_BUSY ) then
-        trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD, meth,
-          tostring( state), tostring( digestString ));
-      else
-        rc = aerospike:close_subrec( subRec );
-        if( rc ~= nil and rc < 0 ) then
-          warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
-          MOD, meth, tostring(rc), tostring( digestString ));
+      if ( type(name) == "string" ) then
+        digestString = name;
+        subRec = value;
+        -- We'll assume it's a digest, since it shouldn't be anything else.
+        GP=F and trace("[DEBUG]<%s:%s>: Processing Digest(%s)", MOD, meth,
+          digestString );
+        
+
+        -- If this guy is CLEAN (not dirty) then we can close it and free up
+        -- a slot for a NEW Sub-Rec to come in.
+        local state = dirtyMap[digestString];
+        if( state == DM_DIRTY or state == DM_BUSY ) then
+          trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD, meth,
+            tostring( state), tostring( digestString ));
         else
-          -- We're ok.  It's closed.  Decrement the count and free up the
-          -- slot.
+          trace("[DEBUG]<%s:%s> Closing (%s) Sub-Rec: Dig(%s)", MOD, meth,
+            tostring( state), tostring( digestString ));
+          rc = aerospike:close_subrec( subRec );
+          if( rc ~= nil and rc < 0 ) then
+            warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
+            MOD, meth, tostring(rc), tostring( digestString ));
+          else
+            -- We're ok.  It's closed.  Decrement the count and free up the
+            -- slot.
 
-          dirtyMap[digestString] = nil;
-          recMap[digestString] = nil;
-          local itemCount = recMap.ItemCount;
-          recMap.ItemCount = itemCount - 1;
-          closeCount = closeCount + 1;
+            dirtyMap[digestString] = nil;
+            recMap[digestString] = nil;
+            local itemCount = recMap.ItemCount;
+            recMap.ItemCount = itemCount - 1;
+            closeCount = closeCount + 1;
 
-          GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
-          MOD, meth, digestString, tostring(recMap[digestString]),
-          recMap.ItemCount, closeCount );
-        end
-      end -- else we have something to close
-    end -- else it's a Sub-Rec Field in recMap
+            GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
+            MOD, meth, digestString, tostring(recMap[digestString]),
+            recMap.ItemCount, closeCount );
+          end
+        end -- else we have something to close
+      end -- it's the right type for a Digest Field.
+    end -- else it's (assumed to be) a Sub-Rec Field in recMap
   end -- for all fields in SRC
 
   GP=E and trace("[EXIT]<%s:%s> POST CLEAN: CloseCnt(%d) ItemCount(%d)",
@@ -886,7 +896,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   -- "bare-hand" this Special SubRec create.
   -- Create the ESR, then Remember to add this to the SRC after it is
   -- initialized.
-  GP=F and info("[DEBUG]: <%s:%s> Calling CREATE", MOD, meth );
+  -- GP=F and info("[DEBUG]: <%s:%s> Calling CREATE", MOD, meth );
   local esrRec    = aerospike:create_subrec( topRec );
 
   if( esrRec == nil ) then
@@ -894,18 +904,18 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
     error( ldte.ERR_SUBREC_CREATE );
   end
 
-  GP=F and info("[DEBUG]: <%s:%s> Setting ESR TYPE ", MOD, meth );
+  -- GP=F and info("[DEBUG]: <%s:%s> Setting ESR TYPE ", MOD, meth );
 
   -- Set the record type as "ESR"
   record.set_type( esrRec, RT_ESR );
 
-  GP=F and info("[DEBUG]: <%s:%s> Setting ESR BINS ", MOD, meth );
+  -- GP=F and info("[DEBUG]: <%s:%s> Setting ESR BINS ", MOD, meth );
 
   local esrDigest = record.digest( esrRec);
   local topDigest = record.digest( topRec );
   local topPropMap = ldtCtrl[1];
 
-  GP=F and info("[DEBUG]: <%s:%s> topPropMap(%s) ", MOD, meth, tostring(topPropMap));
+  -- GP=F and info("[DEBUG]: <%s:%s> topPropMap(%s) ", MOD, meth, tostring(topPropMap));
 
   -- Set the Property ControlMap for the ESR, and assign the parent Digest
   -- Note that we use our standard convention for property maps - all Sub-Recs
@@ -917,7 +927,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   -- Remember the ESR in the Top Record
   topPropMap[PM_EsrDigest] = esrDigest;
 
-  GP=F and info("[DEBUG]: <%s:%s> ESR DG(%s) ", MOD, meth, tostring(esrDigest));
+  -- GP=F and info("[DEBUG]: <%s:%s> ESR DG(%s) ", MOD, meth, tostring(esrDigest));
 
   -- Initialize the PropertyMap in the new ESR
   esrPropMap[PM_EsrDigest]    = esrDigest;
@@ -944,7 +954,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
   if DO_EARLY_SUBREC_UPDATES then
     -- Update the ESR.  We're done with it (but updated SubRecs can't be closed
     -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
-    info("[NOTE]<%s:%s> Performing Direct Update of ESR subRec", MOD,meth);
+    trace("[NOTE]<%s:%s> Performing Direct Update of ESR subRec", MOD,meth);
     rc = aerospike:update_subrec( esrRec );
     if( rc ~= nil and rc == 0 ) then
       warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
@@ -973,7 +983,7 @@ end -- createAndInitESR()
 -- ======================================================================
 function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local meth = "createSubRec()";
-  GP=E and info("[ENTER]<%s:%s> ", MOD, meth );
+  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
 
   -- We have a global limit on the number of subRecs that we can have
   -- open at a time.  If we're at (or above) the limit, then we must
@@ -1008,14 +1018,13 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we should try a "CLEAN" to free up some slots.  If that fails, then
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
-  GD=DEBUG and info("[DEBUG]<%s:%s> SR Limit: IC(%d)", MOD, meth, itemCount);
+  GD=DEBUG and trace("[DEBUG]<%s:%s> SR Limit: IC(%d)", MOD, meth, itemCount);
   if( itemCount >= G_OPEN_SR_LIMIT ) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
     -- Not sure if I need to do this, but just in case.
     -- Reaccess the srcCtrl structure from the top.
-    GD=DEBUG and info("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
+    GD=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
 
-    -- recMap = srcCtrl[1];
     if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
       warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
         recMap.ItemCount, G_OPEN_SR_LIMIT );
@@ -1035,8 +1044,10 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local subRecDigestString = tostring( subRecDigest );
   
   -- Recalc ItemCount after the clean.
-  itemCount = recMap.ItemCount;
-  recMap.ItemCount = itemCount + 1;
+    itemCount = recMap.ItemCount;
+  -- WE DO NOT NEED TO  BUMP ITEM COUNT HERE -- THAT IS DONE WHEN WE ADD
+  -- THIS TO THE CONTEXT.
+--  recMap.ItemCount = itemCount + 1;
 
   GP=F and trace("[CREATE SUBREC]<%s:%s>New SRC.ItemCount(%d) DigStr(%s)",
     MOD, meth, recMap.ItemCount, subRecDigestString );
@@ -1059,7 +1070,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- However, for testing purposes, we allow EARLY subrec Updates.
   if DO_EARLY_SUBREC_UPDATES then
     -- TEMPORARILY -- WRITE OUT THE SUBREC.
-    info("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
+    trace("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
     rc = aerospike:update_subrec( newSubRec );
     if( rc ~= nil and rc == 0 ) then
       warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
@@ -1075,7 +1086,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- This will mark the SubRec as dirty.
   local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
 
-  GP=E and info("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
+  GP=E and trace("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
     subRecDigestString )
   return newSubRec;
 end --  createSubRec()
@@ -1130,8 +1141,8 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   local subRec = recMap[digestString];
   if( subRec == nil ) then
     GD=DEBUG and
-      info("[DEBUG]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
-      tostring(digestString), tostring( recMap ));
+      info("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
+        tostring(digestString), tostring( recMap ));
 
     if( itemCount >= G_OPEN_SR_LIMIT ) then
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
@@ -1144,7 +1155,9 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
     -- Recalc ItemCount after the (possible) clean.
     itemCount = recMap.ItemCount;
-    recMap.ItemCount = itemCount + 1;
+  -- WE DO NOT NEED TO  BUMP ITEM COUNT HERE -- THAT IS DONE WHEN WE ADD
+  -- THIS TO THE CONTEXT.
+--     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
       MOD, meth, recMap.ItemCount, tostring(topRec), tostring(digestString));
     subRec = aerospike:open_subrec( topRec, digestString );
@@ -1200,22 +1213,26 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
     error( ldte.ERR_INTERNAL );
   end
 
-  GP=F and info("[STATUS]<%s:%s> Closing Rec: Digest(%s)", MOD, meth,
-    tostring(digestString));
+  GP=F and trace("[STATUS]<%s:%s> Closing Rec: Digest(%s) IC(%d)", MOD, meth,
+    digestString, itemCount );
 
   if dirty == nil then
     dirty = false;
   end
 
-  local dirtyStatus = dirtyMap[digestString] == DM_DIRTY or dirty == true;
+  local dirtyStatus = (dirtyMap[digestString] == DM_DIRTY) or dirty;
 
   if( dirtyStatus ) then
-    GP=F and info("[NOTICE]<%s:%s> Can't close Dirty or Busy Record: Digest(%s)",
-      MOD, meth, tostring(digestString));
+    GP=F and trace("[NOTICE]<%s:%s> Can't close Dirty Record(%s) St(%s)",
+      MOD, meth, digestString, tostring(dirtyStats));
   else
     rc = aerospike:close_subrec( subRec );
-    GP=F and trace("[STATUS]<%s:%s>Closed Rec: Digest(%s) rc(%s)", MOD, meth,
-      tostring(digestString), tostring( rc ));
+    -- Now erase this subrec from the SRC maps.
+    recMap[digestString] = nil;
+    dirtyMap[digestString] = nil;
+    recMap.ItemCount = itemCount - 1;
+    GP=F and trace("[STATUS]<%s:%s>Closed Rec: Digest(%s) IC(%d) rc(%s)",
+      MOD, meth, digestString, recMap.ItemCount, tostring( rc ));
   end
 
   GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
@@ -1228,6 +1245,7 @@ end -- closeSubRecDigestString()
 -- closeSubRec(): Given a Sub-Rec ptr, close the subRec.
 -- ======================================================================
 function ldt_common.closeSubRec( srcCtrl, subRec, dirty )
+  local meth = "closeSubRec";
   if( subRec == nil ) then
     warn("[ERROR]<%s:%s> NULL subRec", MOD, meth );
     error( ldte.ERR_INTERNAL );
@@ -1309,7 +1327,7 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
   -- However, for testing purposes, we allow EARLY subrec Updates.
   if DO_EARLY_SUBREC_UPDATES then
     -- TEMPORARILY -- WRITE OUT THE SUBREC.
-    info("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
+    trace("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
     rc = aerospike:update_subrec( subRec );
     if( rc ~= nil and rc == 0 ) then
       warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));

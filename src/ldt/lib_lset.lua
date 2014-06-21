@@ -430,7 +430,7 @@ local M_Modulo 				   = 'm'; -- Modulo used for Hash Function
 local M_ThreshHold             = 'H'; -- Threshold: Compact->Regular state
 local M_CompactList            = 'c'; -- Compact List (when in Compact Mode)
 local M_HashDirectory          = 'D'; -- Directory of Hash Cells
-local M_BinListThreshold       = 'l'; -- Threshold for converting from a
+local M_HashCellMaxList        = 'X'; -- Threshold for converting from a
                                       -- local binlist to sub-record.
 -- ------------------------------------------------------------------------
 -- Maintain the LSET letter Mapping here, so that we never have a name
@@ -451,7 +451,7 @@ local M_BinListThreshold       = 'l'; -- Threshold for converting from a
 -- I:                         i:                         8:
 -- J:                         j:                         9:
 -- K:                         k:M_KeyType
--- L:M_StoreLimit             l:M_BinListThreshold
+-- L:M_StoreLimit             l:
 -- M:M_StoreMode              m:M_Modulo
 -- N:                         n:
 -- O:                         o:
@@ -463,7 +463,7 @@ local M_BinListThreshold       = 'l'; -- Threshold for converting from a
 -- U:                         u:M_UnTransform
 -- V:                         v:
 -- W:                         w:                     
--- X:                         x:                     
+-- X:M_HashCellMaxList        x:                     
 -- Y:                         y:
 -- Z:                         z:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -890,7 +890,7 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
   ldtMap[M_Modulo]           = DEFAULT_MODULO;
   ldtMap[M_ThreshHold]       = 101; -- Rehash after this many inserts
-  ldtMap[M_BinListThreshold] = 4; -- Threshold for converting from a
+  ldtMap[M_HashCellMaxList]  = 4; -- Threshold for converting from a
 
   -- Put our new maps in a list, in the record, then store the record.
   list.append( ldtCtrl, propMap );

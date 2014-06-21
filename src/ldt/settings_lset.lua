@@ -17,7 +17,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_lset_2014_06_17.A"; -- the module name used for tracing
+local MOD="settings_lset_2014_06_20.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -51,9 +51,10 @@ local HT_DYNAMIC ='D'; -- Use a DYNAMIC set of bins for hash lists
 -- ======================================================================
 -- Switch from CompactList to Hash Table with this many objects.
 -- The thresholds vary depending on expected object size.
-local DEFAULT_LARGE_THRESHOLD  =    5; -- Objs over 100 kb
-local DEFAULT_MEDIUM_THRESHOLD = 20;   -- Objs around 1 kb
-local DEFAULT_SMALL_THRESHOLD  = 100;  -- Objs under  20kb
+local DEFAULT_JUMBO_THRESHOLD  =    5; -- Objs over  100 k bytes
+local DEFAULT_LARGE_THRESHOLD  =   10; -- Objs over   10 k bytes
+local DEFAULT_MEDIUM_THRESHOLD =   20; -- Objs around  1 k bytes
+local DEFAULT_SMALL_THRESHOLD  =  100; -- Objs under  20   bytes
 local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
 
 -- The BIN LIST THRESHOLD is the number of items in a single Hash Cell
@@ -62,7 +63,8 @@ local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
 -- object in the hash directory -- because that could easily blow out the
 -- Top Record.  For medium size objects we can tolerate some, and for small
 -- objects we can tolerate a lot.
-local DEFAULT_LARGE_BINLIST_THRESHOLD  = 0; -- can't have any.
+local DEFAULT_JUMBO_BINLIST_THRESHOLD  = 0; -- can't have any.
+local DEFAULT_LARGE_BINLIST_THRESHOLD  = 1;
 local DEFAULT_MEDIUM_BINLIST_THRESHOLD = 4;
 local DEFAULT_SMALL_BINLIST_THRESHOLD  = 10;
 local DEFAULT_BINLIST_THRESHOLD        = DEFAULT_MEDIUM_BINLIST_THRESHOLD;
@@ -76,6 +78,7 @@ local DEFAULT_MODULO = 128; -- The default HashTable Size
 -- to go REALLY high, they should specify that.  If we don't pick a value,
 -- then the user will hit a storage limit error without warning.
 -- ======================================================================
+local DEFAULT_JUMBO_CAPACITY   =    500;
 local DEFAULT_LARGE_CAPACITY   =   5000;
 local DEFAULT_MEDIUM_CAPACITY  =  50000;
 local DEFAULT_SMALL_CAPACITY   = 500000;
@@ -155,6 +158,31 @@ function package.StandardList( ldtMap )
 end -- package.StandardList()
 
 -- ======================================================================
+-- This is the configuration Jumbo Objects (around 100kb).
+-- Package = "ListJumboObject"
+-- Sub-Record Design, List Mode, Full Object Compare
+-- ======================================================================
+function package.ListJumboObject( ldtMap )
+  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[T.M_StoreLimit]            = DEFAULT_JUMBO_CAPACITY;
+  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
+  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
+  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
+  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[T.M_ThreshHold]            = DEFAULT_JUMBO_THRESHOLD;
+  ldtMap[T.M_LdrEntryCountMax]      = 8; -- Num objects per subrec
+  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
+  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
+  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
+  ldtMap[T.M_KeyFunction]           = nil; -- not used here
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_JUMBO_BINLIST_THRESHOLD;
+end -- package.ListJumboObject()
+
+
+-- ======================================================================
 -- This is the configuration Large Objects (around 100kb).
 -- Package = "ListLargeObject"
 -- Sub-Record Design, List Mode, Full Object Compare
@@ -175,7 +203,7 @@ function package.ListLargeObject( ldtMap )
   ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_LARGE_BINLIST_THRESHOLD;
 end -- package.ListLargeObject()
 
 -- ======================================================================
@@ -199,7 +227,7 @@ function package.ListMediumObject( ldtMap )
   ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_MEDIUM_BINLIST_THRESHOLD;
 end -- package.ListMediumObject()
 
 -- ======================================================================
@@ -223,7 +251,7 @@ function package.ListSmallObject( ldtMap )
   ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[T.M_BinListThreshold]      = DEFAULT_SMALL_BINLIST_THRESHOLD;
 end -- package.ListSmallObject()
 
 -- ======================================================================

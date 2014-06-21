@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_06_18.B";
+local MOD="lib_lstack_2014_06_20.D";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,9 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -1595,7 +1595,7 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   local ldrItemsRead = 0;
   local dirCount = list.size( digestList );
   local ldrRec;
-  local stringDigest;
+  local digestString;
   local status = 0;
 
   GP=F and trace("[DEBUG]:<%s:%s>:DirCount(%d)  Reading DigestList(%s)",
@@ -1606,10 +1606,10 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   -- flag is set).
   for dirIndex = dirCount, 1, -1 do
     -- Record Digest MUST be in string form
-    stringDigest = tostring(digestList[ dirIndex ]);
+    digestString = tostring(digestList[ dirIndex ]);
     GP=F and trace("[DEBUG]: <%s:%s>: Opening Data ldr:Index(%d)Digest(%s):",
-    MOD, meth, dirIndex, stringDigest );
-    ldrRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    MOD, meth, dirIndex, digestString );
+    ldrRec = ldt_common.openSubRec( src, topRec, digestString );
     
     -- resultList is passed by reference and we can just add to it.
     ldrItemsRead = ldrRead(ldrRec, resultList, ldtCtrl, remaining, all);
@@ -1625,12 +1625,15 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
       GP=E and trace("[Early EXIT]:<%s:%s>totalAmountRead(%d) ResultList(%s) ",
         MOD, meth, totalAmountRead, tostring(resultList));
       -- We're done with this Sub-Rec.
-      ldt_common.closeSubRec( src, ldrRec, false);
+      -- ldt_common.closeSubRec( src, ldrRec, false);
+      ldt_common.closeSubRecDigestString( src, digestString, false);
       return totalAmountRead;
     end
 
     -- Done with this SubRec.  Close it.
-    ldt_common.closeSubRec( src, ldrRec, false);
+    GP=F and trace("[DEBUG]:<%s:%s> Close SubRec(%s)", MOD, meth, digestString);
+    -- ldt_common.closeSubRec( src, ldrRec, false);
+    ldt_common.closeSubRecDigestString( src, digestString, false);
 
     -- Get ready for the next iteration.  Adjust our numbers for the
     -- next round
@@ -1756,7 +1759,6 @@ local function extractHotListTransferList( ldtMap )
     MOD, meth, summarizeList(resultList));
   return resultList;
 end -- extractHotListTransferList()
-
 
 -- ======================================================================
 -- hotListHasRoom( ldtMap, insertValue )
@@ -2009,15 +2011,15 @@ local function warmListGetTop( src, topRec, ldtMap )
   GP=E and trace("[ENTER]: <%s:%s> ldtMap(%s)", MOD, meth, tostring( ldtMap ));
 
   local warmDigestList = ldtMap[M_WarmDigestList];
-  local stringDigest = tostring( warmDigestList[ list.size(warmDigestList) ]);
+  local digestString = tostring( warmDigestList[ list.size(warmDigestList) ]);
 
   GP=F and trace("[DEBUG]: <%s:%s> Warm Digest(%s) item#(%d)", 
-      MOD, meth, stringDigest, list.size( warmDigestList ));
+      MOD, meth, digestString, list.size( warmDigestList ));
 
-  local topWarmSubRec = ldt_common.openSubRec( src, topRec, stringDigest );
+  local topWarmSubRec = ldt_common.openSubRec( src, topRec, digestString );
 
-  GP=E and trace("[EXIT]: <%s:%s> result(%s) ",
-    MOD, meth, ldrSummary( topWarmSubRec ) );
+  GP=E and trace("[EXIT]: <%s:%s> digest(%s) result(%s) ",
+    MOD, meth, digestString, ldrSummary( topWarmSubRec ) );
   return topWarmSubRec;
 end -- warmListGetTop()
 
@@ -2605,7 +2607,7 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   -- the current cold Head is completely full, then we also need to add
   -- a new one.  And, if we ADD one, then we have to check to see if we
   -- need to delete the oldest one (or more than one).
-  local stringDigest;
+  local digestString;
   local coldHeadRec;
   local transferAmount = list.size( digestList );
 
@@ -2621,18 +2623,18 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
     GP=F and trace("[DEBUG]:<%s:%s>:Creating FIRST NEW COLD HEAD", MOD, meth );
     coldHeadRec = coldDirHeadCreate(src, topRec, ldtCtrl, transferAmount );
     coldHeadDigest = record.digest( coldHeadRec );
-    stringDigest = tostring( coldHeadDigest );
+    digestString = tostring( coldHeadDigest );
   else
     GP=F and trace("[DEBUG]:<%s:%s>:Opening Existing COLD HEAD", MOD, meth );
-    stringDigest = tostring( coldHeadDigest );
-    coldHeadRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    digestString = tostring( coldHeadDigest );
+    coldHeadRec = ldt_common.openSubRec( src, topRec, digestString );
   end
 
   local coldDirMap = coldHeadRec[COLD_DIR_CTRL_BIN];
   local coldHeadList = coldHeadRec[COLD_DIR_LIST_BIN];
 
   GP=F and trace("[DEBUG]<%s:%s>Digest(%s) ColdHeadCtrl(%s) ColdHeadList(%s)",
-    MOD, meth, tostring( stringDigest ), tostring( coldDirMap ),
+    MOD, meth, tostring( digestString ), tostring( coldDirMap ),
     tostring( coldHeadList ));
 
   -- Iterate thru and transfer the "digestList" (which is a list of
@@ -2745,19 +2747,19 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     trace("[DEBUG]:<%s:%s>:Top of ColdDirPage Loop: DPDigest(%s)",
       MOD, meth, tostring(coldDirRecDigest) );
     -- Open the Directory Page
-    local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
 
     GP=F and trace("[DEBUG]<%s:%s>Cold Dir subrec digest(%s) Map(%s) List(%s)",
-      MOD, meth, stringDigest, tostring(coldDirMap),tostring(digestList));
+      MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
 
     numRead = digestListRead(src, topRec, resultList, ldtCtrl, digestList,
                             countRemaining, all)
     if numRead <= 0 then
       warn("[ERROR]:<%s:%s>:Cold List Read Error: Digest(%s)",
-          MOD, meth, stringDigest );
+          MOD, meth, digestString );
       return numRead;
     end
 
@@ -2786,7 +2788,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
 
     GP=F and trace("[DEBUG]:<%s:%s>Looking at subrec digest(%s) Map(%s) L(%s)",
-      MOD, meth, stringDigest, tostring(coldDirMap),tostring(digestList));
+      MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
 
     coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
     GP=F and trace("[DEBUG]:<%s:%s>Getting Next Digest in Dir Chain(%s)",
@@ -3116,8 +3118,8 @@ local function buildSubRecList( src, topRec, ldtCtrl, position )
     list.append( resultList, coldDirRecDigest );
 
     -- Open the Directory Page, read the digest list
-    local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -3189,8 +3191,8 @@ local function buildSubRecListAll( src, topRec, ldtCtrl )
     list.append( resultList, coldDirRecDigest );
 
     -- Open the Directory Page, read the digest list
-    local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -3610,8 +3612,8 @@ function lstack_subrec_list( src, topRec, ldtBinName )
     list.append( resultList, coldDirRecDigest );
 
     -- Open the Directory Page, read the digest list
-    local stringDigest = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = ldt_common.openSubRec( src, topRec, stringDigest );
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
     for i = 1, list.size(digestList), 1 do 
       list.append( resultList, digestList[i] );
@@ -3685,7 +3687,7 @@ local lstack = {};
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function lstack.create( topRec, ldtBinName, createSpec )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
 
   local meth = "lstack.create()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) createSpec(%s)",
@@ -3754,7 +3756,7 @@ end -- function lstack.create()
 -- passes in nil or any other incorrect value/type.
 -- =======================================================================
 function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
 
   local meth = "lstack.push()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) NewVal(%s) createSpec(%s)", MOD, meth,
@@ -3854,7 +3856,7 @@ end -- function lstack.push()
 -- new style user modulename.
 -- =======================================================================
 function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
 
   local meth = "lstack.push_all()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) valueList(%s) createSpec(%s)", MOD,
@@ -3995,7 +3997,7 @@ end -- end lstack.push_all()
 -- ======================================================================
 function
 lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
 
   local meth = "lstack.peek()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) Cnt(%s) Mod((%s) filter(%s) fargs(%s)",
@@ -4163,7 +4165,7 @@ end -- function lstack.peek()
 -- ======================================================================
 function
 lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
   local meth = "lstack.pop()";
   GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) func(%s) fargs(%s)",
@@ -4319,7 +4321,7 @@ end -- function lstack.pop()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.size( topRec, ldtBinName )
-  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
   local meth = "lstack.size()";
 
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",

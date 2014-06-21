@@ -279,11 +279,8 @@ local M_TotalCount             = 'N';-- Total insert count (not counting dels)
 local M_HashDirSize            = 'O';-- Show current Hash Dir Size
 local M_HashDirMark            = 'm';-- Show where we are in the linear hash
 local M_Threshold              = 'H';-- Convert from simple list to hash table
-local M_BinListThreshold       = 'l'; -- Threshold for converting from a
-                                      -- cell anchor binlist to sub-record.
 local M_CompactNameList        = 'n';--Simple Compact List -- before "dir mode"
 local M_CompactValueList       = 'v';--Simple Compact List -- before "dir mode"
-
 local M_OverWrite              = 'o';-- Allow Overwrite of a Value for a given
                                      -- name.  If false (AS_FALSE), then we
                                      -- throw a UNIQUE error.
@@ -299,8 +296,7 @@ local LDR_ByteEntryCount       = 'C';
 
 local M_HashDirectory          = 'W';-- The Directory of Hash Entries
 local M_HashCellMaxList        = 'X';-- Max List size in a Cell anchor
-local M_ListDigestCount        = 'l';
-local M_ListMax                = 'w';
+-- local M_ListMax                = 'w';
 -- lmap in standard mode is a fixed-size warm-list, so there is no need for
 -- transfer-counters and the other associated stuff.  
 -- local M_ListTransfer        = 'x'; 
@@ -332,7 +328,7 @@ local M_ListMax                = 'w';
 -- I:                         i:                        8:
 -- J:                         j:                        9:
 -- K:                         k:M_KeyType         
--- L:M_StoreLimit             l:M_ListDigestCount
+-- L:M_StoreLimit             l:
 -- M:M_StoreMode              m:M_HashDirMark
 -- N:M_TotalCount             n:M_CompactNameList
 -- O:                         o:M_OverWrite
@@ -366,16 +362,21 @@ local M_ListMax                = 'w';
 -- -----------------------------------------------------------------------
 -- Here are the fields used in a Hash Cell Anchor
 local C_CellState      = 'S'; -- Hold the Cell State
-local C_CellNameList   = 'N'; -- Pt to a LIST of objects
-local C_CellValueList  = 'V'; -- Pt to a LIST of objects
+local C_CellNameList   = 'N'; -- Pt to a LIST of Name objects
+local C_CellValueList  = 'V'; -- Pt to a LIST of Value objects
 local C_CellDigest     = 'D'; -- Pt to a single digest value
-local C_CellTree       = 'T'; -- Pt to a LIST of digests
+local C_CellTree       = 'T'; -- Pt to a LIST of digests (Radix Tree)
 
 -- Here are the various constants used with Hash Cells
-local C_STATE_EMPTY   = 'E'; -- 
+-- Hash Cell States:
+local C_STATE_EMPTY   = 'E'; -- This cell is empty
 local C_STATE_LIST    = 'L'; 
 local C_STATE_DIGEST  = 'D';
 local C_STATE_TREE    = 'T';
+
+-- Other Hash Cell values/objects
+-- (TBD)
+
 -- -----------------------------------------------------------------------
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- We won't bother with the sorted alphabet mapping for the rest of these
@@ -660,13 +661,6 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.LdrByteEntrySize     = ldtMap[M_LdrByteEntrySize];
   resultMap.LdrByteCountMax      = ldtMap[M_LdrByteCountMax];
 
-  -- Digest List Settings: List of Digests of LMAP Data Records
-  -- specific to LMAP in STANDARD_MODE ONLY 
-  
-  resultMap.ListDigestCount   = ldtMap[M_ListDigestCount];
-  resultMap.ListMax           = ldtMap[M_ListMax];
-  -- resultMap.TopChunkByteCount = ldtMap[M_TopChunkByteCount];
-  -- resultMap.TopChunkEntryCount= ldtMap[M_TopChunkEntryCount];
 end -- function ldtMapSummary
 
 
@@ -973,14 +967,14 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   ldtMap[M_HashDirectory]        = newDirList;
   
   -- How many LDR Sub-Recs (entry lists) exist in this lmap bin?
-  ldtMap[M_ListDigestCount]   = 0; -- Number of Warm Data Record Chunks
+  propMap[PM_SubRecCount] = 0;
       
   -- This field is technically used to determine if warm-list has any more room 
   -- of if we want to age and transfer some items to cold-list to make room. 
   -- Since there is no overflow, this might not be needed really ? or we can 
   -- reuse it to determine something else -- Check with Toby
       
-  ldtMap[M_ListMax]           = 100; -- Max Number of Data Record Chunks
+  -- ldtMap[M_ListMax]           = 100; -- Max Number of Data Record Chunks
   -- ldtMap[M_TopChunkEntryCount]= 0; -- Count of entries in top chunks
   -- ldtMap[M_TopChunkByteCount] = 0; -- Count of bytes used in top Chunk
 
@@ -1601,8 +1595,8 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
    
   -- Increment the Digest Count
   -- gets inceremented once per LDR entry add. 
-  local subRecCount = ldtMap[M_ListDigestCount]; 
-  ldtMap[M_ListDigestCount] = (subRecCount + 1);
+  local subRecCount = propMap[PM_SubRecCount];
+  propMap[PM_SubRecCount] = (subRecCount + 1);
 
   -- Mark this Sub-Rec as dirty -- so that it doesn't get reclaimed until
   -- the end of the overall Lua call.
