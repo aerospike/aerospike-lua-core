@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_06_18.F"; 
+local MOD="lib_lmap_2014_06_23.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -3084,12 +3084,13 @@ end -- function lmap.get()
 -- ========================================================================
 function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP SCAN ] <<<<<<<<<< \n");
-
   local meth = "lmap.scan()";
-  rc = 0; -- start out OK.
-  GP=E and trace("[ENTER]: <%s:%s> Bin-Name: %s Search for Value(%s)",
-                 MOD, meth, tostring(ldtBinName), tostring( searchValue ));
+  GP=E and trace("[ENTER]<%s:%s> Bin(%s) UMod(%s) Filter(%s) Fargs(%s)",
+   MOD, meth, tostring(ldtBinName), tostring(userModule), tostring(filter),
+   tostring(fargs));
                  
+  local rc = 0; -- start out OK.
+
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );

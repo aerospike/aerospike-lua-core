@@ -74,8 +74,8 @@ function put( topRec, ldtBinName, newName, newValue, createSpec )
   return lmap.put( topRec, ldtBinName, newName, newValue, createSpec, nil);
 end -- put()
 
-function put_all( topRec, ldtBinName, NameValMap, createSpec )
-  return lmap.put_all( topRec, ldtBinName, NameValMap, createSpec, nil);
+function put_all( topRec, ldtBinName, nameValMap, createSpec )
+  return lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, nil);
 end -- put_all()
 
 -- ========================================================================
@@ -88,7 +88,7 @@ function get( topRec, ldtBinName, searchName )
 end -- get()
 
 function scan( topRec, ldtBinName )
-  return lmap.scan(topRec, ldtBinName, nil, nil, nil);
+  return lmap.scan(topRec, ldtBinName, nil, nil, nil, nil);
 end -- scan()
 
 -- ========================================================================
