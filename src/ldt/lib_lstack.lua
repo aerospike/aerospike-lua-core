@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_06_20.D";
+local MOD="lib_lstack_2014_06_24.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2166,7 +2166,7 @@ end -- warmListInsert
 -- ======================================================================
 -- TODO: THIS FUNCTION NEEDS REVIEW (it is currently IN-USE!)
 -- ======================================================================
-local function releaseStorage( topRec, ldtCtrl, digestList )
+local function releaseStorage( src, topRec, ldtCtrl, digestList )
   local meth = "releaseStorage()";
   local rc = 0;
   GP=E and trace("[ENTER]:<%s:%s> ldtSummary(%s) digestList(%s)",
@@ -2187,8 +2187,7 @@ local function releaseStorage( topRec, ldtCtrl, digestList )
       for i = 1, listSize, 1 do
         digestString = tostring( digestList[i] );
         local subrec = ldt_common.openSubRec( src, topRec, digestString );
-        -- rc = aerospike:remove_subrec( subRec );
-        rc = ldt_common.removeSubRec( subRec );
+        rc = ldt_common.removeSubRec( src, digestString );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         else
@@ -2361,7 +2360,6 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     itemsDeleted = list.size(ldrDeleteList) * ldrItemCount;
     subrecsDeleted = list.size(ldrDeleteList) + list.size(dirDeleteList);
 
-    -- releaseStorage( src, topRec, ldtCtrl, deleteList );
   end -- cases for when we remove OLD storage
 
   -- If we did some deletes -- clean that all up now.
@@ -3400,8 +3398,7 @@ function lstack_delete_subrecs( src, topRec, ldtBinName )
         MOD, meth, digestString );
       subrec = ldt_common.openSubRec( src, topRec, digestString );
       if( subrec ~= nil ) then
-        -- rc = aerospike:remove_subrec( subrec );
-        rc = ldt_common.removeSubRec( subrec );
+        rc = ldt_common.removeSubRec(src , digestString );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         else
@@ -4619,8 +4616,7 @@ function lstack.destroy( topRec, ldtBinName, src )
     GP=f and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      -- rc = aerospike:remove_subrec( esrRec );
-      rc = ldt_common.removeSubRec( esrRec );
+      rc = ldt_common.removeSubRec( src, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else

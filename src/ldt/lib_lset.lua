@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_06_18.E"; 
+local MOD="lib_lset_2014_06_24.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2989,8 +2989,7 @@ local function subRecDestroy( src, topRec, ldtCtrl )
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      -- rc = aerospike:remove_subrec( esrRec );
-      rc = ldt_common.removeSubRec( esrRec );
+      rc = ldt_common.removeSubRec( src, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else

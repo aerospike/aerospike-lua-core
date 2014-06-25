@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD = "lib_llist_2014_06_18.E";
+local MOD = "lib_llist_2014_06_24.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -350,6 +350,7 @@ local M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
 local M_StoreLimit          = 'L';-- Storage Capacity Limit
 local M_Transform           = 't';-- Transform Object (from User to bin store)
 local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
+local M_OverWrite           = 'o';-- Allow Overwrite (AS_TRUE or AS_FALSE)
 
 -- Tree Level values
 local R_TotalCount          = 'T';-- A count of all "slots" used in LLIST
@@ -1722,7 +1723,6 @@ local function printTree( src, topRec, ldtBinName )
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
-
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- printTree()
 
@@ -1734,7 +1734,7 @@ end -- printTree()
 -- (*) leftDigest:  Set PrevPage ptr, if not nil
 -- (*) rightDigest: Set NextPage ptr, if not nil
 -- ======================================================================
-local function setLeafPagePointers( leafSubRec, leftDigest, rightDigest )
+local function setLeafPagePointers( src, leafSubRec, leftDigest, rightDigest )
   local meth = "setLeafPagePointers()";
   GP=E and trace("[ENTER]<%s:%s> left(%s) right(%s)",
     MOD, meth, tostring(leftDigest), tostring(rightDigest) );
@@ -1746,8 +1746,9 @@ local function setLeafPagePointers( leafSubRec, leftDigest, rightDigest )
     leafMap[LF_NextPage] = rightDigest;
   end
   leafSubRec[LSR_CTRL_BIN] = leafMap;
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( leafSubRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, leafSubRec );
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- setLeafPagePointers()
@@ -1826,10 +1827,9 @@ local function adjustPagePointers( src, topRec, ldtMap, newLeftLeaf, rightLeaf )
     local oldLeftLeafMap = oldLeftLeaf[LSR_CTRL_BIN];
     oldLeftLeafMap[LF_NextPage] = newLeftLeafDigest;
     oldLeftLeaf[LSR_CTRL_BIN] = oldLeftLeafMap;
-    -- Call udpate -- even though it is also done at the close of Lua Context.
-    aerospike:update_subrec( oldLeftLeaf );
-    -- Remember, we don't close subrecs.  We use the SRC to track all SubRecs,
-    -- and the Lua Context does all of the closing at the end.
+    -- Call udpate to mark the SubRec as dirty, and to force the write if we
+    -- are in "early update" mode. Close will happen at the end of the Lua call.
+    ldt_common.updateSubRec( src, oldLeftLeaf );
   end
 
   -- Now update the new Left Leaf, the Right Leaf, and their page ptrs.
@@ -1840,9 +1840,10 @@ local function adjustPagePointers( src, topRec, ldtMap, newLeftLeaf, rightLeaf )
   -- Save the Leaf Record Maps, and update the subrecs.
   newLeftLeaf[LSR_CTRL_BIN]   =  newLeftLeafMap;
   rightLeaf[LSR_CTRL_BIN]     = rightLeafMap;
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( newLeftLeaf );
-  -- aerospike:update_subrec( rightLeaf );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, newLeftLeaf );
+  ldt_common.updateSubRec( src, rightLeaf );
 
   GP=E and trace("[EXIT]<%s:%s> ", MOD, meth );
 end -- adjustPagePointers()
@@ -2341,7 +2342,7 @@ end -- treeSearch()
 -- (*) newLeafSubRec
 -- (*) objectList
 -- ======================================================================
-local function populateLeaf( leafSubRec, objectList )
+local function populateLeaf( src, leafSubRec, objectList )
   local meth = "populateLeaf()";
   local rc = 0;
   GP=E and trace("[ENTER]<%s:%s>ObjList(%s)",MOD,meth,tostring(objectList));
@@ -2354,8 +2355,9 @@ local function populateLeaf( leafSubRec, objectList )
   leafMap[LF_ListEntryTotal] = count;
 
   leafSubRec[LSR_CTRL_BIN] = leafMap;
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( leafSubRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, leafSubRec );
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return rc;
@@ -2461,11 +2463,9 @@ leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, position)
   leafMap[LF_ListEntryTotal] = totalCount + 1;
 
   leafSubRec[LSR_LIST_BIN] = objectList;
-  -- Update the leaf record; Close waits until the end
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( leafSubRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
   ldt_common.updateSubRec( src, leafSubRec );
-  -- aerospike:close_subrec( leafSubRec ); -- No longer close here.
 
   GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
   return rc;
@@ -2778,9 +2778,10 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
   -- Populate the new nodes with their Key and Digest Lists
   populateNode( leftNodeRec, leftKeyList, leftDigestList);
   populateNode( rightNodeRec, rightKeyList, rightDigestList);
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( leftNodeRec );
-  -- aerospike:update_subrec( rightNodeRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, leftNodeRec );
+  ldt_common.updateSubRec( src, rightNodeRec );
 
   -- Replace the Root Information with just the split-key and the
   -- two new child node digests (much like first Tree Insert).
@@ -2927,12 +2928,13 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     -- Populate the new nodes with their Key and Digest Lists
     populateNode( leftNodeRec, leftKeyList, leftDigestList);
     populateNode( rightNodeRec, rightKeyList, rightDigestList);
-    -- We no longer call udpate -- it is done at the close of Lua Context.
-    -- aerospike:update_subrec( leftNodeRec );
-    -- aerospike:update_subrec( rightNodeRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, leftNodeRec );
+  ldt_common.updateSubRec( src, rightNodeRec );
 
-    -- Update the parent node with the new Node information.  It is the job
-    -- of this method to either split the parent or do a straight insert.
+  -- Update the parent node with the new Node information.  It is the job
+  -- of this method to either split the parent or do a straight insert.
     
     GP=F and trace("\n\n CALLING INSERT PARENT FROM SPLIT NODE: Key(%s)\n",
       tostring(splitKey));
@@ -2985,7 +2987,7 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
   local keyList;
   local digestList;
   local position = sp.PositionList[level];
-  local nodeRec = nil;
+  local nodeSubRec = nil;
   GP=F and trace("[DEBUG]<%s:%s> Lvl(%d) Pos(%d)", MOD, meth, level, position);
   if( level == 1 ) then
     -- Get the control and list data from the Root Node
@@ -2994,15 +2996,15 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
     digestList = ldtMap[R_RootDigestList];
   else
     -- Get the control and list data from a regular inner Tree Node
-    nodeRec = sp.RecList[level];
-    if( nodeRec == nil ) then
+    nodeSubRec = sp.RecList[level];
+    if( nodeSubRec == nil ) then
       warn("[ERROR]<%s:%s> Nil NodeRec from SearchPath. Level(%s)",
         MOD, meth, tostring(level));
       error( ldte.ERR_INTERNAL );
     end
     listMax    = ldtMap[R_NodeListMax];
-    keyList    = nodeRec[NSR_KEY_LIST_BIN];
-    digestList = nodeRec[NSR_DIGEST_BIN];
+    keyList    = nodeSubRec[NSR_KEY_LIST_BIN];
+    digestList = nodeSubRec[NSR_DIGEST_BIN];
   end
 
   -- If there's room in this node, then this is easy.  If not, then
@@ -3014,11 +3016,12 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
     -- fields -- otherwise, the change may not take effect.
     if( rc == 0 ) then
       if( level > 1 ) then
-        nodeRec[NSR_KEY_LIST_BIN] = keyList;
-        nodeRec[NSR_DIGEST_BIN]   = digestList;
-        ldt_common.updateSubRec( src, nodeRec );
-        -- We no longer call udpate -- it is done at the close of Lua Context.
-        -- aerospike:update_subrec( nodeRec );
+        nodeSubRec[NSR_KEY_LIST_BIN] = keyList;
+        nodeSubRec[NSR_DIGEST_BIN]   = digestList;
+        -- Call udpate to mark the SubRec as dirty, and to force the write
+        -- if we are in "early update" mode. Close will happen at the end
+        -- of the Lua call.
+        ldt_common.updateSubRec( src, nodeSubRec );
       end
     else
       -- Bummer.  Errors.
@@ -3255,8 +3258,8 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local leftLeafDigest = record.digest( leftLeafRec );
 
   -- Overwrite the leaves with their new object value lists
-  populateLeaf( leftLeafRec, leftList );
-  populateLeaf( rightLeafRec, rightList );
+  populateLeaf( src, leftLeafRec, leftList );
+  populateLeaf( src, rightLeafRec, rightList );
 
   -- Update the Page Pointers: Given that they are doubly linked, we can
   -- easily find the ADDITIONAL page that we have to open so that we can
@@ -3281,9 +3284,10 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     error( ldte.ERR_INTERNAL );
   end
 
-  -- Call udpate, even thought it is done at the close of Lua Context.
-  aerospike:update_subrec( leftLeafRec );
-  aerospike:update_subrec( rightLeafRec );
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
+  ldt_common.updateSubRec( src, leftLeafRec );
+  ldt_common.updateSubRec( src, rightLeafRec );
 
   -- Update the parent node with the new leaf information.  It is the job
   -- of this method to either split the parent or do a straight insert.
@@ -3343,8 +3347,8 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue, stats )
   ldtMap[R_RightLeafDigest] = rightLeafDigest; -- Remember Right-Most Leaf
 
   -- Our leaf pages are doubly linked -- we use digest values as page ptrs.
-  setLeafPagePointers( leftLeafRec, 0, rightLeafDigest );
-  setLeafPagePointers( rightLeafRec, leftLeafDigest, 0 );
+  setLeafPagePointers( src, leftLeafRec, 0, rightLeafDigest );
+  setLeafPagePointers( src, rightLeafRec, leftLeafDigest, 0 );
 
   GP=F and trace("[DEBUG]<%s:%s>Created Left(%s) and Right(%s) Records",
     MOD, meth, tostring(leftLeafDigest), tostring(rightLeafDigest) );
@@ -3369,19 +3373,16 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue, stats )
   -- TODO: @TOBY: Double check this and fix.
   ldtMap[R_RootKeyList] = rootKeyList;
   ldtMap[R_RootDigestList] = rootDigestList;
-  ldtCtrl[2] = ldtMap;
+  -- ldtCtrl[2] = ldtMap;
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  -- Note: The caller will update the top record, but we need to update
-  -- and close the subrecs here.
-  -- We no longer call udpate -- it is done at the close of Lua Context.
-  -- aerospike:update_subrec( leftLeafRec );
+  -- Note: The caller will update the top record, but we need to update the
+  -- subrecs here.
+  -- Call udpate to mark the SubRec as dirty, and to force the write if we
+  -- are in "early update" mode. Close will happen at the end of the Lua call.
   ldt_common.updateSubRec( src, leftLeafRec );
-  -- aerospike:close_subrec( leftLeafRec );
-  -- aerospike:update_subrec( rightLeafRec );
   ldt_common.updateSubRec( src, rightLeafRec );
-  -- aerospike:close_subrec( rightLeafRec );
 
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) newValue(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(newValue), tostring(rc));
@@ -3453,11 +3454,10 @@ local function treeInsert( src, topRec, ldtCtrl, value, stats )
       local leafSubRec = sp.RecList[leafLevel];
       local position = sp.PositionList[leafLevel];
       rc = leafInsert(src, topRec, leafSubRec, ldtMap, key, value, position);
-      -- In theory, we no longer have to call SubRec Update, but we've noticed
-      -- some problems of lost data if we don't call it -- so for now we
-      -- call it.  Dirty SubRecs are also written out and closed at the end
-      -- of the Lua Context.
-      aerospike:update_subrec( leafSubRec );
+      -- Call update_subrec() to both mark the subRec as dirty, AND to write
+      -- it out if we are in "early update" mode.  In general, Dirty SubRecs
+      -- are also written out and closed at the end of the Lua Context.
+      ldt_common.updateSubRec( src, leafSubRec );
     else
       -- Split first, then insert.  This split can potentially propagate all
       -- the way up the tree to the root. This is potentially a big deal.
@@ -4136,6 +4136,7 @@ end -- treeMin();
 -- (*) List   = llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
 -- (*) Object = llist.find_min(topRec,ldtBinName, src)
 -- (*) Object = llist.find_max(topRec,ldtBinName, src)
+-- (*) List   = llist.range( topRec, ldtBinName, lowKey, highKey, src) 
 -- (*) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
 -- (*) Object = llist.take_min(topRec,ldtBinName, src)
 -- (*) Object = llist.take_max(topRec,ldtBinName, src)
@@ -4158,7 +4159,6 @@ end -- treeMin();
 -- (*) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
 -- (*) Object = llist.take_min(topRec,ldtBinName, src)
 -- (*) Object = llist.take_max(topRec,ldtBinName, src)
--- (*) List   = llist.range( topRec, ldtBinName, lowKey, highKey, src) 
 -- (*) Status = llist.update(topRec, ldtBinName, userObject, src)
 --
 -- ======================================================================
@@ -4915,8 +4915,7 @@ function llist.destroy( topRec, ldtBinName, src)
     GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      -- rc = aerospike:remove_subrec( esrRec );
-      rc = ldt_common.removeSubRec( esrRec );
+      rc = ldt_common.removeSubRec( src, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
