@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_20.K";
+local MOD="ldt_common_2014_06_25.D";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -40,11 +40,11 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
 local GD;     -- Global Debug instrument.
-local DEBUG=false; -- turn on for more elaborate state dumps.
+local DEBUG=true; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
 -- the updates to the end -- at the close of Lua.
@@ -1141,7 +1141,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   local subRec = recMap[digestString];
   if( subRec == nil ) then
     GD=DEBUG and
-      info("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
+      trace("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
         tostring(digestString), tostring( recMap ));
 
     if( itemCount >= G_OPEN_SR_LIMIT ) then

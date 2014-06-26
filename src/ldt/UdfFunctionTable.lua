@@ -55,7 +55,7 @@ local MOD="UdfFunctionTable_2014_06_14.B"; -- the module name used for tracing
 -- the trace() call is NOT executed (regardless of the value of GP)
 -- ======================================================================
 local GP;     -- We assign T or F to this to generate Global Print
-local F=true; -- Set F (flag) to true to turn ON global print
+local F=false; -- Set F (flag) to true to turn ON global print
 
 -- ======================
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
