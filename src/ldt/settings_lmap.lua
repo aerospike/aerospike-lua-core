@@ -64,7 +64,7 @@ local DEFAULT_HASH_STATE = HS_STATIC;
 
 -- ======================================================================
 -- NOTE: It's important that these three values remain consistent with
--- the matching variable names in the ldt/lib_lset.lua file.
+-- the matching variable names in the ldt/lib_lmap.lua file.
 -- ======================================================================
 -- Switch from CompactList to Hash Table with this many objects.
 -- The thresholds vary depending on expected object size.

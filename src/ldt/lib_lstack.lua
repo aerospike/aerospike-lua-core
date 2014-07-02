@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_06_24.B";
+local MOD="lib_lstack_2014_07_01.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -148,9 +148,6 @@ local MAGIC="MAGIC";     -- the magic value for Testing LSTACK integrity
 local AS_TRUE='T';    
 local AS_FALSE='F';
 
--- Default storage limit for a stack -- can be overridden by setting
--- one of the packages.
-local G_STORE_LIMIT = 100000  -- Store no more than this.  User can override.
 
 -- StoreMode (SM) values (which storage Mode are we using?)
 local SM_BINARY ='B'; -- Using a Transform function to compact values
@@ -177,7 +174,7 @@ local BF_LDT_HIDDEN  = 2; -- LDT Bin::Set the Hidden Flag on this bin
 local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 
 -- LDT TYPES (only lstack is defined here)
-local LDT_TYPE_LSTACK = "LSTACK";
+local LDT_TYPE = "LSTACK";
 
 -- We maintain a pool, or "context", of subrecords that are open.  That allows
 -- us to look up subrecs and get the open reference, rather than bothering
@@ -188,6 +185,42 @@ local G_OPEN_SR_LIMIT = 20;
 -- Special Function -- if supplied by the user in the "userModule", then
 -- we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
+
+-- ++====================++
+-- || DEFAULT SETTINGS   ||
+-- ++====================++
+-- Note: These values should match those found in settings_lstack.lua.
+--
+-- Default storage limit for a stack -- can be overridden by setting
+-- one of the packages (e.g. package.ListLargeObject) or by direct calls
+-- from a userModule (using the "adjust_settings()" function).
+local DEFAULT_CAPACITY = 100000;
+
+-- The most recently added items (i.e. the top of the stack) are held
+-- directly in the Top Database Record.  Access to this list is the fastest,
+-- and so we call it the "Hot List".  We want to pick a size that is
+-- reasonable:  Too large and we make all access to the record sluggish, but
+-- too small and we don't get much advantage.
+local DEFAULT_HOTLIST_CAPACITY = 100;
+
+-- When the Hot List overflows, we must move some amount of it to the Warm
+-- List.  We don't want to move just one item at a time (for each stack push)
+-- because then we incur an I/O for every stack write operation.  Instead
+-- we want to amortize the I/O cost (of a Warm List Write) over many Hot List
+-- writes.
+local DEFAULT_HOTLIST_TRANSFER = 50;
+
+-- Default size for an LDT Data Record (LDR).  The LDT is the Sub-Record
+-- that is intially formed when data flows from the Hot List (items held
+-- directly in the Top Database Record) to the Warm List (items held in a
+-- Sub-Record).
+local DEFAULT_LDR_CAPACITY = 200;
+
+-- Similar to the HotList Transfer, we do a similar thing when we transfer
+-- data from the Warm List to the Cold List, except rather than Items (as in
+-- the Hot List), for the Warm List we transfer Sub-Records (e.g. LDRs).
+local DEFAULT_WARMLIST_CAPACITY = 100;
+local DEFAULT_WARMLIST_TRANSFER = 100;
 
 -- ++====================++
 -- || INTERNAL BIN NAMES || -- Local, but global to this module
@@ -745,7 +778,7 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   -- General LDT Parms(Same for all LDTs): Held in the Property Map
   propMap[PM_ItemCount] = 0; -- A count of all items in the stack
   propMap[PM_Version]    = G_LDT_VERSION ; -- Current version of the code
-  propMap[PM_LdtType]    = LDT_TYPE_LSTACK; -- Validate the ldt type
+  propMap[PM_LdtType]    = LDT_TYPE; -- Validate the ldt type
   propMap[PM_Magic]      = MAGIC; -- Special Validation
   propMap[PM_BinName]    = ldtBinName; -- Defines the LDT Bin
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
@@ -755,11 +788,12 @@ local function initializeLdtCtrl( topRec, ldtBinName )
 
   -- Specific LDT Parms: Held in LdtMap
   ldtMap[M_StoreMode]   = SM_LIST; -- SM_LIST or SM_BINARY:
-  ldtMap[M_StoreLimit]  = G_STORE_LIMIT;  -- Store no more than this.
-  ldtMap[M_KeyType]     = KT_ATOMIC;      -- for lstack, everything is a blob
+  ldtMap[M_StoreLimit]  = DEFAULT_CAPACITY;  -- Store no more than this.
+  ldtMap[M_KeyType]     = KT_ATOMIC;      -- For lstack, everything is a blob
 
   -- LDT Data Record Settings: Passed into "LDR Create"
-  ldtMap[M_LdrEntryCountMax]= 100;  -- Max # of Data LDR items (List Mode)
+  -- Max # of Data LDR items (List Mode)
+  ldtMap[M_LdrEntryCountMax]= DEFAULT_LDR_CAPACITY;
   ldtMap[M_LdrByteEntrySize]=  0;  -- Byte size of a fixed size Byte Entry
   ldtMap[M_LdrByteCountMax] =   0; -- Max # of Data LDR Bytes (binary mode)
 
@@ -767,24 +801,16 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[M_HotEntryList]         = list(); -- the list of data entries
   ldtMap[M_HotEntryListItemCount]=   0; -- Number of elements in the Top List
 
--- info("[WARNING]: Hot list numbers set LOW (10, 5) for testing!!!");
-
---  ldtMap[M_HotListMax]           = 10; -- Max Number for the List(then xfer)
---  ldtMap[M_HotListTransfer]      =  5; -- How much to Transfer at a time.
-  ldtMap[M_HotListMax]           = 100; -- Max Number for the List(then xfer)
-  ldtMap[M_HotListTransfer]      =  50; -- How much to Transfer at a time.
-
-if( ldtMap[M_HotListMax] < 100 or ldtMap[M_HotListTransfer] < 50 ) then
-    warn("[ATTENTION]<%s:%s> Hot List Numbers are LOW: ListMax(%d) xfer(%d)",
-      MOD, meth, ldtMap[M_HotListMax], ldtMap[M_HotListTransfer] );
-end
+  -- See the definitions of these constants (above) for their explanations.
+  ldtMap[M_HotListMax]           = DEFAULT_HOTLIST_CAPACITY;
+  ldtMap[M_HotListTransfer]      = DEFAULT_HOTLIST_TRANSFER;
 
   -- Warm Digest List Settings: List of Digests of LDT Data Records
   ldtMap[M_WarmDigestList]       = list(); -- the list of digests for LDRs
   ldtMap[M_WarmTopFull] = AS_FALSE; --true when top LDR is full(for next write)
   ldtMap[M_WarmListDigestCount]  = 0; -- Number of Warm Data Record LDRs
-  ldtMap[M_WarmListMax]          = 100; -- Number of Warm Data Record LDRs
-  ldtMap[M_WarmListTransfer]     = 50; -- Number of Warm Data Record LDRs
+  ldtMap[M_WarmListMax]          = DEFAULT_WARMLIST_CAPACITY;
+  ldtMap[M_WarmListTransfer]     = DEFAULT_WARMLIST_TRANSFER;
   ldtMap[M_WarmTopEntryCount]    = 0; -- Count of entries in top warm LDR
   ldtMap[M_WarmTopByteCount]     = 0; -- Count of bytes used in top warm LDR
 
@@ -2939,7 +2965,6 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   local ldtCtrl;
   local propMap;
-  local ldtMap;
 
   -- If "mustExist" is true, then several things must be true or we will
   -- throw an error.
@@ -2949,27 +2974,29 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   --
   -- Otherwise, If "mustExist" is false, then basically we're just going
   -- to check that our bin includes MAGIC, if it is non-nil.
-  if mustExist == true then
+  -- TODO : Flag is true for get, config, size, delete etc 
+  -- Those functions must be added b4 we validate this if section 
+
+  if mustExist then
     -- Check Top Record Existence.
-    if( not aerospike:exists( topRec ) and mustExist == true ) then
+    if( not aerospike:exists( topRec ) ) then
       warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
-
-    -- Control Bin Must Exist
-    if( topRec[ldtBinName] == nil ) then
-      warn("[ERROR EXIT]: <%s:%s> LDT BIN (%s) DOES NOT Exists",
+     
+    -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
+    if ( not  topRec[ldtBinName] ) then
+      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
     -- check that our bin is (mostly) there
-    ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-    -- Extract the property map and LDT Map from the LDT Control.
+    ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
     propMap = ldtCtrl[1];
-    ldtMap  = ldtCtrl[2];
 
-    if propMap[PM_Magic] ~= MAGIC then
+    -- Extract the property map and Ldt control map from the Ldt bin list.
+    if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= LDT_TYPE then
       GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
             MOD, meth, tostring( ldtBinName ) );
       error( ldte.ERR_BIN_DAMAGED );
@@ -2979,39 +3006,39 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
-    if topRec ~= nil and topRec[ldtBinName] ~= nil then
-      ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-      -- Extract the property map and LDT Map from the LDT Control.
+    if ( topRec and topRec[ldtBinName] ) then
+      ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
       propMap = ldtCtrl[1];
-      ldtMap  = ldtCtrl[2];
-      if propMap[PM_Magic] ~= MAGIC then
-        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)2",
+      if propMap and propMap[PM_Magic] ~= MAGIC then
+        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
               MOD, meth, tostring( ldtBinName ) );
         error( ldte.ERR_BIN_DAMAGED );
       end
     end -- if worth checking
   end -- else for must exist
-  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
 
   -- Finally -- let's check the version of our code against the version
   -- in the data.  If there's a mismatch, then kick out with an error.
-  -- Although, we check this ONLY in the "must exist" case.
-  if( mustExist == true ) then
-    local dataVersion = 0;
-    if( propMap[PM_Version] ~= nil and type(propMap[PM_Version] == "number") )
-    then
-      dataVersion = propMap[PM_Version];
+  -- Although, we check this in the "must exist" case, or if there's 
+  -- a valid propMap to look into.
+  if ( mustExist or propMap ) then
+    local dataVersion = propMap[PM_Version];
+    if ( not dataVersion or type(dataVersion) ~= "number" ) then
+      dataVersion = 0; -- Basically signals corruption
     end
-  
+
     if( G_LDT_VERSION > dataVersion ) then
-      GP=E and warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+      warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
         MOD, meth, G_LDT_VERSION, dataVersion );
+      warn("[Please reload data:: Automatic Data Upgrade not yet available");
       error( ldte.ERR_VERSION_MISMATCH );
     end
   end -- final version check
 
-  return ldtCtrl; -- to be trusted ONLY in the mustExist == true case;
+  GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
+  return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
+
 
 -- ========================================================================
 -- buildSubRecList()

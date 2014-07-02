@@ -218,7 +218,7 @@ local package = {};
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
     ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex Keys
     ldtMap[T.R_Threshold] = DEFAULT_LARGE_THRESHOLD; -- Convert Compact to tree
     ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
 
@@ -256,7 +256,7 @@ local package = {};
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
     ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
     ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex Keys
     ldtMap[T.R_Threshold] = DEFAULT_MEDIUM_THRESHOLD; -- Convert Compact to tree
     ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
 

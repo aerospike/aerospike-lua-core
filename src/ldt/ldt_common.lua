@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_25.D";
+local MOD="ldt_common_2014_06_30.D";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -40,14 +40,17 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local D=false; -- Set D (Detail) to true to turn (verbose) Details Prints
 local GD;     -- Global Debug instrument.
-local DEBUG=true; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
 -- the updates to the end -- at the close of Lua.
+-- Currently this must be turned ON in order to bypass a bug in the sub-Rec
+-- support code.
 local DO_EARLY_SUBREC_UPDATES=true;
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -964,6 +967,7 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
  
   -- Add this open ESR SubRec to our SubRec Context, which implicitly 
   -- marks it as dirty.
+  GP=D and trace("[ENTER]<%s:%s> Add ESR to SRC", MOD, meth );
   ldt_common.addSubRecToContext( srcCtrl, esrRec, true );
 
   GP=E and trace("[EXIT]: <%s:%s> Leaving with ESR Digest(%s)",
@@ -1087,7 +1091,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
 
   GP=E and trace("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
-    subRecDigestString )
+    subRecDigestString );
   return newSubRec;
 end --  createSubRec()
 
@@ -1616,14 +1620,21 @@ function ldt_common.validateBinName( ldtBinName )
 end -- ldt_common.validateBinName
 
 -- ======================================================================
--- ldt_common.validateRecBinAndMap():
--- Check that the topRec, the BinName and CrtlMap are valid, otherwise
--- jump out with an error() call. Notice that we look at different things
--- depending on whether or not "mustExist" is true.
+-- validateRecBinAndMap():
+-- Check that the topRec, the ldtBinName and ldtMap are valid, otherwise
+-- jump out with an error() call.
+--
 -- Parms:
 -- (*) topRec:
+-- (*) ldtBinName: User's Name for the LDT Bin
+-- (*) mustExist: When true, ldtCtrl must exist, otherwise error
+-- (*) ldtType: Caller must tell us the type of LDT
+-- (*) codeVersion: Caller must tell us the Version of the LDT Code
+-- Return:
+--   ldtCtrl -- if "mustExist" is true, otherwise unknown.
 -- ======================================================================
-function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+function
+ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
   local meth = "ldt_common.validateRecBinAndMap()";
   GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
     MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
@@ -1634,7 +1645,6 @@ function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   local ldtCtrl;
   local propMap;
-  local ldtMap;
 
   -- If "mustExist" is true, then several things must be true or we will
   -- throw an error.
@@ -1644,27 +1654,29 @@ function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
   --
   -- Otherwise, If "mustExist" is false, then basically we're just going
   -- to check that our bin includes MAGIC, if it is non-nil.
-  if mustExist == true then
+  -- TODO : Flag is true for get, config, size, delete etc 
+  -- Those functions must be added b4 we validate this if section 
+
+  if mustExist then
     -- Check Top Record Existence.
-    if( not aerospike:exists( topRec ) and mustExist == true ) then
+    if( not aerospike:exists( topRec ) ) then
       warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
-
-    -- Control Bin Must Exist
-    if( topRec[ldtBinName] == nil ) then
-      warn("[ERROR EXIT]: <%s:%s> LDT BIN (%s) DOES NOT Exists",
+     
+    -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
+    if ( not  topRec[ldtBinName] ) then
+      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
     -- check that our bin is (mostly) there
-    ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-    -- Extract the property map and LDT Map from the LDT Control.
+    ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
     propMap = ldtCtrl[1];
-    ldtMap  = ldtCtrl[2];
 
-    if propMap[PM_Magic] ~= MAGIC then
+    -- Extract the property map and Ldt control map from the Ldt bin list.
+    if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= ldtType then
       GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
             MOD, meth, tostring( ldtBinName ) );
       error( ldte.ERR_BIN_DAMAGED );
@@ -1674,22 +1686,37 @@ function ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
-    if topRec ~= nil and topRec[ldtBinName] ~= nil then
-      ldtCtrl = topRec[ldtBinName]; -- The main ldtMap structure
-      -- Extract the property map and LDT Map from the LDT Control.
+    if ( topRec and topRec[ldtBinName] ) then
+      ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
       propMap = ldtCtrl[1];
-      ldtMap  = ldtCtrl[2];
-      if propMap[PM_Magic] ~= MAGIC then
-        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)2",
+      if propMap and propMap[PM_Magic] ~= MAGIC then
+        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
               MOD, meth, tostring( ldtBinName ) );
         error( ldte.ERR_BIN_DAMAGED );
       end
     end -- if worth checking
   end -- else for must exist
-  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
 
-  return ldtCtrl; -- to be trusted ONLY in the mustExist == true case;
+  -- Finally -- let's check the version of our code against the version
+  -- in the data.  If there's a mismatch, then kick out with an error.
+  -- Although, we check this in the "must exist" case, or if there's 
+  -- a valid propMap to look into.
+  if ( mustExist or propMap ) then
+    local dataVersion = propMap[PM_Version];
+    if ( not dataVersion or type(dataVersion) ~= "number" ) then
+      dataVersion = 0; -- Basically signals corruption
+    end
 
+    if( codeVersion > dataVersion ) then
+      warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+        MOD, meth, codeVersion, dataVersion );
+      warn("[Please reload data:: Automatic Data Upgrade not yet available");
+      error( ldte.ERR_VERSION_MISMATCH );
+    end
+  end -- final version check
+
+  GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
+  return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- ldt_common.validateRecBinAndMap()
 
 -- ======================================================================
@@ -1868,14 +1895,14 @@ function ldt_common.listInsert( valList, newValue, position )
 end -- ldt_common.listInsert()
 
 -- ======================================================================
--- ldt_common.listDeleteUnique()
+-- ldt_common.listDelete()
 -- ======================================================================
--- General List Delete function for removing items from a list.
+-- General List Delete function for removing a SINGLE ITEM from a list.
 -- RETURN:
 -- A NEW LIST that no longer includes the deleted item.
 -- ======================================================================
-function ldt_common.listDeleteUnique( objectList, position )
-  local meth = "listDeleteUnique()";
+function ldt_common.listDelete( objectList, position )
+  local meth = "listDelete()";
   local resultList;
   local listSize = list.size( objectList );
 
@@ -1898,12 +1925,16 @@ function ldt_common.listDeleteUnique( objectList, position )
   --   objectList[i] = objectList[i+1];
   -- end -- for()
   -- objectList[i+1] = nil;  (or, call trim() )
-  -- However, because we cannot assign "nil" to a list, nor can we just
-  -- trim a list, we have to build a NEW list from the old list, that
-  -- contains JUST the pieces we want.
+  -- However, because we cannot assign "nil" to a list, nor can we just trim
+  -- a list (not yet anyway), we have to build a NEW list from the old list,
+  -- that contains JUST the pieces we want.
   --
   -- So, basically, we're going to build a new list out of the LEFT and
   -- RIGHT pieces of the original list.
+  --
+  -- Future work:  Swap the current item with the end, and then just take
+  -- the list, minus the end.  This might perform better that doing two
+  -- list operations.
   --
   -- Our List operators :
   -- (*) list.take (take the first N elements) 
@@ -1929,7 +1960,7 @@ function ldt_common.listDeleteUnique( objectList, position )
 
   GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
   return resultList;
-end -- ldt_common.listDeleteUnique()
+end -- ldt_common.listDelete()
 
 -- ======================================================================
 -- ldt_common.listDeleteMultiple()
@@ -2122,7 +2153,8 @@ end
 -- =======================================================================
 -- table.bininsert( table, value [, comp] )
 --
--- Inserts a given value through BinaryInsert into the table sorted by [, comp].
+-- Inserts a given value through BinaryInsert into the table sorted
+-- by [, comp].
 --
 -- If 'comp' is given, then it must be a function that receives
 -- two table elements, and returns true when the first is less
@@ -2177,6 +2209,28 @@ function ldt_common.validateList( valList )
     return true;
 end -- ldt_common.validateList()
 
+
+-- =========================================================================
+-- ldt_common.validateCodeAndData()
+-- =========================================================================
+-- va
+-- =========================================================================
+function ldt_common.validateCodeAndData( codeVersion, dataVersion )
+
+  -- Code versions must be valid
+  if not ( codeVersion and dataVersion ) then
+    warn("[INTERNAL ERROR: Version Data corrupted");
+    error( ldte.ERR_INTERNAL );
+  end
+
+  if not ( codeVersion > dataVersion ) then
+    warn("[INTERNAL ERROR: Code and Data Mismatch. Please reload data.");
+    info("Automatic Data Upgrade not yet enabled");
+    error( ldte.ERR_INTERNAL );
+  end
+end
+
+-- =======================================================================
 ldt_common.FirstNames = {"Kunta", "Bob", "Kevin"}
 ldt_common.LastNames = {"Kinte", "Anderson", "Johnson"}
 

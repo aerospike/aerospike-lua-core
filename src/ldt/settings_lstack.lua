@@ -176,8 +176,8 @@ function package.ListMediumObject( ldtMap )
   ldtMap[T.M_HotListMax]       = 100; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
   -- Warm Digest List Settings: List of Digests of LSTACK Data Records
-  ldtMap[T.M_WarmListMax]      = 100; -- # of Warm Data Record Chunks
-  ldtMap[T.M_WarmListTransfer] = 50; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListMax]      = 200; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 20; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
   ldtMap[T.M_ColdDirRecMax]    = 10; -- Max# of Cold DIRECTORY Records
@@ -201,8 +201,8 @@ function package.ListSmallObject( ldtMap )
   ldtMap[T.M_HotListMax]       = 200; -- Max # for the List, when we transfer
   ldtMap[T.M_HotListTransfer]  = 50; -- How much to Transfer at a time
   -- Warm Digest List Settings: List of Digests of LSTACK Data Records
-  ldtMap[T.M_WarmListMax]      = 200; -- # of Warm Data Record Chunks
-  ldtMap[T.M_WarmListTransfer] = 10; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListMax]      = 400; -- # of Warm Data Record Chunks
+  ldtMap[T.M_WarmListTransfer] = 20; -- # of Warm Data Record Chunks
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[T.M_ColdListMax]      = 100; -- # of list entries in a Cold dir node
   ldtMap[T.M_ColdDirRecMax]    = 10; -- Max# of Cold DIRECTORY Records

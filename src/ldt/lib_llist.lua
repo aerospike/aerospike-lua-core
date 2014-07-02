@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD = "lib_llist_2014_06_25.R";
+local MOD = "lib_llist_2014_07_01.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -46,6 +46,7 @@ local GP;      -- Global Print Instrument
 local F=false; -- Set F (flag) to true to turn ON global print
 local E=false; -- Set F (flag) to true to turn ON Enter/Exit print
 local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local D=false; -- Set D (Detail) to get more Detailed Debug Output.
 local GD;      -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -205,7 +206,7 @@ local LSR_BINARY_BIN      = "LsrBinaryBin";
 -- || GLOBAL CONSTANTS ||
 -- ++==================++
 -- Each LDT defines its type in string form.
-local LDT_TYPE_LLIST = "LLIST";
+local LDT_TYPE = "LLIST";
 
 -- For Map objects, we may look for a special KEY FIELD
 local KEY_FIELD  = "key";
@@ -673,7 +674,7 @@ initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM_ItemCount] = 0; -- A count of all items in the stack
   propMap[PM_SubRecCount] = 0; -- No Subrecs yet
   propMap[PM_Version]    = G_LDT_VERSION ; -- Current version of the code
-  propMap[PM_LdtType]    = LDT_TYPE_LLIST; -- Validate the ldt type
+  propMap[PM_LdtType]    = LDT_TYPE; -- Validate the ldt type
   propMap[PM_Magic]      = MAGIC; -- Special Validation
   propMap[PM_BinName]    = ldtBinName; -- Defines the LDT Bin
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
@@ -681,13 +682,15 @@ initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM_CreateTime] = aerospike:get_current_time();
   propMap[PM_SelfDigest]  = record.digest( topRec );
 
+  -- NOTE: We expect that these settings should match the settings found in
+  -- settings_llist.lua :: package.ListMediumObject().
   -- General Tree Settings
   ldtMap[R_TotalCount] = 0;    -- A count of all "slots" used in LLIST
   ldtMap[R_LeafCount] = 0;     -- A count of all Leaf Nodes
   ldtMap[R_NodeCount] = 0;     -- A count of all Nodes (incl leaves, excl root)
   ldtMap[M_StoreMode] = SM_LIST; -- SM_LIST or SM_BINARY (applies to Leaves))
   ldtMap[R_TreeLevel] = 1;     -- Start off Lvl 1: Root ONLY. Leaves Come l8tr
-  ldtMap[M_KeyType]   = KT_ATOMIC;-- atomic or complex
+  ldtMap[M_KeyType]   = KT_COMPLEX;-- atomic or complex
   ldtMap[R_KeyUnique] = AS_TRUE; -- Keys ARE unique by default.
   ldtMap[M_Transform] = nil; -- (set later) transform Func (user to storage)
   ldtMap[M_UnTransform] = nil; -- (set later) Un-transform (storage to user)
@@ -708,11 +711,11 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[R_CompactList] = list();-- Simple Compact List -- before "tree mode"
   
   -- LLIST Inner Node Settings
-  ldtMap[R_NodeListMax] = 100;  -- Max # of items (key+digest)
+  ldtMap[R_NodeListMax] = 200;  -- Max # of items (key+digest)
   ldtMap[R_NodeByteCountMax] = 0; -- Max # of BYTES
 
   -- LLIST Tree Leaves (Data Pages)
-  ldtMap[R_LeafListMax] = 100;  -- Max # of items
+  ldtMap[R_LeafListMax] = 200;  -- Max # of items
   ldtMap[R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
@@ -937,8 +940,7 @@ end -- validateBinName
 -- ======================================================================
 local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   local meth = "validateRecBinAndMap()";
-  local rc = 0;
-  GP=E and trace("[ENTER]<%s:%s> BinName(%s) ME(%s)",
+  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
     MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
 
   -- Start off with validating the bin name -- because we might as well
@@ -947,7 +949,6 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   local ldtCtrl;
   local propMap;
-  local ldtMap;
 
   -- If "mustExist" is true, then several things must be true or we will
   -- throw an error.
@@ -957,27 +958,29 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   --
   -- Otherwise, If "mustExist" is false, then basically we're just going
   -- to check that our bin includes MAGIC, if it is non-nil.
-  if mustExist == true then
+  -- TODO : Flag is true for get, config, size, delete etc 
+  -- Those functions must be added b4 we validate this if section 
+
+  if mustExist then
     -- Check Top Record Existence.
-    if( not aerospike:exists( topRec ) and mustExist == true) then
+    if( not aerospike:exists( topRec ) ) then
       warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
-
-    -- Control Bin Must Exist
-    if( topRec[ldtBinName] == nil ) then
-      warn("[ERROR EXIT]: <%s:%s> LDT BIN (%s) DOES NOT Exists",
+     
+    -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
+    if ( not  topRec[ldtBinName] ) then
+      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
-    -- Extract the property map and control map from the ldt bin list.
-    ldtCtrl = topRec[ ldtBinName ];
-    propMap = ldtCtrl[1];
-    ldtMap  = ldtCtrl[2];
-    
     -- check that our bin is (mostly) there
-    if ( propMap[PM_Magic] ~= MAGIC ) then
+    ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
+    propMap = ldtCtrl[1];
+
+    -- Extract the property map and Ldt control map from the Ldt bin list.
+    if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= LDT_TYPE then
       GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
             MOD, meth, tostring( ldtBinName ) );
       error( ldte.ERR_BIN_DAMAGED );
@@ -987,11 +990,10 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
-    if topRec ~= nil and topRec[ldtBinName] ~= nil then
-      ldtCtrl = topRec[ldtBinName];
+    if ( topRec and topRec[ldtBinName] ) then
+      ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
       propMap = ldtCtrl[1];
-      ldtMap  = ldtCtrl[2];
-      if ( propMap[PM_Magic] ~= MAGIC ) then
+      if propMap and propMap[PM_Magic] ~= MAGIC then
         GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
               MOD, meth, tostring( ldtBinName ) );
         error( ldte.ERR_BIN_DAMAGED );
@@ -1001,24 +1003,26 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   -- Finally -- let's check the version of our code against the version
   -- in the data.  If there's a mismatch, then kick out with an error.
-  -- Although, we check this ONLY in the "must exist" case.
-  if( mustExist == true ) then
-    local dataVersion = 0;
-    if( propMap[PM_Version] ~= nil and type(propMap[PM_Version] == "number") )
-      then
-        dataVersion = propMap[PM_Version];
+  -- Although, we check this in the "must exist" case, or if there's 
+  -- a valid propMap to look into.
+  if ( mustExist or propMap ) then
+    local dataVersion = propMap[PM_Version];
+    if ( not dataVersion or type(dataVersion) ~= "number" ) then
+      dataVersion = 0; -- Basically signals corruption
     end
-  
+
     if( G_LDT_VERSION > dataVersion ) then
-      GP=E and warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+      warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
         MOD, meth, G_LDT_VERSION, dataVersion );
+      warn("[Please reload data:: Automatic Data Upgrade not yet available");
       error( ldte.ERR_VERSION_MISMATCH );
     end
   end -- final version check
 
-  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return ldtCtrl;
+  GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
+  return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
+
 
 -- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
@@ -3987,7 +3991,7 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
   -- Delete is easy if it's a single value -- more difficult if MANY items
   -- (with the same value) are deleted.
   if( ldtMap[R_KeyUnique] == AS_TRUE ) then
-    resultList = ldt_common.listDeleteUnique(objectList, position )
+    resultList = ldt_common.listDelete(objectList, position )
     leafSubRec[LSR_LIST_BIN] = resultList;
   else
     resultList = ldt_common.listDeleteMultiple(objectList,position,endPos);
@@ -4186,7 +4190,7 @@ local function treeMinGet( sp, ldtCtrl, take )
   -- first element.  We assume that the caller will udpate the SubRec.
   resultObject = objectList[1];
   if ( take == true ) then
-    leafSubRec[LSR_LIST_BIN] = ldt_common.listDeleteUnique( objectList, 1 );
+    leafSubRec[LSR_LIST_BIN] = ldt_common.listDelete( objectList, 1 );
   end
 
   GP=E and trace("[EXIT]<%s:%s> ResultObject(%s) ",
@@ -4842,7 +4846,8 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
     position = resultMap.Position;
 
     if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
-      GP=F and trace("[FOUND]<%s:%s> CL: Found first element at (%d)",MOD,meth,position);
+      GP=F and trace("[FOUND]<%s:%s> CL: Found first element at (%d)",
+        MOD, meth, position);
     end
 
     resultA, resultB = 
@@ -4967,7 +4972,7 @@ function llist.remove( topRec, ldtBinName, key, src )
     resultMap = searchObjectList( ldtMap, objectList, key );
     if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
       ldtMap[R_CompactList] =
-        ldt_common.listDeleteUnique(objectList, resultMap.Position);
+        ldt_common.listDelete(objectList, resultMap.Position);
     else
       error( ldte.ERR_NOT_FOUND );
     end
