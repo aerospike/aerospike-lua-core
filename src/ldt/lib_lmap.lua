@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_07_01.E"; 
+local MOD="lib_lmap_2014_07_02.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2497,6 +2497,7 @@ local function regularDelete( src, topRec, ldtCtrl, searchName, resultMap )
   else
     subRec[LDR_NLIST_BIN] = ldt_common.listDelete( nameList, position );
     subRec[LDR_VLIST_BIN] = ldt_common.listDelete( valueList, position );
+    ldt_common.updateSubRec( src, subRec );
   end
 
   GP=E and trace("[EXIT]<%s:%s> FOUND: Pos(%d)", MOD, meth, position );
