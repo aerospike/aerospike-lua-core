@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_06_30.D";
+local MOD="ldt_common_2014_07_16.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -158,6 +158,12 @@ local ldte=require('ldt/ldt_errors');
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
 -- ++==================++
 local MAGIC="MAGIC";     -- the magic value for Testing LSTACK integrity
+
+-- Aerospike has a legacy issue -- a very long time ago it picked 16 bytes
+-- as the buffer size limit for a bin name.  So, the name, plus a type
+-- byte and a null terminator must fit in 16 bytes, which means that the
+-- bin cant' be longer than 14 characters.
+local AS_BIN_NAME_LIMIT = 14;
 
 -- AS_BOOLEAN TYPE:
 -- There are apparently either storage or conversion problems with booleans
@@ -959,7 +965,8 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
     -- TEMPORARILY -- WRITE OUT THE SUBREC, esp the ESR.
     trace("[NOTE]<%s:%s> Performing Direct Update of ESR subRec", MOD,meth);
     rc = aerospike:update_subrec( esrRec );
-    if( rc ~= nil and rc == 0 ) then
+    -- Note that update_subrec() returns nil on success.
+    if rc then
       warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
       error( ldte.ERR_SUBREC_UPDATE );
     end
@@ -1022,7 +1029,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we should try a "CLEAN" to free up some slots.  If that fails, then
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
-  GD=DEBUG and trace("[DEBUG]<%s:%s> SR Limit: IC(%d)", MOD, meth, itemCount);
+  GD=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
   if( itemCount >= G_OPEN_SR_LIMIT ) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
     -- Not sure if I need to do this, but just in case.
@@ -1076,8 +1083,10 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
     -- TEMPORARILY -- WRITE OUT THE SUBREC.
     trace("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
     rc = aerospike:update_subrec( newSubRec );
-    if( rc ~= nil and rc == 0 ) then
-      warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+    -- Note that update_subrec() returns nil on success
+    if rc then
+      warn("[ERROR]<%s:%s>Problems Updating SubRec(%s) rc(%s)", MOD, meth,
+        subRecDigestString, tostring(rc));
       error( ldte.ERR_SUBREC_UPDATE );
     end
   end
@@ -1318,7 +1327,7 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
   local dirtyMap = srcCtrl[2];
   local rc = 0;
 
-  if( subRec == nil ) then
+  if not subRec then
     warn("[ERROR]<%s:%s> Unexpected nil value for subRec", MOD, meth);
     error( ldte.ERR_INTERNAL );
   end
@@ -1333,8 +1342,10 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
     -- TEMPORARILY -- WRITE OUT THE SUBREC.
     trace("[NOTE]<%s:%s> Performing Direct Update of subRec", MOD,meth);
     rc = aerospike:update_subrec( subRec );
-    if( rc ~= nil and rc == 0 ) then
-      warn("[ERROR]<%s:%s>Problems Updating ESR rc(%s)",MOD,meth,tostring(rc));
+    --  Note that update_subrec() returns nil on success
+    if rc then
+      warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+        digestString, tostring(rc));
       error( ldte.ERR_SUBREC_UPDATE );
     end
   end
@@ -1382,6 +1393,11 @@ function ldt_common.closeAllSubRecs( srcCtrl )
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
 
+  if (not recMap) or (not recMap.ItemCount) or recMap.ItemCount == 0 then
+    GP=E and trace("[Early EXIT]<%s:%s> ", MOD, meth);
+    return 0;
+  end
+
   -- Iterate thru the SubRecContext and close all Sub-Records.
   local digestString;
   local rec;
@@ -1405,7 +1421,9 @@ function ldt_common.closeAllSubRecs( srcCtrl )
 end -- closeAllSubRecs()
 
 -- ======================================================================
--- Remove this SubRec from the pool and also close system subrecRemove()
+-- removeSubRec()
+-- ======================================================================
+-- Remove this SubRec from the pool and also close system
 -- ======================================================================
 function ldt_common.removeSubRec( srcCtrl, digestString )
   local meth = "removeSubRec()";
@@ -1600,6 +1618,9 @@ end -- adjustLdtMap
 -- validateBinName(): Validate that the user's bin name for this large
 -- object complies with the rules of Aerospike. Currently, a bin name
 -- cannot be larger than 14 characters (a seemingly low limit).
+-- Parms:
+-- (*) ldtBinName: user's bin name for this LDT
+-- Return: either nothing (if ok) or jump out with error.
 -- ======================================================================
 function ldt_common.validateBinName( ldtBinName )
   local meth = "ldt_common.validateBinName()";
@@ -1612,7 +1633,7 @@ function ldt_common.validateBinName( ldtBinName )
   elseif type( ldtBinName ) ~= "string"  then
     warn("[ERROR EXIT]:<%s:%s> Bin Name Not a String", MOD, meth );
     error( ldte.ERR_BIN_NAME_NOT_STRING );
-  elseif string.len( ldtBinName ) > 14 then
+  elseif string.len( ldtBinName ) > AS_BIN_NAME_LIMIT then
     warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
     error( ldte.ERR_BIN_NAME_TOO_LONG );
   end
@@ -1840,7 +1861,6 @@ function ldt_common.dumpMap( myMap, msg )
 
 end -- ldt_common.dumpMap()
 
-
 -- ======================================================================
 -- ldt_common.listInsert()
 -- ======================================================================
@@ -1852,8 +1872,13 @@ end -- ldt_common.dumpMap()
 -- ======================================================================
 function ldt_common.listInsert( valList, newValue, position )
   local meth = "ldt_common.listInsert()";
-  GP=F and trace("[ENTER]<%s:%s>List(%s) size(%d) Value(%s) Position(%d)", MOD,
-  meth, tostring(valList), list.size(valList), tostring(newValue), position );
+  GP=E and trace("[ENTER]<%s:%s>List(%s) ", MOD, meth, tostring(valList));
+
+  if DEBUG and valList and type(valList) == "userdata" then
+    GP=D and trace("[DEBUG]<%s:%s>List(%s) size(%d) Value(%s) Position(%d)",
+    MOD, meth, tostring(valList), list.size(valList), tostring(newValue),
+    position );
+  end
 
   local listSize = list.size( valList );
   if ( listSize == 0 or position > listSize or position == 0 ) then
@@ -1891,7 +1916,7 @@ function ldt_common.listInsert( valList, newValue, position )
   GP=F and trace("[EXIT]<%s:%s> Appended(%s) to list(%s)", MOD, meth,
     tostring(newValue), tostring(valList));
 
-  return 0;
+  return 0; -- Always OK
 end -- ldt_common.listInsert()
 
 -- ======================================================================

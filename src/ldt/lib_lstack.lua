@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_07_01.B";
+local MOD="lib_lstack_2014_07_16.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -816,12 +816,11 @@ local function initializeLdtCtrl( topRec, ldtBinName )
 
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[M_ColdDirListHead]= 0; -- Head (Rec Digest) of the Cold List Dir Chain
-  ldtMap[M_ColdTopFull]    = AS_FALSE; -- true when cold head is full (next write)
+  ldtMap[M_ColdTopFull] = AS_FALSE; -- true when cold head is full (next write)
   ldtMap[M_ColdDataRecCount]= 0; -- # of Cold DATA Records (data LDRs)
   ldtMap[M_ColdDirRecCount] = 0; -- # of Cold DIRECTORY Records
   ldtMap[M_ColdDirRecMax]   = 5; -- Max# of Cold DIRECTORY Records
   ldtMap[M_ColdListMax]     = 100; -- # of list entries in a Cold list dir node
-
 
   GP=F and trace("[DEBUG]: <%s:%s> : LDT Summary after Init(%s)",
       MOD, meth , ldtSummaryString(ldtCtrl));
@@ -858,29 +857,6 @@ end -- initializeLdtCtrl()
 -- These are all local functions to this module and serve various
 -- utility and assistance functions.
 -- ======================================================================
---
--- ======================================================================
--- Summarize the List (usually ResultList) so that we don't create
--- huge amounts of crap in the console.
--- Show Size, First Element, Last Element
--- ======================================================================
-local function summarizeList( myList )
-  if( myList == nil ) then return "NULL LIST"; end;
-
-  local resultMap = map();
-  resultMap.Summary = "Summary of the List";
-  local listSize  = list.size( myList );
-  resultMap.ListSize = listSize;
-  if resultMap.ListSize == 0 then
-    resultMap.FirstElement = "List Is Empty";
-    resultMap.LastElement = "List Is Empty";
-  else
-    resultMap.FirstElement = tostring( myList[1] );
-    resultMap.LastElement =  tostring( myList[ listSize ] );
-  end
-
-  return tostring( resultMap );
-end -- summarizeList()
 
 -- ======================================================================
 -- ldrSummary( ldrRec )
@@ -1019,13 +995,13 @@ local function readEntryList( resultList, ldtCtrl, entryList, count, all)
     numRead = numRead + 1;
     if numRead >= numToRead and all == false then
       GP=E and trace("[Early EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s)",
-        MOD, meth, numRead, summarizeList( resultList ));
+        MOD, meth, numRead, ldt_common.summarizeList( resultList ));
       return numRead;
     end
   end -- for each entry in the list
 
   GP=E and trace("[EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s) ",
-    MOD, meth, numRead, summarizeList( resultList ));
+    MOD, meth, numRead, ldt_common.summarizeList( resultList ));
   return numRead;
 end -- readEntryList()
 
@@ -1113,7 +1089,7 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
     numTaken = numTaken + 1;
     if numTaken >= numToTake and all == false then
       GP=E and trace("[Early EXIT]: <%s:%s> NumTake(%d) resultListSummary(%s)",
-        MOD, meth, numTaken, summarizeList( resultList ));
+        MOD, meth, numTaken, ldt_common.summarizeList( resultList ));
       break;
     end
   end -- for each entry in the list
@@ -1144,7 +1120,7 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
   ldtMap[M_HotEntryList] = newHotList;
 
   GP=E and trace("[EXIT]<%s:%s> NumTaken(%d) Empty(%d) resultListSummary(%s)",
-    MOD, meth, numTaken, empty, summarizeList( resultList ));
+    MOD, meth, numTaken, empty, ldt_common.summarizeList( resultList ));
 
   return numTaken, empty;
 end -- takeEntryList()
@@ -1270,9 +1246,43 @@ local function readByteArray( resultList, ldtCtrl, ldrSubRec, count, all)
   end -- for each entry in the list (packed byte array)
 
   GP=E and trace("[EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s) ",
-    MOD, meth, numRead, summarizeList( resultList ));
+    MOD, meth, numRead, ldt_common.summarizeList( resultList ));
   return numRead;
 end -- readByteArray()
+
+
+-- ======================================================================
+-- takeByteArray()
+-- ======================================================================
+-- This method TAKES from the BYTE ARRAY from Warm and Cold List Pages.
+-- In each LDT Data Record (LDR), there are three Bins:  A Control Bin,
+-- a List Bin (a List() of entries), and a Binary Bin (Compacted Bytes).
+-- Similar to its sibling method (readEntryList), readByteArray() pulls a Byte
+-- entry from the compact Byte array, applies the (assumed) UDF, and then
+-- passes the resulting value back to the caller via the resultList.
+--
+-- As always, since we are doing a stack, everything is in LIFO order, 
+-- which means we always read back to front.
+-- Parms:
+--   (*) resultList:
+--   (*) ldtCtrl
+--   (*) LDR Page:
+--   (*) count:
+--   (*) all:
+-- Return:
+--   Implicit: entries are added to the result list
+--   Explicit: Number of Elements Read.
+-- ======================================================================
+local function takeByteArray( resultList, ldtCtrl, ldrSubRec, count, all)
+  local meth = "takeByteArray()";
+  GP=E and trace("[ENTER]: <%s:%s> Count(%s) filter(%s) fargs(%s) all(%s)",
+    MOD, meth, tostring(count), tostring(G_Filter), tostring(G_FunctionArgs),
+    tostring(all));
+            
+  warn("[ERROR]<%s:%s> THIS FUNCTION UNDER CONSTRUCTION", MOD, meth);
+  error( ldte.ERR_INTERNAL );
+
+end -- takeByteArray()
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1367,7 +1377,6 @@ local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
     MOD, meth, newItemsStored, tostring( ldrValueList) );
   return newItemsStored;
 end -- ldrInsertList()
-
 
 -- ======================================================================
 -- ldrInsertBytes()
@@ -1577,7 +1586,7 @@ local function ldrRead( ldrSubRec, resultList, ldtCtrl, count, all )
   end
 
   GP=E and trace("[EXIT]: <%s:%s> NumberRead(%d) ResultListSummary(%s) ",
-    MOD, meth, numRead, summarizeList( resultList ));
+    MOD, meth, numRead, ldt_common.summarizeList( resultList ));
   return numRead;
 end -- ldrRead()
 -- ======================================================================
@@ -1667,7 +1676,7 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   end -- for each Data ldr Record
 
   GP=E and trace("[EXIT]: <%s:%s> totalAmountRead(%d) ResultListSummary(%s) ",
-  MOD, meth, totalAmountRead, summarizeList(resultList));
+  MOD, meth, totalAmountRead, ldt_common.summarizeList(resultList));
   return totalAmountRead;
 end -- digestListRead()
 
@@ -1708,7 +1717,7 @@ local function hotListRead( resultList, ldtCtrl, count, all)
   GP=E and trace("[DEBUG]<%s> HotListResult(%s)", meth, tostring(resultList));
 
   GP=E and trace("[EXIT]:<%s:%s>resultListSummary(%s)",
-    MOD, meth, summarizeList(resultList) );
+    MOD, meth, ldt_common.summarizeList(resultList) );
   return resultList;
 end -- hotListRead()
 
@@ -1738,7 +1747,7 @@ local function hotListTake( resultList, ldtCtrl, count, all)
   GP=E and trace("[DEBUG]<%s> HotListResult(%s)", meth, tostring(resultList));
 
   GP=E and trace("[EXIT]:<%s:%s>resultListSummary(%s)",
-    MOD, meth, summarizeList(resultList) );
+    MOD, meth, ldt_common.summarizeList(resultList) );
   return resultList, empty;
 end -- hotListTake()
 
@@ -1782,7 +1791,7 @@ local function extractHotListTransferList( ldtMap )
   ldtMap[M_HotEntryListItemCount] = helic - transAmount;
 
   GP=E and trace("[EXIT]: <%s:%s> ResultList(%s)",
-    MOD, meth, summarizeList(resultList));
+    MOD, meth, ldt_common.summarizeList(resultList));
   return resultList;
 end -- extractHotListTransferList()
 
@@ -1973,12 +1982,11 @@ local function extractWarmListTransferList( ldtCtrl )
   ldtMap[M_WarmListDigestCount] = ldtMap[M_WarmListDigestCount] - transAmount;
 
   GP=E and trace("[EXIT]: <%s:%s> ResultList(%s) LdtMap(%s)",
-      MOD, meth, summarizeList(resultList), tostring(ldtMap));
+      MOD, meth, ldt_common.summarizeList(resultList), tostring(ldtMap));
 
   return resultList;
 end -- extractWarmListTransferList()
 
-  
 -- ======================================================================
 -- warmListHasRoom( ldtMap )
 -- ======================================================================
@@ -2183,14 +2191,15 @@ end -- warmListInsert
 
 
 -- ======================================================================
--- releaseStorage():: @RAJ @TOBY TODO: Change inside to crec_release() call
+-- releaseStorage()::
 -- ======================================================================
 -- Release the storage in this digest list.  Either iterate thru the
 -- list and release it immediately (if that's the only option), or
 -- deliver the digestList to a component that can schedule the digest
 -- to be cleaned up later.
 -- ======================================================================
--- TODO: THIS FUNCTION NEEDS REVIEW (it is currently IN-USE!)
+-- @RAJ @TOBY TODO: Change inside to crec_release() call, after the
+-- crec_release() function is (eventually) implemented.
 -- ======================================================================
 local function releaseStorage( src, topRec, ldtCtrl, digestList )
   local meth = "releaseStorage()";
@@ -2396,7 +2405,6 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
 
     local itemCount = propMap[PM_ItemCount];
     propMap[PM_ItemCount] = itemCount - itemsDeleted;
-
 
     -- Now release any freed subrecs.
     releaseStorage( src, topRec, ldtCtrl, ldrDeleteList );
@@ -2826,7 +2834,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
       MOD, meth, tostring( ldtMap ), tostring( coldDirMap )); 
 
   GP=E and trace("[EXIT]:<%s:%s>totalAmountRead(%d) ResultListSummary(%s) ",
-      MOD, meth, totalNumRead, summarizeList(resultList));
+      MOD, meth, totalNumRead, ldt_common.summarizeList(resultList));
   return totalNumRead;
 end -- coldListRead()
 
@@ -2880,7 +2888,6 @@ local function warmListTransfer( src, topRec, ldtCtrl )
   return rc;
 end -- warmListTransfer()
 
-
 -- ======================================================================
 -- hotListTransfer( ldtCtrl, insertValue )
 -- ======================================================================
@@ -2921,33 +2928,10 @@ local function hotListTransfer( src, topRec, ldtCtrl )
     MOD, meth, rc, tostring( ldtMap ));
   return rc;
 end -- hotListTransfer()
--- ======================================================================
---
--- ======================================================================
--- validateBinName(): Validate that the user's bin name for this large
--- object complies with the rules of Aerospike. Currently, a bin name
--- cannot be larger than 14 characters (a seemingly low limit).
--- ======================================================================
-local function validateBinName( ldtBinName )
-  local meth = "validateBinName()";
-  GP=E and trace("[ENTER]: <%s:%s> validate Bin Name(%s)",
-      MOD, meth, tostring(ldtBinName));
-
-  if ldtBinName == nil  then
-    warn("[ERROR EXIT]:<%s:%s> Null Bin Name", MOD, meth );
-    error( ldte.ERR_NULL_BIN_NAME );
-  elseif type( ldtBinName ) ~= "string"  then
-    warn("[ERROR EXIT]:<%s:%s> Bin Name Not a String", MOD, meth );
-    error( ldte.ERR_BIN_NAME_NOT_STRING );
-  elseif string.len( ldtBinName ) > 14 then
-    warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
-    error( ldte.ERR_BIN_NAME_TOO_LONG );
-  end
-  GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
-end -- validateBinName
 
 -- ======================================================================
 -- validateRecBinAndMap():
+-- ======================================================================
 -- Check that the topRec, the BinName and CrtlMap are valid, otherwise
 -- jump out with an error() call. Notice that we look at different things
 -- depending on whether or not "mustExist" is true.
@@ -2961,7 +2945,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   -- Start off with validating the bin name -- because we might as well
   -- flag that error first if the user has given us a bad name.
-  validateBinName( ldtBinName );
+  ldt_common.validateBinName( ldtBinName );
 
   local ldtCtrl;
   local propMap;
@@ -3038,7 +3022,6 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
   return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
-
 
 -- ========================================================================
 -- buildSubRecList()
@@ -3163,8 +3146,7 @@ local function buildSubRecList( src, topRec, ldtCtrl, position )
       MOD, meth, tostring( resultList ) );
 
   return resultList
-end -- buildResultList()
-
+end -- buildSubRecList()
 
 -- ========================================================================
 -- buildSubRecListAll()
@@ -3284,7 +3266,6 @@ end -- buildSubRecListAll()
 -- (*) Track Warm and Cold List Capacity
 -- (*) Track WarmTop Size (how much room is left?)
 -- (*) Track ColdTop Size (how much room is left?)
---
 --
 -- Parms:
 -- (*) topRec: Top (LDT Holding) Record
@@ -3477,8 +3458,8 @@ local function processModule( ldtCtrl, moduleName )
       error( ldte.ERR_USER_MODULE_NOT_FOUND );
     else
       local userSettings =  createModuleRef[G_SETTINGS];
-      GP=F and trace("[DEBUG]<%s:%s> Process user Settings(%s) Func(%s)",
-        MOD, meth, tostring(createModuleRef[G_SETTINGS]), tostring(userSettings));
+      GP=F and trace("[DEBUG]<%s:%s> Process user Settings(%s) Func(%s)", MOD,
+        meth, tostring(createModuleRef[G_SETTINGS]), tostring(userSettings));
       if( userSettings ~= nil ) then
         userSettings( ldtMap ); -- hope for the best.
         ldtMap[M_UserModule] = moduleName;
@@ -3719,7 +3700,7 @@ function lstack.create( topRec, ldtBinName, createSpec )
 
   -- First, check the validity of the Bin Name.
   -- This will throw and error and jump out of Lua if ldtBinName is bad.
-  validateBinName( ldtBinName );
+  ldt_common.validateBinName( ldtBinName );
   local rc = 0;
   
   -- Check to see if LDT Structure (or anything) is already there,
@@ -4096,7 +4077,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   local resultList = hotListRead(resultList, ldtCtrl, count, all);
   local numRead = list.size( resultList );
   GP=F and trace("[DEBUG]: <%s:%s> HotListResult:Summary(%s)",
-      MOD, meth, summarizeList(resultList));
+      MOD, meth, ldt_common.summarizeList(resultList));
 
   local warmCount = 0;
 
@@ -4148,7 +4129,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
      coldListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
 
   GP=E and trace("[EXIT]: <%s:%s>: PeekCount(%d) ResultListSummary(%s)",
-    MOD, meth, peekCount, summarizeList(resultList));
+    MOD, meth, peekCount, ldt_common.summarizeList(resultList));
 
   return resultList;
 end -- function lstack.peek() 
@@ -4201,7 +4182,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
-  warn("[ERROR]<%s:%s> POP() currently accesses only the Hot List", MOD, meth);
+  info("[NOTICE]<%s:%s> POP() currently accesses only the Hot List", MOD, meth);
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
@@ -4267,7 +4248,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   local resultList, empty = hotListTake(resultList, ldtCtrl, count, all);
   local numRead = list.size( resultList );
   GP=F and trace("[DEBUG]: <%s:%s> HotListResult:Summary(%s)",
-      MOD, meth, summarizeList(resultList));
+      MOD, meth, ldt_common.summarizeList(resultList));
 
   -- For now -- we're popping ONLY from the Hot List.  Later we will
   -- make this to work with the Warm/Cold List -- and backfill
@@ -4327,7 +4308,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   -- =================================================================
 
   GP=E and trace("[EXIT]: <%s:%s>: Count(%d) ResultListSummary(%s)",
-    MOD, meth, count, summarizeList(resultList));
+    MOD, meth, count, ldt_common.summarizeList(resultList));
 
   return resultList;
 end -- function lstack.pop() 

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_07_02.C"; 
+local MOD="lib_lset_2014_07_17.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -357,8 +357,9 @@ local KC_DEFAULT="keyCompareEqual"; -- Key Compare used only in complex mode
 local KH_DEFAULT="keyHash";         -- Key Hash used only in complex mode
 
 -- AS LSET Bin Names
--- local LSET_CONTROL_BIN       = "LSetCtrlBin";
-local LSET_CONTROL_BIN       = "DO NOT USE";
+-- We now use the User's name for the LDT Bin, even in the TopRec case.
+-- However, we do pick special bin name prefix when we use either TopRec
+-- or SubRec bins.
 local LSET_DATA_BIN_PREFIX   = "LSetBin_";
 
 -- Enhancements for LSET begin here 
@@ -520,6 +521,7 @@ local M_HashCellMaxList        = 'X'; -- Threshold for converting from a
 -- -----------------------------------------------------------------------
 -- Here are the fields used in a Hash Cell Anchor
 local C_CellState      = 'S'; -- Hold the Cell State
+-- Similar to LMAP, but we don't use "NameList" in LSET, just "ValueList"
 -- local C_CellNameList   = 'N'; -- Pt to a LIST of objects (not for LSET)
 local C_CellValueList  = 'V'; -- Pt to a LIST of objects
 local C_CellDigest     = 'D'; -- Pt to a single digest value
@@ -1019,7 +1021,7 @@ end -- numberHash()
 -- 'LSetBin_XX' will be the individual bins that hold lists of set data
 -- ======================================================================
 local function getBinName( number )
-  local binPrefix = "LSetBin_";
+  local binPrefix = LSET_DATA_BIN_PREFIX;
   return binPrefix .. tostring( number );
 end
 
@@ -1107,13 +1109,11 @@ local function getKeyValue( ldtMap, value )
 end -- getKeyValue();
 
 -- ======================================================================
--- Change this to use the "standard" Hash -- computeHashCell() -- that is
--- used by both LSET and LMAP.
--- ======================================================================
 -- computeHashCell()
+-- ======================================================================
 -- Find the right bin for this value.
--- First -- know if we're in "compact" StoreState or "regular" 
--- StoreState.  In compact mode, we ALWAYS look in the single bin.
+-- First -- know if we're in "compact" StoreState or "regular" StoreState.
+-- In compact mode, we ALWAYS look in the single bin (TopRec mode).
 -- Second -- use the right hash function (depending on the type).
 -- NOTE that we should be passed in ONLY KEYS, not objects, so we don't
 -- need to do  "Key Extract" here, regardless of whether we're doing
@@ -1153,26 +1153,6 @@ local function computeHashCell( searchKey, ldtMap )
 
   return cellNumber;
 end -- computeHashCell()
-
--- ======================================================================
--- listAppend()
--- ======================================================================
--- General tool to append one list to another.   At the point that we
--- find a better/cheaper way to do this, then we change THIS method and
--- all of the LDT calls to handle lists will get better as well.
--- ======================================================================
-local function listAppend( baseList, additionalList )
-  if( baseList == nil ) then
-    warn("[INTERNAL ERROR] Null baselist in listAppend()" );
-    error( ldte.ERR_INTERNAL );
-  end
-  local listSize = list.size( additionalList );
-  for i = 1, listSize, 1 do
-    list.append( baseList, additionalList[i] );
-  end -- for each element of additionalList
-
-  return baseList;
-end -- listAppend()
 
 -- =======================================================================
 -- subRecSummary()
@@ -3608,7 +3588,7 @@ local function topRecDump( topRec, ldtCtrl )
     if( tempList == nil or list.size( tempList ) == 0 ) then
       list.append( binList, "EMPTY LIST")
     else
-      listAppend( binList, tempList );
+      binList = ldt_common.listAppendList( binList, tempList );
     end
     trace("[DEBUG]<%s:%s> BIN(%s) TList(%s) B List(%s)", MOD, meth, binName,
       tostring(tempList), tostring(binList));
@@ -4252,7 +4232,7 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
   rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
+  if rc  and rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
@@ -4260,6 +4240,8 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   GP=E and trace("[EXIT]<%s:%s>: Success: DVal(%s) Key(%s) Res(%s)",
     MOD, meth, tostring(deleteValue), tostring(searchKey),
     tostring(resultFiltered));
+
+  -- If the user is asking for the value back, then send it.
   if resultList then
     return resultList[1];
   end

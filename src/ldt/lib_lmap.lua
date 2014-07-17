@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_07_02.A"; 
+local MOD="lib_lmap_2014_07_16.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -1584,55 +1584,6 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
 end --  createLMapSubRec()
 
 -- =======================================================================
--- scanHashCell()
--- =======================================================================
--- Search a list for an item.  Similar to LSET searchNameList(), but for MAP
--- we are searching just the NAME list, which is always atomic.
---
--- (*) ldtCtrl: Main LDT Control Structure
--- (*) nameList: the list of values from the record
--- (*) searchKey: the atomic value that we're searching for.
--- Return the position if found, else return ZERO.
--- =======================================================================
--- local function scanHashCell( cellAnchor, resultMap )
---   local meth = "scanHashCell()";
---    GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
--- 
---   -- The small list is inside of the cell anchor.  Get the lists.
---   local nameList  = cellAnchor[C_CellNameList];
---   local valueList = cellAnchor[C_CellValueList];
--- 
---   return scanLMapList( cellAnchor[C_CellNameList], cellAnchor[C_CellValueList],
---     resultMap );
--- 
---   -- Nothing to search if the list is null or empty
---   if( nameList == nil or list.size( nameList ) == 0 ) then
---     GP=F and trace("[DEBUG]<%s:%s> EmptyList", MOD, meth );
---     return 0;
---   end
--- 
---   -- Search the list for the item (searchKey) return the position if found.
---   -- Note that searchKey may be the entire object, or it may be a subset.
---   local listSize = list.size(nameList);
---   local item;
---   local dbKey;
---   for i = 1, listSize, 1 do
---     item = nameList[i];
---     GP=F and trace("[COMPARE]<%s:%s> index(%d) SV(%s) and ListVal(%s)",
---                    MOD, meth, i, tostring(searchKey), tostring(item));
---     -- a value that does not exist, will have a nil nameList item
---     -- so we'll skip this if-loop for it completely                  
---     if item ~= nil and item == searchKey then
---       position = i;
---       break;
---     end -- end if not null and not empty
---   end -- end for each item in the list
--- 
---   GP=E and trace("[EXIT]<%s:%s> Result: Position(%d)", MOD, meth, position );
---   return position;
--- end -- searchNameList()
-
--- =======================================================================
 -- regularScan()
 -- =======================================================================
 -- Search the entire Hash Directory for an item.
@@ -1664,8 +1615,6 @@ local function regularScan( src, topRec, ldtCtrl, resultMap )
   for i = 1, hashDirSize,  1 do
     cellAnchor = hashDirectory[i];
     if( not cellAnchorEmpty( cellAnchor )) then
---    if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
-
       GD=DEBUG and trace("[DEBUG]<%s:%s>\nHash Cell :: Index(%d) Cell(%s)",
         MOD, meth, i, tostring(cellAnchor));
 
@@ -2298,79 +2247,6 @@ local function hashDirInsert( src, topRec, ldtCtrl, newName, newValue, check)
 end -- function hashDirInsert()
 
 -- ======================================================================
--- listDelete()
--- ======================================================================
--- General List Delete function that can be used to delete items, employees
--- or pesky Indian Developers (usually named "Raj").
--- RETURN:
--- A NEW LIST that no longer includes the deleted item.
--- ======================================================================
--- NOTE: We are now using the general ldt_common.listDelete() function
--- ======================================================================
--- Remove this function on the next cleanup iteration.
--- ======================================================================
---local function listDelete( objectList, position )
---  local meth = "listDelete()";
---  local resultList;
---  local listSize = list.size( objectList );
---
---  GP=E and trace("[ENTER]<%s:%s>List(%s) size(%d) Position(%d)", MOD,
---  meth, tostring(objectList), listSize, position );
---  
---  if( position < 1 or position > listSize ) then
---    warn("[DELETE ERROR]<%s:%s> Bad position(%d) for delete.",
---      MOD, meth, position );
---    error( ldte.ERR_DELETE );
---  end
---
---  -- Move elements in the list to "cover" the item at Position.
---  --  +---+---+---+---+
---  --  |111|222|333|444|   Delete item (333) at position 3.
---  --  +---+---+---+---+
---  --  Moving forward, Iterate:  list[pos] = list[pos+1]
---  --  This is what you would THINK would work:
---  -- for i = position, (listSize - 1), 1 do
---  --   objectList[i] = objectList[i+1];
---  -- end -- for()
---  -- objectList[i+1] = nil;  (or, call trim() )
---  -- However, because we cannot assign "nil" to a list, nor can we just
---  -- trim a list, we have to build a NEW list from the old list, that
---  -- contains JUST the pieces we want.
---  --
---  -- An alternative method would be to swap the current position with
---  -- the END value, and then perform a "trim" on the list -- if that
---  -- actually worked.
---  --
---  -- So, basically, we're going to build a new list out of the LEFT and
---  -- RIGHT pieces of the original list.
---  --
---  -- Our List operators :
---  -- (*) list.take (take the first N elements) 
---  -- (*) list.drop (drop the first N elements, and keep the rest) 
---  -- The special cases are:
---  -- (*) A list of size 1:  Just return a new (empty) list.
---  -- (*) We're deleting the FIRST element, so just use RIGHT LIST.
---  -- (*) We're deleting the LAST element, so just use LEFT LIST
---  if( listSize == 1 ) then
---    resultList = list();
---  elseif( position == 1 ) then
---    resultList = list.drop( objectList, 1 );
---  elseif( position == listSize ) then
---    resultList = list.take( objectList, position - 1 );
---  else
---    resultList = list.take( objectList, position - 1);
---    local addList = list.drop( objectList, position );
---    local addLength = list.size( addList );
---    for i = 1, addLength, 1 do
---      list.append( resultList, addList[i] );
---    end
---  end
---
---  GP=F and trace("[EXIT]<%s:%s>List(%s)", MOD, meth, tostring(resultList));
---  return resultList;
---end -- listDelete()
-
--- ======================================================================
 -- compactDelete()
 -- ======================================================================
 -- Delete an item from the compact list.
@@ -2545,10 +2421,8 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
     -- local subRec = openSubrec( src, topRec, digestString );
     -- NOTE: openSubRec() does its own error checking. No more needed here.
     local subRec = ldt_common.openSubRec( src, topRec, digestString );
-
     nameList  = subRec[LDR_NLIST_BIN];
     valueList = subRec[LDR_VLIST_BIN];
-
   else
     -- Get the lists from the correct Sub-Rec in the Radix Tree.
     -- Radix tree support not yet implemented
@@ -2586,95 +2460,6 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
   GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
                    MOD, meth, tostring(resultMap));
 end -- function regularSearch()
-
--- ==========================================================================
--- localLMapWalkThru()
--- ==========================================================================
--- Walk thru the LMAP and dump out contents.
--- ==========================================================================
--- THIS IS GUARANTEED NOT TO WORK:: REWRITE!!!
--- ==========================================================================
-local function localLMapWalkThru( resultList, topRec, ldtBinName )
-  
-  local meth = "localLMapWalkThru()";
-
-  warn("[ERROR: INCORRECT CODE]<%s:%s> Do not call", MOD, meth );
-
-  rc = 0; -- start out OK.
-  GP=E and trace("[ENTER]: <%s:%s> Search for Value(%s)",
-                 MOD, meth, tostring( searchValue ) );
-                 
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-  local propMap = ldtCtrl[1]; 
-  local ldtMap = ldtCtrl[2]; 
-
-  if ldtMap[M_StoreState] == SS_COMPACT then 
-    -- Find the appropriate bin for the Search value
-    GP=F and trace(" !!!!!! Compact Mode LMAP Search !!!!!");
-    -- local binList = ldtMap[M_CompactList];
-    list.append( resultList,
-      " =========== LMAP WALK-THRU COMPACT MODE \n ================" );
-	  
-    if ldtMap[M_KeyType] == KT_ATOMIC then
-      rc = simpleDumpListAll(topRec, resultList, ldtCtrl, ldtBinName );
-    else
-      rc = complexDumpListAll(topRec, resultList, ldtCtrl, ldtBinName );
-    end
-	
-    GP=E and trace("[EXIT]: <%s:%s>: Search Returns (%s)",
-	                 MOD, meth, tostring(result));
-  else -- regular searchAll
-    -- HACK : TODO : Fix this number to list conversion  
-    local digestlist = ldtMap[M_HashDirectory];
-    local src = ldt_common.createSubRecContext();
-  
-    -- for each digest in the digest-list, open that sub-rec, send it to our 
-    -- routine, then get the list-back and keep appending and building the
-    -- final resultList. 
-     
-    list.append( resultList,
-          "\n =========== LMAP WALK-THRU REGULAR MODE \n ================" );
-    for i = 1, list.size( digestlist ), 1 do
-      if digestlist[i] ~= 0 then 
-        local stringDigest = tostring( digestlist[i] );
-        local digestentry = "DIGEST:" .. stringDigest; 
-        list.append( resultList, digestentry );
-        -- local IndexLdrChunk = openSubrec( src, topRec, stringDigest );
-        -- NOTE: openSubRec() does its own error checking. No more needed here.
-        local subRec = ldt_common.openSubRec( src, topRec, digestString );
-
-        GP=F and trace("[DEBUG]: <%s:%s> Calling ldrSearchList: List(%s)",
-			           MOD, meth, tostring( entryList ));
-			  
-        -- temporary list having result per digest-entry LDR 
-        local ldrlist = list(); 
-        local entryList  = list(); 
-        -- The magical function that is going to fix our deletion :)
-        rc = ldrSearchList(topRec,ldtBinName,ldrlist,subRec,0,entryList);
-        if( rc == nil or rc == 0 ) then
-          GP=F and trace("AllSearch returned SUCCESS %s", tostring(ldrlist));
-          list.append( resultList, "LIST-ENTRIES:" );
-          for j = 1, list.size(ldrlist), 1 do 
-            -- no need to filter here, results are already filtered in-routine
-            list.append( resultList, ldrlist[j] );
-          end -- for
-        end -- end of if-rc check 
-        rc = closeSubrec( src, stringDigest )
-      else -- if digest-list is empty
-        list.append( resultList, "EMPTY ITEM")
-      end -- end of digest-list if check  
-      list.append( resultList, "\n" );
-    end -- end of digest-list for loop 
-    list.append( resultList,
-      "\n =========== END :  LMAP WALK-THRU REGULAR MODE \n ================" );
-    -- Close ALL of the sub-recs that might have been opened
-    rc = ldt_common.closeAllSubRecs( src );
-  end -- end of else 
-
-  return resultList;
-end -- end of localLMapWalkThru
 
 -- ======================================================================
 -- convertCompactToHashDir( topRec, ldtCtrl, newName, newValue )
@@ -3257,11 +3042,10 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
     rc = regularScan(src, topRec, ldtCtrl, resultMap ); 
   end
 
-  -- !!!! Need to switch to RESULT MAP SUMMARY !!!!!  @TODO
-  GP=E and trace("[EXIT]: <%s:%s>: Scan Returns Size(%d) Map(%s)",
-                   MOD, meth, map.size(resultMap), tostring(resultMap));
+  GP=E and trace("[EXIT]: <%s:%s>: Scan Returns Size(%d)",
+                   MOD, meth, map.size(resultMap));
   	  
-  GD=DEBUG and ldt_common.dumpMap(resultMap, "LMap Scan Results");
+  GD=DEBUG and ldt_common.dumpMap(resultMap, "LMap Scan Results:Dumped to Log");
 
   return resultMap;
 end -- function lmap.scan()

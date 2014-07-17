@@ -252,9 +252,14 @@ function lset_size( topRec, ldtBinName )
 end
 
 -- ========================================================================
--- get_config() -- return the config settings in the form of a map
+-- config()      -- return the config settings in the form of a map
+-- get_config()  -- return the config settings in the form of a map
 -- lset_config() -- return the config settings in the form of a map
 -- ========================================================================
+function config( topRec, ldtBinName )
+  return lset.config( topRec, ldtBinName );
+end
+
 function get_config( topRec, ldtBinName )
   return lset.config( topRec, ldtBinName );
 end
