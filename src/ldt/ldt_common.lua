@@ -142,6 +142,7 @@ local ldt_common = {};
 -- digest = record.digest( childRec )
 -- status = record.set_type( topRec, recType )
 -- status = record.set_flags( topRec, ldtBinName, binFlags )
+-- status = record.set_ttl( topRec, ttl )
 -- ======================================================================
 
 -- ++==================++
@@ -711,6 +712,7 @@ end -- function propMapSummary()
 -- digest = record.digest( childRec )
 -- status = record.set_type( rec, recType )
 -- status = record.set_flags( topRec, ldtBinName, binFlags )
+-- status = record.set_ttl( topRec, ttl )
 -- ======================================================================
 -- Notes on the SubRec functions:
 -- (*) The underlying Aerospike SubRec mechanism actually manages most
