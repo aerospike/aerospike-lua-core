@@ -7,7 +7,6 @@
 --
 -- What is LMAP ?
 -- 
--- The LMAP value is a new "particle type" that exists ONLY on the server.
 -- It is a complex type (it includes infrastructure that is used by
 -- server storage), so it can only be viewed or manipulated by Lua and C
 -- functions on the server.  It is represented by a Lua MAP object that

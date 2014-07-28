@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_07_16.A"; 
+local MOD="lib_lmap_2014_07_28.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -650,12 +650,12 @@ local function ldtDebugDump( ldtCtrl )
   local resultMap                = map();
   resultMap.SUMMARY              = "LMAP Summary";
 
-  info("\n\n <><>  BEGIN <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
+  trace("\n\n <><>  BEGIN <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
 
   if ( ldtCtrl == nil ) then
     warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
     resultMap.ERROR =  "EMPTY LDT BIN VALUE";
-    info("<<<%s>>>", tostring(resultMap));
+    trace("<<<%s>>>", tostring(resultMap));
     return 0;
   end
 
@@ -664,13 +664,13 @@ local function ldtDebugDump( ldtCtrl )
   
   if( propMap[PM_Magic] ~= MAGIC ) then
     resultMap.ERROR =  "BROKEN MAP--No Magic";
-    info("<<<%s>>>", tostring(resultMap));
+    trace("<<<%s>>>", tostring(resultMap));
     return 0;
   end;
 
   -- Load the common properties
   propMapSummary( resultMap, propMap );
-  info("\n<<<%s>>>\n", tostring(resultMap));
+  trace("\n<<<%s>>>\n", tostring(resultMap));
   resultMap = nil;
 
   -- Reset for each section, otherwise the result would be too much for
@@ -680,16 +680,16 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Load the LMAP-specific properties
   ldtMapSummary( resultMap2, ldtMap );
-  info("\n<<<%s>>>\n", tostring(resultMap2));
+  trace("\n<<<%s>>>\n", tostring(resultMap2));
   resultMap2 = nil;
 
   -- Print the Hash Directory
   resultMap3 = map();
   resultMap3.SUMMARY              = "LMAP Hash Directory";
   resultMap3.HashDirectory        = ldtMap[M_HashDirectory];
-  info("\n<<<%s>>>\n", tostring(resultMap3));
+  trace("\n<<<%s>>>\n", tostring(resultMap3));
 
-  info("\n\n <><><> END  <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
+  trace("\n\n <><><> END  <><><> [ LDT LMAP SUMMARY ] <><><><><><><><><> \n");
 end -- function ldtDebugDump()
 
 -- ======================================================================
@@ -2793,7 +2793,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   end 
 
   -- Look at the results after EACH insert.
-  if( DEBUG == true ) then
+  if DEBUG then
     local startSize = propMap[PM_ItemCount];
 
     trace("\n\n>>>>>>>>>>>>>>> VALIDATE PUT: Count Size(%d) <<<<<<<<<<<<\n",
@@ -3302,7 +3302,6 @@ function lmap.config( topRec, ldtBinName )
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local config = ldtSummary(ldtCtrl); 
 
   GP=E and trace("[EXIT]: <%s:%s> : config(%s)", MOD, meth, tostring(config) );
@@ -3372,8 +3371,17 @@ function lmap.set_capacity( topRec, ldtBinName, capacity )
     error( ldte.ERR_INTERNAL );
   end
 
-  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
+  -- All done, store the record
+  -- Update the Top Record with the new control info
+  topRec[ldtBinName] = ldtCtrl;
+  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
+  rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end
 
+  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function lmap.set_capacity()
 
@@ -3447,7 +3455,6 @@ function lmap.dump( topRec, ldtBinName, src )
       cellAnchor = hashDirectory[i];
       if ( not cellAnchorEmpty( cellAnchor ) ) then
       -- TODO: Move this code into a common "cellAnchor" Scan.
-      -- if( cellAnchor ~= nil and cellAnchor[C_CellState] ~= C_STATE_EMPTY ) then
         GD=DEBUG and trace("[DEBUG]<%s:%s> Hash Cell :: Index(%d) Cell(%s)",
           MOD, meth, i, tostring(cellAnchor));
 
@@ -3476,7 +3483,7 @@ function lmap.dump( topRec, ldtBinName, src )
               MOD, meth, digestString );
             error( ldte.ERR_SUBREC_OPEN );
           end
-          scanLMapList( subRec[LDR_NLIST_BIN], subRec[LDR_VLIST_BIN], resultMap );
+          scanLMapList(subRec[LDR_NLIST_BIN], subRec[LDR_VLIST_BIN], resultMap);
           ldt_common.closeSubRec( src, subRec, false);
         else
           -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

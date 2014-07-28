@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_07_17.A";
+local MOD="lib_llist_2014_07_28.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -57,18 +57,20 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ======================================================================
 -- (*) Status = llist.add(topRec, ldtBinName, newValue, userModule, src)
 -- (*) Status = llist.add_all(topRec, ldtBinName, valueList, userModule, src)
--- (*) List   = llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
+-- (*) List   = llist.find(topRec,ldtBinName,val,userModule,filter,fargs, src)
 -- (*) Object = llist.find_min(topRec,ldtBinName, src)
 -- (*) Object = llist.find_max(topRec,ldtBinName, src)
--- (*) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
+-- (*) List   = llist.take(topRec,ldtBinName,val,userModule,filter,fargs, src)
 -- (*) Object = llist.take_min(topRec,ldtBinName, src)
 -- (*) Object = llist.take_max(topRec,ldtBinName, src)
+-- (*) List   = llist.range(tr,bin,loVal,hiVal, userModule,filter,fargs,src)
+-- (*) List   = llist.filter(topRec,ldtBinName,userModule,filter,fargs,src)
 -- (*) List   = llist.scan(topRec, ldtBinName, userModule, filter, fargs, src)
 -- (*) Status = llist.update(topRec, ldtBinName, userObject, src)
 -- (*) Status = llist.remove(topRec, ldtBinName, searchValue  src) 
 -- (*) Status = llist.destroy(topRec, ldtBinName, src)
 -- (*) Number = llist.size(topRec, ldtBinName )
--- (*) Map    = llist.get_config(topRec, ldtBinName )
+-- (*) Map    = llist.config(topRec, ldtBinName )
 -- (*) Status = llist.set_capacity(topRec, ldtBinName, new_capacity)
 -- (*) Status = llist.get_capacity(topRec, ldtBinName )
 -- ======================================================================
@@ -209,6 +211,17 @@ local KEY_FIELD  = "key";
 
 -- Switch from a single list to B+ Tree after this amount
 local DEFAULT_THRESHOLD = 100;
+
+-- Starting value for an INTERNAL NODE (in terms of # of objects)
+local DEFAULT_NODE_MAX = 200;
+
+-- Starting value for a LEAF NODE (in terms of # of objects)
+local DEFAULT_LEAF_MAX = 200;
+
+-- Conventional Wisdom says that lists smaller than 20 are searched faster
+-- with LINEAR SEARCH, and larger lists are searched faster with
+-- BINARY SEARCH.   Experiment with this value.
+local LINEAR_SEARCH_CUTOFF = 20;
 
 -- Use this to test for LdtMap Integrity.  Every map should have one.
 local MAGIC="MAGIC";     -- the magic value for Testing LLIST integrity
@@ -685,6 +698,7 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[M_Transform] = nil; -- (set later) transform Func (user to storage)
   ldtMap[M_UnTransform] = nil; -- (set later) Un-transform (storage to user)
   ldtMap[R_StoreState] = SS_COMPACT; -- start in "compact mode"
+
   ldtMap[R_Threshold] = DEFAULT_THRESHOLD;-- Amount to Move out of compact mode
 
   -- Fixed Key and Object sizes -- when using Binary Storage
@@ -701,11 +715,11 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[R_CompactList] = list();-- Simple Compact List -- before "tree mode"
   
   -- LLIST Inner Node Settings
-  ldtMap[R_NodeListMax] = 200;  -- Max # of items (key+digest)
+  ldtMap[R_NodeListMax] = DEFAULT_NODE_MAX;  -- Max # of items (key+digest)
   ldtMap[R_NodeByteCountMax] = 0; -- Max # of BYTES
 
   -- LLIST Tree Leaves (Data Pages)
-  ldtMap[R_LeafListMax] = 200;  -- Max # of items
+  ldtMap[R_LeafListMax] = DEFAULT_LEAF_MAX;  -- Max # of items in a leaf
   ldtMap[R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
@@ -1162,7 +1176,6 @@ end
 local function showRecSummary( nodeSubRec, propMap )
   local meth = "showRecSummary()";
   -- Debug/Tracing to see what we're putting in the SubRec Context
-  -- if( F == true ) then
   if( propMap == nil ) then
     warn("[ERROR]<%s:%s>: propMap value is NIL", MOD, meth );
     error( ldte.ERR_SUBREC_DAMAGED );
@@ -1176,7 +1189,6 @@ local function showRecSummary( nodeSubRec, propMap )
     else
       GP=F and trace("\n[OTHER Record TYPE] (%s)\n", tostring( recType ));
     end
-  -- end
 end -- showRecSummary()
 
 -- ======================================================================
@@ -1418,8 +1430,9 @@ initPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- initPropMap()
 
+
 -- ======================================================================
--- searchKeyList(): Search the Key list in a Root or Inner Node
+-- searchKeyListLinear(): Search the Key list in a Root or Inner Node
 -- ======================================================================
 -- Search the key list, return the index of the value that represents the
 -- child pointer that we should follow.  Notice that this is DIFFERENT
@@ -1447,21 +1460,14 @@ end -- initPropMap()
 -- OK: Return the Position of the Digest Pointer that we want
 -- ERRORS: Return ERR_GENERAL (bad compare)
 -- ======================================================================
-local function searchKeyList( ldtMap, keyList, searchKey )
-  local meth = "searchKeyList()";
+local function searchKeyListLinear( ldtMap, keyList, searchKey )
+  local meth = "searchKeyListLinear()";
   GP=E and trace("[ENTER]<%s:%s>searchKey(%s)", MOD,meth,tostring(searchKey));
 
-  -- We can short-cut this.  If searchKey is nil, then we automatically
-  -- return 1 (the first index position).
-  if( searchKey == nil ) then
-    return 1;
-  end
-
-  -- Don't need this at the moment.
-  -- local keyType = ldtMap[M_KeyType];
-
+  -- Note that the parent caller has already checked for nil search key.
+  
   -- Linear scan of the KeyList.  Find the appropriate entry and return
-  -- the index.  Binary Search will come later.
+  -- the index.  Binary Search will come later (the faster alternative).
   local resultIndex = 0;
   local compareResult = 0;
   -- Do the List page mode search here
@@ -1494,8 +1500,442 @@ local function searchKeyList( ldtMap, keyList, searchKey )
   GP=F and trace("[FOUND GREATER THAN]: <%s:%s> SKey(%s) EKey(%s) Index(%d)",
     MOD, meth, tostring(searchKey), tostring(entryKey), listSize + 1 );
 
+  GP=F and trace("[FOUND Insert Point]: <%s:%s> SKey(%s) KeyList(%s) PT(%d)", 
+    MOD, meth, tostring(searchKey), tostring(keyList), listSize + 1);
+
   return listSize + 1; -- return furthest right child pointer
-end -- searchKeyList()
+end -- searchKeyListLinear()
+
+-- ======================================================================
+-- searchKeyListBinary(): Search the Key list in a Root or Inner Node
+-- ======================================================================
+-- Search the key list, return the index of the value that represents the
+-- child pointer that we should follow.  Notice that this is DIFFERENT
+-- from the Leaf Search, which treats the EQUAL case differently.
+-- ALSO -- the Objects in the Leaves may be TRANSFORMED (e.g. compressed),
+-- so they potentially need to be UN-TRANSFORMED before they can be
+-- read.
+--
+-- For this example:
+--              +---+---+---+---+
+-- KeyList      |111|222|333|444|
+--              +---+---+---+---+
+-- DigestList   A   B   C   D   E
+--
+-- Search Key 100:  Position 1 :: Follow Child Ptr A
+-- Search Key 111:  Position 2 :: Follow Child Ptr B
+-- Search Key 200:  Position 2 :: Follow Child Ptr B
+-- Search Key 222:  Position 2 :: Follow Child Ptr C
+-- Search Key 555:  Position 5 :: Follow Child Ptr E
+--
+-- Note that in the case of Duplicate values (and some of the dups may make
+-- it up into the parent node key lists), we have to ALWAYS get the LEFT-MOST
+-- value (regardless of ascending/descending values) so that we get ALL of
+-- them (in case we're searching for a set of values).
+--
+-- Parms:
+-- (*) ldtMap: Main control Map
+-- (*) keyList: The list of keys (from root or inner node)
+-- (*) searchKey: if nil, then is always LESS THAN the list
+-- Return:
+-- OK: Return the Position of the Digest Pointer that we want
+-- ERRORS: Return ERR_GENERAL (bad compare)
+-- ======================================================================
+local function searchKeyListBinary( ldtMap, keyList, searchKey )
+  local meth = "searchKeyListBinary()";
+  GP=E and trace("[ENTER]<%s:%s>searchKey(%s)", MOD,meth,tostring(searchKey));
+
+  GP=D and trace("[DEBUG]<%s:%s>KeyList(%s)", MOD,meth,tostring(keyList));
+
+  -- Note that the parent caller has already checked for nil search key.
+
+  -- Binary Search of the KeyList.  Find the appropriate entry and return
+  -- the index.  Note that we're assuming ASCENDING values first, then will
+  -- generalize later for ASCENDING and DESCENDING (a dynamic compare function
+  -- will help us make that pluggable).
+  local resultIndex = 0;
+  local compareResult = 0;
+  local listSize = list.size( keyList );
+  local entryKey;
+  local foundStart = 0; -- shows where the value chain started, or zero
+
+  --  Initialize the Start, Middle and End numbers
+  local iStart,iEnd,iMid = 1,listSize,0
+  local finalState = 0; -- Shows where iMid ends up pointing.
+  while iStart <= iEnd do
+    -- calculate middle
+    iMid = math.floor( (iStart+iEnd)/2 );
+    -- get compare value from the DB List (no translate for keys)
+    local entryKey = keyList[iMid];
+    compareResult = keyCompare( searchKey, entryKey );
+
+    GP=F and trace("[Loop]<%s:%s>Key(%s) S(%d) M(%d) E(%d) EK(%s) CR(%d)",
+      MOD, meth, tostring(searchKey), iStart, iMid, iEnd, tostring(entryKey),
+      compareResult);
+
+    if compareResult == CR_EQUAL then
+      foundStart = iMid;
+      -- If we're UNIQUE, then we're done. Otherwise, we have to look LEFT
+      -- to find the first NON-matching position.
+      if( ldtMap[R_KeyUnique] == AS_TRUE ) then
+        GP=F and trace("[FOUND KEY]: <%s:%s> : SrchValue(%s) Index(%d)",
+          MOD, meth, tostring(searchKey), iMid);
+      else
+        -- There might be duplicates.  Scan left to find left-most matching
+        -- key.  Note that if we fall off the front, keyList[0] should
+        -- (in theory) be defined to be NIL, so the compare just fails and
+        -- we stop.
+        entryKey = keyList[iMid - 1];
+        while searchKey == entryKey do
+          iMid = iMid - 1;
+          entryKey = keyList[iMid - 1];
+        end
+        GP=F and trace("[FOUND DUP KEY]: <%s:%s> : SrchValue(%s) Index(%d)",
+          MOD, meth, tostring(searchKey), iMid);
+      end
+      return iMid + 1; -- Right Child Pointer that goes with iMid
+    end -- if found, we've returned.
+
+    -- Keep Searching
+    if compareResult == CR_LESS_THAN then
+      iEnd = iMid - 1;
+      finalState = 0; -- At the end, iMid points at the Insert Point.
+    else
+      iStart = iMid + 1;
+      finalState = 1; -- At the end, iMid points BEFORE the Insert Point.
+    end
+  end -- while binary search
+
+
+  -- If we're here, then iStart > iEnd, so we have to return the index of
+  -- the correct child pointer that matches the search.
+  -- Final state shows us where we are relative to the last compare.  If our
+  -- last compare:: Cmp(searchKey, entryKey) shows SK < EK, then the value
+  -- of iMid 
+  resultIndex = iMid + finalState;
+
+  GP=F and trace("[Result]<%s:%s> iStart(%d) iMid(%d) iEnd(%d)", MOD, meth,
+    iStart, iMid, iEnd );
+  GP=F and trace("[Result]<%s:%s> Final(%d) ResultIndex(%d)",
+    MOD, meth, finalState, resultIndex);
+
+  if DEBUG then
+    entryKey = keyList[iMid + finalState];
+    GP=F and trace("[Result]<%s:%s> ResultIndex(%d) EntryKey at RI(%s)",
+      MOD, meth, resultIndex, tostring(entryKey));
+  end
+
+  GP=F and trace("[FOUND Insert Point]: <%s:%s> SKey(%s) KeyList(%s)", 
+    MOD, meth, tostring(searchKey), tostring(keyList));
+
+  return resultIndex;
+end -- searchKeyListBinary()
+  
+-- ======================================================================
+-- searchKeyList(): Search the Key list in a Root or Inner Node
+-- ======================================================================
+-- Search the key list, return the index of the value that represents the
+-- child pointer that we should follow.  Notice that this is DIFFERENT
+-- from the Leaf Search, which treats the EQUAL case differently.
+-- ALSO -- the Objects in the Leaves may be TRANSFORMED (e.g. compressed),
+-- so they potentially need to be UN-TRANSFORMED before they can be
+-- read.
+--
+-- For this example:
+--              +---+---+---+---+
+-- KeyList      |111|222|333|444|
+--              +---+---+---+---+
+-- DigestList   A   B   C   D   E
+--
+-- Search Key 100:  Position 1 :: Follow Child Ptr A
+-- Search Key 111:  Position 2 :: Follow Child Ptr B
+-- Search Key 200:  Position 2 :: Follow Child Ptr B
+-- Search Key 222:  Position 2 :: Follow Child Ptr C
+-- Search Key 555:  Position 5 :: Follow Child Ptr E
+--
+-- The KEY LIST is an UNTRANSFORMED List of KEYS (not objects), so it does
+-- NOT need to be untransformed, nor does it need key extraction.
+--
+-- The Key List is ordered, so it can be searched with either linear (simple
+-- but slow) or binary search (more complicated, but faster).  We have both
+-- here due to the evolution of the code (simple first, complex second).
+--
+-- Parms:
+-- (*) ldtMap: Main control Map
+-- (*) keyList: The list of keys (from root or inner node)
+-- (*) searchKey: if nil, then is always LESS THAN the list
+-- Return:
+-- OK: Return the Position of the Digest Pointer that we want
+-- ERRORS: Return ERR_GENERAL (bad compare)
+-- ======================================================================
+local function searchKeyList( ldtMap, keyList, searchKey )
+  local meth = "searchKeyList()";
+  GP=E and trace("[ENTER]<%s:%s>searchKey(%s)", MOD,meth,tostring(searchKey));
+
+  -- We can short-cut this.  If searchKey is nil, then we automatically
+  -- return 1 (the first index position).
+  if( searchKey == nil ) then
+    return 1;
+  end
+
+  -- Depending on the state of the code, pick either the LINEAR search method
+  -- or the BINARY search method.
+  -- Rule of thumb is that linear is the better search for lists shorter than
+  -- 10, and after that binary search is better.
+  local listSize = list.size(keyList);
+  if( listSize <= LINEAR_SEARCH_CUTOFF ) then
+    return searchKeyListLinear( ldtMap, keyList, searchKey );
+  else
+    return searchKeyListBinary( ldtMap, keyList, searchKey );
+  end
+end --searchKeyList()
+
+-- ======================================================================
+-- searchObjectListLinear(): LINEAR Search the Object List in a Leaf Node
+-- ======================================================================
+-- Search the Object list, return the index of the value that is THE FIRST
+-- object to match the search Key. Notice that this method is different
+-- from the searchKeyList() -- since that is only looking for the right
+-- leaf.  In searchObjectList() we're looking for the actual value.
+-- NOTE: Later versions of this method will probably return a location
+-- of where to start scanning (for value ranges and so on).  But, for now,
+-- we're just looking for an exact match.
+-- For this example:
+--              +---+---+---+---+
+-- ObjectList   |111|222|333|444|
+--              +---+---+---+---+
+-- Index:         1   2   3   4
+--
+-- Search Key 100:  Position 1 :: Insert at index location 1
+-- Search Key 111:  Position 1 :: Insert at index location 1
+-- Search Key 200:  Position 2 :: Insert at index location 2
+-- Search Key 222:  Position 2 :: Insert at index location 2
+-- Parms:
+-- (*) ldtMap: Main control Map
+--
+-- Parms:
+-- (*) ldtMap: Main control Map
+-- (*) objectList: The list of keys (from root or inner node)
+-- (*) searchKey: if nil, then it compares LESS than everything.
+-- Return: Returns a STRUCTURE (a map)
+-- (*) POSITION: (where we found it if true, or where we would insert if false)
+-- (*) FOUND RESULTS (true, false)
+-- (*) ERROR Status: Ok, or Error
+--
+-- OK: Return the Position of the first matching value.
+-- ERRORS:
+-- ERR_GENERAL   (-1): Trouble
+-- ERR_NOT_FOUND (-2): Item not found.
+-- ======================================================================
+local function searchObjectListLinear( ldtMap, objectList, searchKey )
+  local meth = "searchObjectListLinear()";
+  local keyType = ldtMap[M_KeyType];
+  GP=D and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
+    MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
+
+  local resultMap = map();
+  resultMap.Status = ERR_OK;
+
+  -- NOTE: The caller checks for a NULL search key, so we can bypass that setep.
+
+  resultMap.Found = false;
+  resultMap.Position = 0;
+
+  -- Linear scan of the ObjectList.  Find the appropriate entry and return
+  -- the index.  Binary Search will come later.  Binary search is messy with
+  -- duplicates.
+  local resultIndex = 0;
+  local compareResult = 0;
+  local objectKey;
+  local storeObject; -- the stored (transformed) representation of the object
+  local liveObject; -- the live (untransformed) representation of the object
+
+  -- Do the List page mode search here
+  local listSize = list.size( objectList );
+
+  GP=F and trace("[Starting LOOP]<%s:%s>", MOD, meth );
+
+  for i = 1, listSize, 1 do
+    -- If we have a transform/untransform, do that here.
+    storedObject = objectList[i];
+    if( G_UnTransform ~= nil ) then
+      liveObject = G_UnTransform( storedObject );
+    else
+      liveObject = storedObject;
+    end
+
+    compareResult = objectCompare( ldtMap, searchKey, liveObject );
+    if compareResult == CR_ERROR then
+      resultMap.Status = ERR_GENERAL;
+      return resultMap;
+    end
+    if compareResult  == CR_LESS_THAN then
+      -- We want the child pointer that goes with THIS index (left ptr)
+      GP=D and trace("[NOT FOUND LESS THAN]<%s:%s> : SV(%s) Obj(%s) I(%d)",
+        MOD, meth, tostring(searchKey), tostring(liveObject), i );
+      resultMap.Position = i;
+      return resultMap;
+    elseif compareResult == CR_EQUAL then
+      -- Found it -- return the index of THIS value
+      GP=D and trace("[FOUND KEY]: <%s:%s> :Key(%s) Value(%s) Index(%d)",
+        MOD, meth, tostring(searchKey), tostring(liveObject), i );
+      resultMap.Position = i; -- Index of THIS value.
+      resultMap.Found = true;
+      return resultMap;
+    end
+    -- otherwise, keep looking.  We haven't passed the spot yet.
+  end -- for each list item
+
+  -- Remember: Can't use "i" outside of Loop.   
+  GP=F and trace("[NOT FOUND: EOL]: <%s:%s> :Key(%s) Final Index(%d)",
+    MOD, meth, tostring(searchKey), listSize );
+
+  resultMap.Position = listSize + 1;
+  resultMap.Found = false;
+
+  GP=E and trace("[EXIT]<%s:%s>ResultMap(%s)", MOD,meth,tostring(resultMap));
+  return resultMap;
+end -- searchObjectListLinear()
+
+-- ======================================================================
+-- searchObjectListBinary(): BINARY Search the Object List in a Leaf Node
+-- ======================================================================
+-- Search the Object list, return the index of the value that is THE FIRST
+-- object to match the search Key. Notice that this method is different
+-- from the searchKeyList() -- since that is only looking for the right
+-- leaf.  In searchObjectList() we're looking for the actual value.
+-- NOTE: Later versions of this method will probably return a location
+-- of where to start scanning (for value ranges and so on).  But, for now,
+-- we're just looking for an exact match.
+-- For this example:
+--              +---+---+---+---+
+-- ObjectList   |111|222|333|444|
+--              +---+---+---+---+
+-- Index:         1   2   3   4
+--
+-- Search Key 100:  Position 1 :: Insert at index location 1
+-- Search Key 111:  Position 1 :: Insert at index location 1
+-- Search Key 200:  Position 2 :: Insert at index location 2
+-- Search Key 222:  Position 2 :: Insert at index location 2
+-- Parms:
+-- (*) ldtMap: Main control Map
+--
+-- Parms:
+-- (*) ldtMap: Main control Map
+-- (*) objectList: The list of keys (from root or inner node)
+-- (*) searchKey: if nil, then it compares LESS than everything.
+-- Return: Returns a STRUCTURE (a map)
+-- (*) POSITION: (where we found it if true, or where we would insert if false)
+-- (*) FOUND RESULTS (true, false)
+-- (*) ERROR Status: Ok, or Error
+--
+-- OK: Return the Position of the first matching value.
+-- ERRORS:
+-- ERR_GENERAL   (-1): Trouble
+-- ERR_NOT_FOUND (-2): Item not found.
+-- ======================================================================
+local function searchObjectListBinary( ldtMap, objectList, searchKey )
+  local meth = "searchObjectListBinary()";
+  local keyType = ldtMap[M_KeyType];
+  GP=D and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
+    MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
+
+  local resultMap = map();
+  resultMap.Status = ERR_OK;
+
+  -- NOTE: The caller checks for a NULL search key, so we can bypass that setep.
+
+  resultMap.Found = false;
+  resultMap.Position = 0;
+
+  -- BINARY SEARCH of the ObjectList.  Find the appropriate entry and return
+  -- the index.
+  local resultIndex = 0;
+  local compareResult = 0;
+  local objectKey;
+  local storeObject; -- the stored (transformed) representation of the object
+  local liveObject; -- the live (untransformed) representation of the object
+  local listSize = list.size( objectList );
+  local foundStart = 0; -- shows where the Dup value chain started, or zero
+
+  --  Initialize the Start, Middle and End numbers
+  local iStart,iEnd,iMid = 1,listSize,0
+  local finalState = 0; -- Shows where iMid ends up pointing.
+  while iStart <= iEnd do
+    -- calculate middle
+    iMid = math.floor( (iStart+iEnd)/2 );
+    -- If we have a transform/untransform, do that here.
+    storedObject = objectList[iMid];
+    liveObject = G_Untransform and G_UnTransform(storedObject) or storedObject;
+
+    -- Do the Compare, employing the KeyFunction if needed.
+    compareResult = objectCompare( ldtMap, searchKey, liveObject );
+
+    GP=F and trace("[Loop]<%s:%s>Key(%s) S(%d) M(%d) E(%d) Obj(%s) CR(%d)",
+      MOD, meth, tostring(searchKey), iStart, iMid, iEnd,
+      tostring(liveObject), compareResult);
+
+    if compareResult == CR_EQUAL then
+      foundStart = iMid;
+      -- If we're UNIQUE, then we're done. Otherwise, we have to look LEFT
+      -- to find the first NON-matching position.
+      if( ldtMap[R_KeyUnique] == AS_TRUE ) then
+        GP=F and trace("[FOUND OBJECT]: <%s:%s> : SrchValue(%s) Index(%d)",
+          MOD, meth, tostring(searchKey), iMid);
+      else
+        -- There might be duplicates.  Scan left to find left-most matching
+        -- key.  Note that if we fall off the front, keyList[0] should
+        -- (in theory) be defined to be NIL, so the compare just fails and
+        -- we stop.
+        -- If we have a transform/untransform, do that here.
+        while true do
+          storedObject = objectList[iMid - 1];
+          liveObject =
+            G_Untransform and G_UnTransform(storedObject) or storedObject;
+          compareResult = objectCompare( ldtMap, searchKey, liveObject );
+          if compareResult ~= CR_EQUAL then
+            break;
+          end
+          iMid = iMid - 1;
+        end -- done looking (left) for duplicates
+
+        GP=F and trace("[FOUND DUP KEY]: <%s:%s> : SrchValue(%s) Index(%d)",
+          MOD, meth, tostring(searchKey), iMid);
+      end
+      -- Return the index of THIS location.
+      resultMap.Position = iMid;
+      resultMap.Found = true;
+      return resultMap;
+    end -- if found, we've returned.
+
+    -- Keep Searching
+    if compareResult == CR_LESS_THAN then
+      iEnd = iMid - 1;
+      finalState = 0; -- At the end, iMid points at the Insert Point.
+    else
+      iStart = iMid + 1;
+      finalState = 1; -- At the end, iMid points BEFORE the Insert Point.
+    end
+  end -- while binary search
+
+  -- If we're here, then iStart > iEnd, so we have to return the index of
+  -- the correct child pointer that matches the search.
+  -- Final state shows us where we are relative to the last compare.  If our
+  -- last compare:: Cmp(searchKey, entryKey) shows SK < EK, then the value
+  -- of iMid 
+  resultMap.Position = iMid + finalState;
+  resultMap.Found = false;
+
+  GP=F and trace("[NOT FOUND]: <%s:%s> SKey(%s) KeyList(%s)", 
+    MOD, meth, tostring(searchKey), tostring(objectList));
+  GP=F and trace("[Result]<%s:%s> iStart(%d) iMid(%d) iEnd(%d)", MOD, meth,
+    iStart, iMid, iEnd );
+  GP=F and trace("[Result]<%s:%s> Final(%d) INSERT HERE: ResultIndex(%d)",
+    MOD, meth, finalState, resultMap.Position);
+
+  GP=E and trace("[EXIT]<%s:%s>ResultMap(%s)", MOD,meth,tostring(resultMap));
+  return resultMap;
+end -- searchObjectListBinary()
 
 -- ======================================================================
 -- searchObjectList(): Search the Object List in a Leaf Node
@@ -1545,6 +1985,7 @@ local function searchObjectList( ldtMap, objectList, searchKey )
 
   -- If we're given a nil searchKey, then we say "found" and return
   -- position 1 -- basically, to set up Scan.
+  -- TODO: Must also check for EMPTY LIST -- Perhaps the caller does that?
   if( searchKey == nil ) then
     resultMap.Found = true;
     resultMap.Position = 1;
@@ -1552,63 +1993,17 @@ local function searchObjectList( ldtMap, objectList, searchKey )
     return resultMap;
   end
 
-  resultMap.Found = false;
-  resultMap.Position = 0;
+  -- Depending on the state of the code, pick either the LINEAR search method
+  -- or the BINARY search method.
+  -- Rule of thumb is that linear is the better search for lists shorter than
+  -- 10, and after that binary search is better.
+  local listSize = list.size(objectList);
+  if( listSize <= LINEAR_SEARCH_CUTOFF ) then
+    return searchObjectListLinear( ldtMap, objectList, searchKey );
+  else
+    return searchObjectListBinary( ldtMap, objectList, searchKey );
+  end
 
-  -- Linear scan of the ObjectList.  Find the appropriate entry and return
-  -- the index.  Binary Search will come later.  Binary search is messy with
-  -- duplicates.
-  local resultIndex = 0;
-  local compareResult = 0;
-  local objectKey;
-  local storeObject; -- the stored (transformed) representation of the object
-  local liveObject; -- the live (untransformed) representation of the object
-
-  -- Do the List page mode search here
-  local listSize = list.size( objectList );
-
-  GP=F and trace("[Starting LOOP]<%s:%s>", MOD, meth );
-
-  for i = 1, listSize, 1 do
-    -- If we have a transform/untransform, do that here.
-    storedObject = objectList[i];
-    if( G_UnTransform ~= nil ) then
-      liveObject = G_UnTransform( storedObject );
-    else
-      liveObject = storedObject;
-    end
-
-    compareResult = objectCompare( ldtMap, searchKey, liveObject );
-    if compareResult == CR_ERROR then
-      resultMap.status = ERR_GENERAL;
-      return resultMap;
-    end
-    if compareResult  == CR_LESS_THAN then
-      -- We want the child pointer that goes with THIS index (left ptr)
-      GP=D and trace("[NOT FOUND LESS THAN]<%s:%s> : SV(%s) Obj(%s) I(%d)",
-        MOD, meth, tostring(searchKey), tostring(liveObject), i );
-      resultMap.Position = i;
-      return resultMap;
-    elseif compareResult == CR_EQUAL then
-      -- Found it -- return the index of THIS value
-      GP=D and trace("[FOUND KEY]: <%s:%s> :Key(%s) Value(%s) Index(%d)",
-        MOD, meth, tostring(searchKey), tostring(liveObject), i );
-      resultMap.Position = i; -- Index of THIS value.
-      resultMap.Found = true;
-      return resultMap;
-    end
-    -- otherwise, keep looking.  We haven't passed the spot yet.
-  end -- for each list item
-
-  -- Remember: Can't use "i" outside of Loop.   
-  GP=F and trace("[NOT FOUND: EOL]: <%s:%s> :Key(%s) Final Index(%d)",
-    MOD, meth, tostring(searchKey), listSize );
-
-  resultMap.Position = listSize + 1;
-  resultMap.Found = false;
-
-  GP=E and trace("[EXIT]<%s:%s>ResultMap(%s)", MOD,meth,tostring(resultMap));
-  return resultMap;
 end -- searchObjectList()
 
 -- ======================================================================
@@ -2271,7 +2666,7 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
     end -- if node else leaf.
   end -- end for each tree level
 
-  if( resultMap ~= nil and resultMap.Status == 0 and resultMap.Found == true )
+  if( resultMap ~= nil and resultMap.Status == 0 and resultMap.Found )
   then
     position = resultMap.Position;
   else
@@ -2435,30 +2830,34 @@ end -- getLeafSplitPosition
 -- the same way.  Thus, it is up to the caller to update the node (or root)
 -- information, other than the list update, which is what we do here.
 -- Parms:
+-- (*) ldtMap:
 -- (*) keyList:
 -- (*) digestList:
 -- (*) key:
 -- (*) digest:
 -- (*) position:
 -- ======================================================================
-local function nodeInsert( keyList, digestList, key, digest, position )
+local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
   local meth = "nodeInsert()";
   local rc = 0;
 
-  GP=E and trace("[ENTER]<%s:%s> KL(%s) DL(%s) key(%s) D(%s) P(%d)",
-    MOD, meth, tostring(keyList), tostring(digestList), tostring(key),
-    tostring(digest), position);
+  GP=E and trace("[ENTER]<%s:%s> Pos(%d) KL(%s) DL(%s) key(%s) D(%s)",
+    MOD, meth, position, tostring(keyList), tostring(digestList),
+    tostring(key), tostring(digest));
 
   -- If the position is ZERO, then that means we'll have to do another search
   -- here to find the right spot.  Usually, position == 0 means we have
   -- to find the new spot after a split.  Sure, that could be calculated,
-  -- but this is safer -- for now.
+  -- but this (a new search) is safer -- for now.
   if( position == 0 ) then
     GP=F and trace("[INFO]<%s:%s>Position is ZERO:must Search for position",
       MOD, meth );
     position = searchKeyList( ldtMap, keyList, key );
   end
 
+  -- Note that searchKeyList() returns either the index of the item searched
+  -- for, OR the "insert location" of the searched-for item.  Either way,
+  -- we insert at that location for both theh new value and the digest.
   -- Move values around, if necessary, to put key and digest in "position"
   ldt_common.listInsert( keyList, key, position );
   ldt_common.listInsert( digestList, digest, position );
@@ -2612,7 +3011,6 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
   -- Calculate the split position and the key to propagate up to parent.
   local splitPosition =
       getNodeSplitPosition( ldtMap, keyList, rootPosition, key );
-  -- local splitKey = getKeyValue( ldtMap, keyList[splitPosition] );
   local splitKey = keyList[splitPosition];
 
   GP=F and trace("[STATUS]<%s:%s> Take and Drop::Pos(%d)Key(%s) Digest(%s)",
@@ -2629,9 +3027,9 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
     --                      +---+
     -- New Parent Element   |333|
     --                      +---+
-    --                     /     \
+    --                     /X   Y\ 
     --              +---+---+   +---+---+
-    -- KeyList      |111|222|   |444|555|
+    -- KeyList Nd(x)|111|222|   |444|555|Nd(y)
     --              +---+---+   +---+---+
     -- DigestList   A   B   C   D   E   F
     --
@@ -2640,7 +3038,8 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
   -- (*) list.drop (drop the first N elements, and keep the rest) 
   -- will let us split the current Root node list into two node lists.
   -- We propagate up the split key (the new root value) and the two
-  -- new inner node digests.
+  -- new inner node digests.  Remember that the Key List is ONE CELL
+  -- shorter than the DigestList.
   local leftKeyList  = list.take( keyList, splitPosition - 1 );
   local rightKeyList = list.drop( keyList, splitPosition  );
 
@@ -2669,10 +3068,10 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
   local compareResult = keyCompare( key, splitKey );
   if( compareResult == CR_LESS_THAN ) then
     -- We choose the LEFT Node -- but we must search for the location
-    nodeInsert( leftKeyList, leftDigestList, key, digest, 0 );
+    nodeInsert( ldtMap, leftKeyList, leftDigestList, key, digest, 0 );
   elseif( compareResult >= CR_EQUAL  ) then -- this works for EQ or GT
     -- We choose the RIGHT (new) Node -- but we must search for the location
-    nodeInsert( rightKeyList, rightDigestList, key, digest, 0 );
+    nodeInsert( ldtMap, rightKeyList, rightDigestList, key, digest, 0 );
   else
     -- We got some sort of goofy error.
     warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
@@ -2757,7 +3156,8 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
 
     -- Open the Node get the map, Key and Digest Data
     local nodePropMap    = nodeSubRec[SUBREC_PROP_BIN];
-    GP=F and trace("\n[DUMP]<%s:%s>Node Prop Map(%s)", MOD, meth, tostring(nodePropMap));
+    GP=F and
+    trace("\n[DUMP]<%s:%s>Node Prop Map(%s)", MOD, meth, tostring(nodePropMap));
 
     local nodeCtrlMap    = nodeSubRec[NSR_CTRL_BIN];
     local keyList    = nodeSubRec[NSR_KEY_LIST_BIN];
@@ -2767,11 +3167,11 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     local splitPosition =
         getNodeSplitPosition( ldtMap, keyList, nodePosition, key );
     -- We already have a key list -- don't need to "extract".
-    -- local splitKey = getKeyValue( ldtMap, keyList[splitPosition] );
     local splitKey = keyList[splitPosition];
 
-    GP=F and trace("\n[DUMP]<%s:%s> Take and Drop:: Map(%s) KeyList(%s) DigestList(%s)",
-      MOD, meth, tostring(nodeCtrlMap), tostring(keyList), tostring(digestList));
+    GP=F and
+    trace("\n[DUMP]<%s:%s> Take and Drop:: Map(%s) KeyList(%s) DigestList(%s)",
+    MOD, meth, tostring(nodeCtrlMap), tostring(keyList), tostring(digestList));
 
     -- Splitting a node works as follows.  The node is split into a left
     -- piece, a right piece, and a center value that is propagated up to
@@ -2801,7 +3201,8 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     local leftDigestList  = list.take( digestList, splitPosition );
     local rightDigestList = list.drop( digestList, splitPosition );
 
-    GP=D and trace("\n[DEBUG]<%s:%s>: LeftKey(%s) LeftDig(%s) RightKey(%s) RightDig(%s)",
+    GP=D and
+    trace("\n[DEBUG]<%s:%s>: LeftKey(%s) LeftDig(%s) RightKey(%s) RightDig(%s)",
       MOD, meth, tostring(leftKeyList), tostring(leftDigestList),
       tostring(rightKeyList), tostring(rightDigestList) );
 
@@ -2819,10 +3220,10 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
     local compareResult = keyCompare( key, splitKey );
     if( compareResult == CR_LESS_THAN ) then
       -- We choose the LEFT Node -- but we must search for the location
-      nodeInsert( leftKeyList, leftDigestList, key, digest, 0 );
+      nodeInsert( ldtMap, leftKeyList, leftDigestList, key, digest, 0 );
     elseif( compareResult >= CR_EQUAL  ) then -- this works for EQ or GT
       -- We choose the RIGHT (new) Node -- but we must search for the location
-      nodeInsert( rightKeyList, rightDigestList, key, digest, 0 );
+      nodeInsert( ldtMap, rightKeyList, rightDigestList, key, digest, 0 );
     else
       -- We got some sort of goofy error.
       warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
@@ -2876,9 +3277,8 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
   local rc = 0;
   GP=E and trace("[ENTER]<%s:%s> SP(%s) Key(%s) Dig(%s) Level(%d)",
     MOD, meth, tostring(sp), tostring(key), tostring(digest), level );
-  GP=F and trace("\n[DUMP]<%s> LDT(%s)", meth, ldtSummaryString(ldtCtrl) );
-
-  GP=F and trace("\n\n STARTING INTO INSERT PARENT NODE \n\n");
+  GP=D and trace("\n[DUMP]<%s> LDT(%s)", meth, ldtSummaryString(ldtCtrl) );
+  GP=D and trace("\n\n STARTING INTO INSERT PARENT NODE \n\n");
 
   -- Extract the property map and control map from the ldt bin list.
   local propMap = ldtCtrl[1];
@@ -2913,9 +3313,9 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
 
   -- If there's room in this node, then this is easy.  If not, then
   -- it's a complex split and propagate.
-  if( sp.HasRoom[level] == true ) then
+  if( sp.HasRoom[level] ) then
     -- Regular node insert
-    rc = nodeInsert( keyList, digestList, key, digest, position );
+    rc = nodeInsert( ldtMap, keyList, digestList, key, digest, position );
     -- If it's a node, then we have to re-assign the list to the subrec
     -- fields -- otherwise, the change may not take effect.
     if( rc == 0 ) then
@@ -2991,7 +3391,7 @@ local function createLeafRec( src, topRec, ldtCtrl, firstValue, valueList )
   -- Create the Aerospike Sub-Record, initialize the Bins (Ctrl, List).
   -- The createSubRec() handles the record type and the SRC.
   -- It also kicks out with an error if something goes wrong.
-  local leafSubRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_SUB );
+  local leafSubRec = ldt_common.createSubRec( src, topRec, ldtCtrl, RT_LEAF );
   local leafPropMap = leafSubRec[SUBREC_PROP_BIN];
   local leafCtrlMap = map();
 
@@ -3091,9 +3491,12 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
 
   GP=B and trace("\n\n <><><> !!! SPLIT LEAF !!! <><><> \n\n");
 
-  GP=E and trace("[ENTER]<%s:%s> SP(%s) Key(%s) Val(%s) LDT Map(%s) ",
-    MOD, meth, tostring(sp), tostring(newKey), tostring(newValue),
-    ldtSummaryString(ldtCtrl));
+  GP=E and trace("[ENTER]<%s:%s> Key(%s) Val(%s)",
+    MOD, meth, tostring(newKey), tostring(newValue));
+
+  GP=D and trace("[DEBUG]<%s:%s> SearchPath(%s)", MOD, meth, tostring(sp));
+  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s) ",
+    MOD, meth, ldtSummaryString(ldtCtrl));
 
   -- Splitting a leaf works as follows.  It is slightly different than a
   -- node split.  The leaf is split into a left piece and a right piece. 
@@ -3353,7 +3756,7 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue, stats )
   list.append( rootDigestList, leftLeafDigest );
   list.append( rootDigestList, rightLeafDigest );
 
-  if( stats == true ) then
+  if( stats ) then
     local totalCount = ldtMap[R_TotalCount];
     ldtMap[R_TotalCount] = totalCount + 1;
     local itemCount = propMap[PM_ItemCount];
@@ -3446,7 +3849,7 @@ local function treeInsert( src, topRec, ldtCtrl, value, stats )
     GP=D and trace("[DEBUG]<%s:%s>LeafInsert: Level(%d): HasRoom(%s)",
       MOD, meth, leafLevel, tostring(sp.HasRoom[leafLevel] ));
 
-    if( sp.HasRoom[leafLevel] == true ) then
+    if( sp.HasRoom[leafLevel] ) then
       -- Regular Leaf Insert
       local leafSubRec = sp.RecList[leafLevel];
       local position = sp.PositionList[leafLevel];
@@ -3512,7 +3915,7 @@ local function localInsert(src, topRec, ldtCtrl, newValue, stats )
     if( resultMap.Status == ERR_OK ) then
       -- If FOUND, then we have to verify that Duplicates are allowed.
       -- Otherwise, do the insert.
-      if( resultMap.Found == true and ldtMap[R_KeyUnique] == AS_TRUE ) then
+      if( resultMap.Found and ldtMap[R_KeyUnique] == AS_TRUE ) then
         warn("[ERROR]<%s:%s> Unique Key Violation", MOD, meth );
         error( ldte.ERR_UNIQUE_KEY );
       end
@@ -3535,7 +3938,7 @@ local function localInsert(src, topRec, ldtCtrl, newValue, stats )
   end
 
   -- update stats if appropriate.
-  if( stats == true and insertResult >= 0 ) then -- Update Stats if success
+  if( stats and insertResult >= 0 ) then -- Update Stats if success
     local itemCount = propMap[PM_ItemCount];
     local totalCount = ldtMap[R_TotalCount];
     propMap[PM_ItemCount] = itemCount + 1; -- number of valid items goes up
@@ -4034,7 +4437,7 @@ local function treeMinGet( sp, ldtCtrl, take )
   -- remove it -- and we do that by generating a new list that excludes the
   -- first element.  We assume that the caller will udpate the SubRec.
   resultObject = objectList[1];
-  if ( take == true ) then
+  if ( take ) then
     leafSubRec[LSR_LIST_BIN] = ldt_common.listDelete( objectList, 1 );
   end
 
@@ -4135,28 +4538,30 @@ end -- treeMin();
 -- (*) Status = llist.add_all(topRec, ldtBinName, valueList, userModule, src)
 -- (*) Status = create( topRec, ldtBinName, createSpec )
 -- (*) List   = llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
--- (*) Object = llist.find_min(topRec,ldtBinName, src)
--- (*) Object = llist.find_max(topRec,ldtBinName, src)
+-- ( ) Object = llist.find_min(topRec,ldtBinName, src)
+-- ( ) Object = llist.find_max(topRec,ldtBinName, src)
 -- (*) List   = llist.range( topRec, ldtBinName, lowKey, highKey, src) 
--- (*) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
--- (*) Object = llist.take_min(topRec,ldtBinName, src)
--- (*) Object = llist.take_max(topRec,ldtBinName, src)
+-- ( ) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
+-- ( ) Object = llist.take_min(topRec,ldtBinName, src)
+-- ( ) Object = llist.take_max(topRec,ldtBinName, src)
+-- (*) List   = llist.range(tr,bin,loVal,hiVal, userModule,filter,fargs,src)
+-- (*) List   = llist.filter(topRec,ldtBinName,userModule,filter,fargs,src)
 -- (*) List   = llist.scan(topRec, ldtBinName, userModule, filter, fargs, src)
--- (*) Status = llist.update(topRec, ldtBinName, userObject, src)
+-- ( ) Status = llist.update(topRec, ldtBinName, userObject, src)
 -- (*) Status = llist.remove(topRec, ldtBinName, searchValue  src) 
 -- (*) Status = llist.destroy(topRec, ldtBinName, src)
 -- (*) Number = llist.size(topRec, ldtBinName )
--- (*) Map    = llist.get_config(topRec, ldtBinName )
+-- (*) Map    = llist.config(topRec, ldtBinName )
 -- (*) Status = llist.set_capacity(topRec, ldtBinName, new_capacity)
 -- (*) Status = llist.get_capacity(topRec, ldtBinName )
 -- ======================================================================
 -- The following functions under construction:
--- (*) Object = llist.find_min(topRec,ldtBinName, src)
--- (*) Object = llist.find_max(topRec,ldtBinName, src)
--- (*) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
--- (*) Object = llist.take_min(topRec,ldtBinName, src)
--- (*) Object = llist.take_max(topRec,ldtBinName, src)
--- (*) Status = llist.update(topRec, ldtBinName, userObject, src)
+-- (-) Object = llist.find_min(topRec,ldtBinName, src)
+-- (-) Object = llist.find_max(topRec,ldtBinName, src)
+-- (-) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
+-- (-) Object = llist.take_min(topRec,ldtBinName, src)
+-- (-) Object = llist.take_max(topRec,ldtBinName, src)
+-- (-) Status = llist.update(topRec, ldtBinName, userObject, src)
 --
 -- ======================================================================
 -- We define a table of functions that are visible to both INTERNAL UDF
@@ -4394,7 +4799,7 @@ end -- function llist.add_all()
 -- Parms:
 -- (*) topRec:
 -- (*) ldtBinName:
--- (*) key
+-- (*) value
 -- (*) userModule
 -- (*) func:
 -- (*) fargs:
@@ -4404,7 +4809,7 @@ end -- function llist.add_all()
 -- =======================================================================
 -- The find() function can do multiple things. 
 -- =======================================================================
-function llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
+function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
   GP=B and trace("\n\n >>>>>>>>>>>> API[ LLIST FIND ] <<<<<<<<<<< \n");
   local meth = "llist.find()";
   GP=E and trace("[ENTER]<%s:%s> bin(%s) key(%s) UM(%s) Fltr(%s) Fgs(%s)",
@@ -4436,6 +4841,13 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
     src = ldt_common.createSubRecContext();
   end
 
+  -- We expect the user to pass in a KEY to search for, but if they pass in
+  -- an OBJECT, then we can still deal with that.  If the input value is an
+  -- object, we'll extract a key from it.  Otherwise, we'll pass it thru.
+  local key = getKeyValue(ldtMap, value);
+  GP=D and trace("[DEBUG]<%s:%s> Key(%s) from Value(%s)", MOD, meth,
+    tostring(key), tostring(value));
+
   local resultA;
   local resultB;
 
@@ -4445,7 +4857,7 @@ function llist.find(topRec,ldtBinName,key,userModule,filter,fargs, src)
     -- Do the COMPACT LIST SEARCH
     local objectList = ldtMap[R_CompactList];
     local resultMap = searchObjectList( ldtMap, objectList, key );
-    if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
+    if( resultMap.Status == ERR_OK and resultMap.Found ) then
       local position = resultMap.Position;
       resultA, resultB = 
           listScan(objectList, position, ldtMap, resultList, key, CR_EQUAL);
@@ -4600,6 +5012,9 @@ function llist.find_min( topRec,ldtBinName, src)
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
+
+  -- !!! Remember to Update and write out the TopRec
+
   GP=F and trace("[EXIT]: <%s:%s>: Search Key(%s) Result: Sz(%d) List(%s)",
   MOD, meth, tostring(key), list.size(resultList), tostring(resultList));
   
@@ -4674,7 +5089,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
     local resultMap = searchObjectList( ldtMap, objectList, minKey );
     position = resultMap.Position;
 
-    if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
+    if( resultMap.Status == ERR_OK and resultMap.Found ) then
       GP=F and trace("[FOUND]<%s:%s> CL: Found first element at (%d)",
         MOD, meth, position);
     end
@@ -4760,16 +5175,16 @@ end -- llist.filter()
 -- Parms 
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) LdtBinName
--- (3) key: The key we'll search for
+-- (3) value: The value/key we'll search for
 -- (4) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function llist.remove( topRec, ldtBinName, key, src )
+function llist.remove( topRec, ldtBinName, value, src )
   GP=F and trace("\n\n  >>>>>>>>>>>> API[ REMOVE ]<<<<<<<<<<< \n");
   local meth = "llist.remove()";
   local rc = 0;
 
-  GP=E and trace("[ENTER]<%s:%s>ldtBinName(%s) key(%s)",
-      MOD, meth, tostring(ldtBinName), tostring(key));
+  GP=E and trace("[ENTER]<%s:%s>ldtBinName(%s) value(%s)",
+      MOD, meth, tostring(ldtBinName), tostring(value));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -4792,6 +5207,13 @@ function llist.remove( topRec, ldtBinName, key, src )
     src = ldt_common.createSubRecContext();
   end
 
+  -- We expect the user to pass in a KEY to search for, but if they pass in
+  -- an OBJECT, then we can still deal with that.  If the input value is an
+  -- object, we'll extract a key from it.  Otherwise, we'll pass it thru.
+  local key = getKeyValue(ldtMap, value);
+  GP=D and trace("[DEBUG]<%s:%s> Key(%s) from Value(%s)", MOD, meth,
+    tostring(key), tostring(value));
+
   -- If our state is "compact", do a simple list delete, otherwise do a
   -- real tree delete.
   if( ldtMap[R_StoreState] == SS_COMPACT ) then 
@@ -4799,7 +5221,7 @@ function llist.remove( topRec, ldtBinName, key, src )
     GP=D and trace("[NOTICE]<%s:%s> Using COMPACT DELETE", MOD, meth);
     local objectList = ldtMap[R_CompactList];
     resultMap = searchObjectList( ldtMap, objectList, key );
-    if( resultMap.Status == ERR_OK and resultMap.Found == true ) then
+    if( resultMap.Status == ERR_OK and resultMap.Found ) then
       ldtMap[R_CompactList] =
         ldt_common.listDelete(objectList, resultMap.Position);
     else
@@ -4958,22 +5380,24 @@ end -- llist.destroy()
 --   ERROR: The Error code via error() call
 -- ========================================================================
 function llist.size( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
-  local meth = "llist.size()";
-  GP=E and trace("[ENTER1]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
+--  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
+--  local meth = "llist.size()";
+--  GP=E and trace("[ENTER1]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
 
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+  return ldt_common.size( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
 
-  -- Extract the property map and control map from the ldt bin list.
-  -- local ldtCtrl = topRec[ ldtBinName ];
-  local propMap = ldtCtrl[1];
-  local itemCount = propMap[PM_ItemCount];
-
-  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
-
-  return itemCount;
+--  -- Validate the topRec, the bin and the map.  If anything is weird, then
+--  -- this will kick out with a long jump error() call.
+--  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+--
+--  -- Extract the property map and control map from the ldt bin list.
+--  -- local ldtCtrl = topRec[ ldtBinName ];
+--  local propMap = ldtCtrl[1];
+--  local itemCount = propMap[PM_ItemCount];
+--
+--  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
+--
+--  return itemCount;
 end -- llist.size()
 
 -- ========================================================================
@@ -5018,6 +5442,8 @@ function llist.get_capacity( topRec, ldtBinName )
   GP=B and trace("\n\n  >>>>>>>> API[ GET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "llist.get_capacity()";
 
+--  return ldt_common.get_capacity( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
+
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
@@ -5053,8 +5479,8 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
   GP=B and trace("\n\n  >>>>>>>> API[ SET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "llist.set_capacity()";
 
-  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newCapacity(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(capacity));
 
   -- validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -5070,8 +5496,17 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
     error( ldte.ERR_INTERNAL );
   end
 
-  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
+  -- All done, store the record
+  -- Update the Top Record with the new control info
+  topRec[ldtBinName] = ldtCtrl;
+  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
+  rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
 
+  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function llist.set_capacity()
 

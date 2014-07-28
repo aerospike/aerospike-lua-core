@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_07_17.A"; 
+local MOD="lib_lset_2014_07_23.C"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -4436,7 +4436,7 @@ function lset.get_capacity( topRec, ldtBinName )
 end -- function lset.get_capacity()
 
 -- ========================================================================
--- lset.setCapacity() -- set the current capacity setting for this LDT
+-- lset.set_capacity() -- set the current capacity setting for this LDT
 -- ========================================================================
 -- Parms:
 -- (1) topRec: the user-level record holding the LDT Bin
@@ -4445,9 +4445,9 @@ end -- function lset.get_capacity()
 --   rc >= 0  (the current capacity)
 --   rc < 0: Aerospike Errors
 -- ========================================================================
-function lset.setCapacity( topRec, ldtBinName, capacity )
+function lset.set_capacity( topRec, ldtBinName, capacity )
   GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET SET_CAPACITY ] <<<<<<<<<< \n");
-  local meth = "lset.lsetCapacity()";
+  local meth = "lset.lset_capacity()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
@@ -4468,10 +4468,19 @@ function lset.setCapacity( topRec, ldtBinName, capacity )
     error( ldte.ERR_INTERNAL );
   end
 
-  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
+  -- All done, store the record
+  -- Update the Top Record with the new control info
+  topRec[ldtBinName] = ldtCtrl;
+  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
+  rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end
 
+  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
-end -- function lset.lsetCapacity()
+end -- function lset.lset_capacity()
 
 -- ========================================================================
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 

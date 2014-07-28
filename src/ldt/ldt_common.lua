@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_07_16.A";
+local MOD="ldt_common_2014_07_24.E";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -81,10 +81,6 @@ local DO_EARLY_SUBREC_UPDATES=true;
 -- ldt_common.closeAllSubRecs( srcCtrl )
 -- ldt_common.removeSubRec( srcCtrl, digestString )
 --
--- ldt_common.setLdtRecordType( topRec )
--- ldt_common.ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest,
--- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
---
 -- UTILITY FUNCTIONS (dump, summarize, etc)
 -- ldt_common.propMapSummary( resultMap, propMap )
 -- ldt_common.summarizeList( myList )
@@ -94,13 +90,22 @@ local DO_EARLY_SUBREC_UPDATES=true;
 --
 -- VALIDATION FUNCTIONS
 -- ldt_common.validateBinName( ldtBinName )
--- ldt_common.validateRecBinAndMap( topRec, ldtBinName, mustExist )
+-- ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVer)
 --
 -- LIST FUNCTIONS
 -- ldt_common.listAppendList( baseList, additionalList )
 -- ldt_common.listInsert( valList, newValue, position )
 -- ldt_common.listDelete( objectList, position )
 -- ldt_common.validateList( valList )
+--
+-- GENERAL COMMON FUNCTIONS
+-- ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
+-- ldt_common.setLdtRecordType( topRec )
+-- ldt_common.size( topRec, ldtBinName, ldtType, codeVer))
+-- ldt_common.config( topRec, ldtBinName, ldtType, codeVer))
+-- ldt_common.getCapacity( topRec, ldtBinName, ldtType, codeVer))
+-- ldt_common.setCapacity( topRec, ldtBinName, newCapacity, ldtType, codeVer))
+-- ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
 --
 -- OBJECT FUNCTIONS
 -- ldt_common.createPersonObject( flavor, skew )
@@ -1072,7 +1077,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- I think we need to STOP saving SELF DIGEST (Verify Raj doesn't need it)
   subRecPropMap[PM_SelfDigest]   = subRecDigest;
   subRecPropMap[PM_Magic]        = MAGIC;
-  subRecPropMap[PM_RecType]      = recType; -- This might always be RT_SUB
+  subRecPropMap[PM_RecType]      = recType; -- Specific to LDT's Needs
   subRecPropMap[PM_CreateTime]   = aerospike:get_current_time();
   subRecPropMap[PM_EsrDigest]    = esrDigest;
 
@@ -1495,124 +1500,25 @@ function ldt_common.listAppendList( baseList, additionalList )
   return returnList;
 end -- listAppendList()
 
--- ======================================================================
--- When we create the initial LDT Control Bin for the entire record (the
--- first time ANY LDT is initialized in a record), we create a property
--- map in it with various values.
--- ======================================================================
-function ldt_common.setLdtRecordType( topRec )
-  local meth = "setLdtRecordType()";
-  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
+-- =========================================================================
+-- ldt_common.validateCodeAndData()
+-- =========================================================================
+-- validate the Code and Data.
+-- =========================================================================
+function ldt_common.validateCodeAndData( codeVersion, dataVersion )
 
-  local rc = 0;
-  local recPropMap;
-
-  -- Check for existence of the main record control bin.  If that exists,
-  -- then we're already done.  Otherwise, we create the control bin, we
-  -- set the topRec record type (to LDT) and we praise the lord for yet
-  -- another miracle LDT birth.
-  if( topRec[REC_LDT_CTRL_BIN] == nil ) then
-    GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
-
-    -- If this record doesn't even exist yet -- then create it now.
-    -- Otherwise, things break.
-    if( not aerospike:exists( topRec ) ) then
-      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
-      rc = aerospike:create( topRec );
-      if( rc ~= 0 ) then
-        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
-        error( ldte.ERR_TOPREC_CREATE );
-      end
-    end
-
-    record.set_type( topRec, RT_LDT );
-    recPropMap = map();
-    -- vinfo will be a 5 byte value, but it will be easier for us to store
-    -- a FULL NUMBER (8 bytes) of value ZERO.
-    local vinfo = 0;
-    recPropMap[RPM_VInfo] = vinfo; 
-    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
-    recPropMap[RPM_Magic] = MAGIC;
-  else
-    -- Not much to do -- increment the LDT count for this record.
-    recPropMap = topRec[REC_LDT_CTRL_BIN];
-    local ldtCount = recPropMap[RPM_LdtCount];
-    recPropMap[RPM_LdtCount] = ldtCount + 1;
-    GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
-      MOD, meth, ldtCount + 1 );
+  -- Code versions must be valid
+  if not ( codeVersion and dataVersion ) then
+    warn("[INTERNAL ERROR: Version Data corrupted");
+    error( ldte.ERR_INTERNAL );
   end
 
-  topRec[REC_LDT_CTRL_BIN] = recPropMap;
-  -- Set this control bin as HIDDEN
-  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update( topRec );
-  if( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
-    error( ldte.ERR_TOPREC_UPDATE );
+  if not ( codeVersion > dataVersion ) then
+    warn("[INTERNAL ERROR: Code and Data Mismatch. Please reload data.");
+    info("Automatic Data Upgrade not yet enabled");
+    error( ldte.ERR_INTERNAL );
   end
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
-  return rc;
-end -- setLdtRecordType()
--- ======================================================================
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- LDT Utility Functions
--- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
--- ======================================================================
--- ======================================================================
--- These are all utility functions that perform various useful tasks.
--- ======================================================================
---
--- ======================================================================
--- adjustLdtMap:
--- ======================================================================
--- Using the settings supplied by the caller in the stackCreate call,
--- we adjust the values in the LdtMap:
--- Parms:
--- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
--- (*) argListMap: Map of LDT Settings 
--- (*) ldtSpecificPackage: The LDT-Specific package of settings
--- Return: The updated LsoList
--- ======================================================================
-function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
-  local meth = "adjustLdtMap()";
-  local propMap = ldtCtrl[1];
-  local ldtMap = ldtCtrl[2];
-
-  GP=E and trace("[ENTER]<%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
-    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
-
-  -- Iterate thru the argListMap and adjust (override) the map settings 
-  -- based on the settings passed in during the stackCreate() call.
-  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
-    MOD, meth, tostring(argListMap));
-
-  -- For the old style -- we'd iterate thru ALL arguments and change
-  -- many settings.  Now we process only packages this way.
-  for name, value in map.pairs( argListMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
-    MOD, meth, tostring( name ), tostring( value ));
-  
-    -- Process our "prepackaged" settings.  These now reside in the
-    -- settings file.  All of the packages are in a table, and thus are
-    -- looked up dynamically.
-    -- Notice that this is the old way to change settings.  The new way is
-    -- to use a "user module", which contains UDFs that control LDT settings.
-    if name == "Package" and type( value ) == "string" then
-      local ldtPackage = ldtSpecificPackage[value];
-      if( ldtPackage ~= nil ) then
-        ldtPackage( ldtMap );
-      end
-    end
-  end -- for each argument
-
-  GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
-    MOD,meth,tostring(ldtCtrl));
-  return ldtCtrl;
-end -- adjustLdtMap
+end -- ldt_common.validateCodeAndData()
 
 -- ======================================================================
 -- validateBinName()
@@ -1659,8 +1565,9 @@ end -- ldt_common.validateBinName
 function
 ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
   local meth = "ldt_common.validateRecBinAndMap()";
-  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
-    MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
+  GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s) LDT Type(%s) CodeVer(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(mustExist), tostring(ldtType),
+    tostring(codeVersion));
 
   -- Start off with validating the bin name -- because we might as well
   -- flag that error first if the user has given us a bad name.
@@ -1700,8 +1607,8 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
 
     -- Extract the property map and Ldt control map from the Ldt bin list.
     if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= ldtType then
-      GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
-            MOD, meth, tostring( ldtBinName ) );
+      warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic):PropMap(%s)",
+            MOD, meth, tostring( ldtBinName ), tostring(propMap));
       error( ldte.ERR_BIN_DAMAGED );
     end
     -- Ok -- all done for the Must Exist case.
@@ -1713,8 +1620,8 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
       ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
       propMap = ldtCtrl[1];
       if propMap and propMap[PM_Magic] ~= MAGIC then
-        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
-              MOD, meth, tostring( ldtBinName ) );
+          warn("[ERROR EXIT]<%s:%s>LDTBIN(%s) Corrupted (no magic):PropMap(%s)",
+            MOD, meth, tostring( ldtBinName ), tostring(propMap));
         error( ldte.ERR_BIN_DAMAGED );
       end
     end -- if worth checking
@@ -1874,12 +1781,17 @@ end -- ldt_common.dumpMap()
 -- ======================================================================
 function ldt_common.listInsert( valList, newValue, position )
   local meth = "ldt_common.listInsert()";
-  GP=E and trace("[ENTER]<%s:%s>List(%s) ", MOD, meth, tostring(valList));
+  GP=E and trace("[ENTER]<%s:%s> Val(%s) Pos(%d) List(%s) ", MOD, meth,
+    tostring(newValue), position, tostring(valList));
 
   if DEBUG and valList and type(valList) == "userdata" then
     GP=D and trace("[DEBUG]<%s:%s>List(%s) size(%d) Value(%s) Position(%d)",
     MOD, meth, tostring(valList), list.size(valList), tostring(newValue),
     position );
+  end
+
+  if DEBUG and position == 0 then
+    warn("[WARNING]<%s:%s> POSITION ZERO USED!!!", MOD, meth )
   end
 
   local listSize = list.size( valList );
@@ -2144,7 +2056,7 @@ end -- searchOrderedList()
 local default_fcompval = function( value ) return value end
 local fcompf = function( a,b ) return a < b end
 local fcompr = function( a,b ) return a > b end
-local function binsearch( t,value,fcompval,reversed )
+local function binarySearch( t,value,fcompval,reversed )
     -- Initialise functions
     local fcompval = fcompval or default_fcompval
     local fcomp = reversed and fcompr or fcompf
@@ -2174,7 +2086,7 @@ local function binsearch( t,value,fcompval,reversed )
             iStart = iMid + 1
         end
     end
-end
+end -- binarySearch()
 
 
 -- =======================================================================
@@ -2236,26 +2148,382 @@ function ldt_common.validateList( valList )
     return true;
 end -- ldt_common.validateList()
 
+-- ======================================================================
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- GENERAL COMMON FUNCTIONS (begin)
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- ======================================================================
+-- These are all common functions that perform tasks needed by all (or 
+-- most) of the LDTs.  We moved these functions into here so that we have
+-- to maintain only one copy.
+-- ======================================================================
+--
+-- ======================================================================
+-- adjustLdtMap:
+-- ======================================================================
+-- Using the settings supplied by the caller in the stackCreate call,
+-- we adjust the values in the LdtMap:
+-- Parms:
+-- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
+-- (*) argListMap: Map of LDT Settings 
+-- (*) ldtSpecificPackage: The LDT-Specific package of settings
+-- Return: The updated LsoList
+-- ======================================================================
+function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
+  local meth = "adjustLdtMap()";
+  local propMap = ldtCtrl[1];
+  local ldtMap = ldtCtrl[2];
 
--- =========================================================================
--- ldt_common.validateCodeAndData()
--- =========================================================================
--- va
--- =========================================================================
-function ldt_common.validateCodeAndData( codeVersion, dataVersion )
+  GP=E and trace("[ENTER]<%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
+    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
 
-  -- Code versions must be valid
-  if not ( codeVersion and dataVersion ) then
-    warn("[INTERNAL ERROR: Version Data corrupted");
+  -- Iterate thru the argListMap and adjust (override) the map settings 
+  -- based on the settings passed in during the stackCreate() call.
+  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
+    MOD, meth, tostring(argListMap));
+
+  -- For the old style -- we'd iterate thru ALL arguments and change
+  -- many settings.  Now we process only packages this way.
+  for name, value in map.pairs( argListMap ) do
+    GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
+    MOD, meth, tostring( name ), tostring( value ));
+  
+    -- Process our "prepackaged" settings.  These now reside in the
+    -- settings file.  All of the packages are in a table, and thus are
+    -- looked up dynamically.
+    -- Notice that this is the old way to change settings.  The new way is
+    -- to use a "user module", which contains UDFs that control LDT settings.
+    if name == "Package" and type( value ) == "string" then
+      local ldtPackage = ldtSpecificPackage[value];
+      if( ldtPackage ~= nil ) then
+        ldtPackage( ldtMap );
+      end
+    end
+  end -- for each argument
+
+  GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
+    MOD,meth,tostring(ldtCtrl));
+  return ldtCtrl;
+end -- adjustLdtMap
+
+-- ======================================================================
+-- When we create the initial LDT Control Bin for the entire record (the
+-- first time ANY LDT is initialized in a record), we create a property
+-- map in it with various values.
+-- ======================================================================
+function ldt_common.setLdtRecordType( topRec )
+  local meth = "setLdtRecordType()";
+  GP=E and trace("[ENTER]<%s:%s>", MOD, meth );
+
+  local rc = 0;
+  local recPropMap;
+
+  -- Check for existence of the main record control bin.  If that exists,
+  -- then we're already done.  Otherwise, we create the control bin, we
+  -- set the topRec record type (to LDT) and we praise the lord for yet
+  -- another miracle LDT birth.
+  if( topRec[REC_LDT_CTRL_BIN] == nil ) then
+    GP=F and trace("[DEBUG]<%s:%s>Creating Record LDT Map", MOD, meth );
+
+    -- If this record doesn't even exist yet -- then create it now.
+    -- Otherwise, things break.
+    if( not aerospike:exists( topRec ) ) then
+      GP=F and trace("[DEBUG]:<%s:%s>:Create Record()", MOD, meth );
+      rc = aerospike:create( topRec );
+      if( rc ~= 0 ) then
+        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
+        error( ldte.ERR_TOPREC_CREATE );
+      end
+    end
+
+    record.set_type( topRec, RT_LDT );
+    recPropMap = map();
+    -- vinfo will be a 5 byte value, but it will be easier for us to store
+    -- a FULL NUMBER (8 bytes) of value ZERO.
+    local vinfo = 0;
+    recPropMap[RPM_VInfo] = vinfo; 
+    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
+    recPropMap[RPM_Magic] = MAGIC;
+  else
+    -- Not much to do -- increment the LDT count for this record.
+    recPropMap = topRec[REC_LDT_CTRL_BIN];
+    local ldtCount = recPropMap[RPM_LdtCount];
+    recPropMap[RPM_LdtCount] = ldtCount + 1;
+    GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
+      MOD, meth, ldtCount + 1 );
+  end
+
+  topRec[REC_LDT_CTRL_BIN] = recPropMap;
+  -- Set this control bin as HIDDEN
+  record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
+
+  -- Now that we've changed the top rec, do the update to make sure the
+  -- changes are saved.
+  rc = aerospike:update( topRec );
+  if( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
+    error( ldte.ERR_TOPREC_UPDATE );
+  end
+
+  GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
+  return rc;
+end -- setLdtRecordType()
+
+-- ========================================================================
+-- ldt_common.destroy(): Remove the LDT entirely from the record.
+-- ========================================================================
+-- Release all of the storage associated with this LDT and remove the
+-- control structure of the bin.  If this is the LAST LDT in the record,
+-- then ALSO remove the HIDDEN LDT CONTROL BIN.
+--
+-- Parms:
+-- (1) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (2) topRec: the user-level record holding the LDT Bin
+-- (3) ldtBinName: The name of the LDT Bin
+-- (4) ldtType: 
+-- (5) codeVer: The LDT Code Version (must match the data version)
+-- Result:
+--   res = 0: all is well
+--   res = -1: Some sort of error
+-- ========================================================================
+-- NOTE: This could eventually be moved to COMMON, and be "ldt_destroy()",
+-- since it will work the same way for all LDTs.
+-- Remove the ESR, Null out the topRec bin.
+-- ========================================================================
+function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
+  GP=B and trace("\n\n >>>>>>>>> API[ LLIST DESTROY ] <<<<<<<<<< \n");
+  local meth = "localLdtDestroy()";
+  GP=E and trace("[ENTER]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
+  local rc = 0; -- start off optimistic
+
+  -- Validate the BinName before moving forward
+  local ldtCtrl =
+    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
+
+  -- Extract the property map and LDT control map from the LDT bin list.
+  -- local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+
+  GP=D and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
+    tostring( propMap ), ldtSummaryString( ldtCtrl ));
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
+  -- compact list, then the ESR will be ZERO.
+  local esrDigest = propMap[PM_EsrDigest];
+  if( esrDigest ~= nil and esrDigest ~= 0 ) then
+    local esrDigestString = tostring(esrDigest);
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",
+      MOD, meth, esrDigestString );
+    local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
+    if( esrRec ~= nil ) then
+      rc = ldt_common.removeSubRec( src, esrDigestString );
+      if( rc == nil or rc == 0 ) then
+        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
+      else
+        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",
+          MOD, meth, rc, ldtBinName);
+        error( ldte.ERR_SUBREC_DELETE );
+      end
+    else
+      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
+    end
+  else
+    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    MOD, meth, ldtBinName );
+  end
+
+  topRec[ldtBinName] = nil;
+
+  -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
+  -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
+  local recPropMap = topRec[REC_LDT_CTRL_BIN];
+  if( recPropMap == nil or recPropMap[RPM_Magic] ~= MAGIC ) then
+    warn("[INTERNAL ERROR]<%s:%s> Prop Map for LDT Hidden Bin invalid",
+      MOD, meth );
+    error( ldte.ERR_BIN_DAMAGED );
+  end
+  local ldtCount = recPropMap[RPM_LdtCount];
+  if( ldtCount <= 1 ) then
+    -- Remove this bin
+    topRec[REC_LDT_CTRL_BIN] = nil;
+  else
+    recPropMap[RPM_LdtCount] = ldtCount - 1;
+    topRec[REC_LDT_CTRL_BIN] = recPropMap;
+    record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
+  end
+  
+  -- Update the Top Record.
+  rc = aerospike:update( topRec );
+  if rc and rc ~= 0 then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
+end -- ldt_common.destroy()
+
+-- ========================================================================
+-- ldt_common.size() -- return the number of elements (item count) in the set.
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   SUCCESS: The number of elements in the LDT
+--   ERROR: The Error code via error() call
+-- ========================================================================
+function ldt_common.size( topRec, ldtBinName, ldtType, codeVer )
+  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
+  local meth = "ldt_common.size()";
+  GP=E and trace("[ENTER1]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl =
+    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
+
+  -- Extract the property map and control map from the ldt bin list.
+  -- local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local itemCount = propMap[PM_ItemCount];
+
+  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
+
+  return itemCount;
+end -- ldt_common.size()
+
+-- ========================================================================
+-- ldt_common.config() -- return the config settings
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) ldtType: The LDT Type (needed for type check)
+-- (4) codeVer: Check the Data version against the code version.
+--
+-- NOTE: Since we are relying on LDT-SPECIFIG information being passed
+-- back -- perhaps we need to have two calls -- FULL CONFIG and then just
+-- "Propery Map" (COMMON CONFIG) calls.  This common routine can do the
+-- common config information, but not the LDT-Specific stuff.
+--
+-- Result:
+--   SUCCESS: The MAP of the config.
+--   ERROR: The Error code via error() call
+-- ========================================================================
+function ldt_common.config( topRec, ldtBinName, ldtType, codeVer)
+  GP=B and trace("\n\n >>>>>>>>>>> API[ LLIST CONFIG ] <<<<<<<<<<<< \n");
+
+  local meth = "ldt_common.config()";
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl =
+    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
+
+  local resultMap = map();
+  ldt_common.propMapSummary( resultMap, ldtCtrl );
+
+  GP=F and trace("[EXIT]<%s:%s> config(%s)", MOD, meth, tostring(resultMap) );
+
+  return resultMap;
+end -- function ldt_common.config()
+
+-- ========================================================================
+-- ldt_common.get_capacity() -- return the current capacity setting for this LDT
+-- Capacity is in terms of Number of Elements.
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   rc >= 0  (the current capacity)
+--   rc < 0: Aerospike Errors
+-- ========================================================================
+function ldt_common.get_capacity( topRec, ldtBinName, ldtType, codeVer )
+  GP=B and trace("\n\n  >>>>>>>> API[ GET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
+  local meth = "ldt_common.get_capacity()";
+
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  -- validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl =
+    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  -- Extract the property map and LDT control map from the LDT bin list.
+  local ldtMap = ldtCtrl[2];
+  local capacity = ldtMap[M_StoreLimit];
+  if( capacity == nil ) then
+    capacity = 0;
+  end
+
+  GP=E and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, capacity );
+
+  return capacity;
+end -- function ldt_common.get_capacity()
+
+-- ========================================================================
+-- ldt_common.set_capacity() -- set the current capacity setting for this LDT
+-- ========================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The name of the LDT Bin
+-- (*) capacity: the new capacity (in terms of # of elements)
+-- Result:
+--   rc >= 0  (the current capacity)
+--   rc < 0: Aerospike Errors
+-- ========================================================================
+function ldt_common.set_capacity(topRec,ldtBinName,capacity,ldtType,codeVer)
+  GP=B and trace("\n\n  >>>>>>>> API[ SET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
+  local meth = "ldt_common.set_capacity()";
+
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newCapacity(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(capacity));
+
+  -- validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl =
+    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  -- Extract the property map and LDT control map from the LDT bin list.
+  local ldtMap = ldtCtrl[2];
+  if( capacity ~= nil and type(capacity) == "number" and capacity >= 0 ) then
+    ldtMap[M_StoreLimit] = capacity;
+  else
+    warn("[ERROR]<%s:%s> Bad Capacity Value(%s)",MOD,meth,tostring(capacity));
     error( ldte.ERR_INTERNAL );
   end
 
-  if not ( codeVersion > dataVersion ) then
-    warn("[INTERNAL ERROR: Code and Data Mismatch. Please reload data.");
-    info("Automatic Data Upgrade not yet enabled");
-    error( ldte.ERR_INTERNAL );
-  end
-end
+  -- All done, store the record
+  -- Update the Top Record with the new control info
+  topRec[ldtBinName] = ldtCtrl;
+  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
+  rc = aerospike:update( topRec );
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
+  return 0;
+end -- function ldt_common.set_capacity()
+
+-- ======================================================================
+-- << END >>  GENERAL COMMON FUNCTIONS 
+-- ======================================================================
 
 -- =======================================================================
 ldt_common.FirstNames = {"Kunta", "Bob", "Kevin"}

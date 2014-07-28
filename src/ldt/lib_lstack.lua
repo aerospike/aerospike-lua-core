@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_07_16.A";
+local MOD="lib_lstack_2014_07_25.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -42,9 +42,10 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=true; -- Set B (Banners) to true to turn ON Banner Print
+local D=true; -- Set D (Detail) to get more details
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
@@ -566,6 +567,17 @@ local function ldtMapSummary( resultMap, ldtMap )
 end -- function ldtMapSummary
 
 -- ======================================================================
+-- ldtMapSummaryString()
+-- ======================================================================
+-- Provide a string version of the LDT Map Summary.
+-- ======================================================================
+local function ldtMapSummaryString( ldtMap )
+  local resultMap = map();
+  ldtMapSummary(resultMap, ldtMap);
+  return tostring(resultMap);
+end
+
+-- ======================================================================
 -- local function ldtSummary( ldtCtrl ) (DEBUG/Trace Function)
 -- ======================================================================
 -- For easier debugging and tracing, we will summarize the ldtCtrl 
@@ -617,12 +629,12 @@ local function ldtDebugDump( ldtCtrl )
   local resultMap                = map();
   resultMap.SUMMARY              = "LSTACK Summary";
 
-  info("\n\n <><><><><><><><><> [ LDT LSTACK SUMMARY ] <><><><><><><><><> \n");
+  trace("\n\n <><><><><><><><><> [ LDT LSTACK SUMMARY ] <><><><><><><><><> \n");
 
   if ( ldtCtrl == nil ) then
     warn("[ERROR]<%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
     resultMap.ERROR =  "EMPTY LDT BIN VALUE";
-    info("<<<%s>>>", tostring(resultMap));
+    trace("<<<%s>>>", tostring(resultMap));
     return 0;
   end
 
@@ -630,7 +642,7 @@ local function ldtDebugDump( ldtCtrl )
     warn("[ERROR]<%s:%s>: LDT BIN VALUE (ldtCtrl) is bad.  Type(%s)",
       MOD, meth, type(ldtCtrl));
     resultMap.ERROR =  "BAD LDT BIN VALUE";
-    info("<<<%s>>>", tostring(resultMap));
+    trace("<<<%s>>>", tostring(resultMap));
     return 0;
   end
 
@@ -639,13 +651,13 @@ local function ldtDebugDump( ldtCtrl )
 
   if( propMap[PM_Magic] ~= MAGIC ) then
     resultMap.ERROR =  "BROKEN MAP--No Magic";
-    info("<<<%s>>>", tostring(resultMap));
+    trace("<<<%s>>>", tostring(resultMap));
     return 0;
   end;
 
   -- Load the common properties
   propMapSummary( resultMap, propMap );
-  info("\n<<<%s>>>\n", tostring(resultMap));
+  trace("\n<<<%s>>>\n", tostring(resultMap));
   resultMap = nil;
 
   -- Reset for each section, otherwise the result would be too much for
@@ -655,25 +667,19 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Load the LMAP-specific properties
   ldtMapSummary( resultMap2, ldtMap );
-  info("\n<<<%s>>>\n", tostring(resultMap2));
+  trace("\n<<<%s>>>\n", tostring(resultMap2));
   resultMap2 = nil;
 
   -- Print the Hash Directory
   resultMap3 = map();
   resultMap3.SUMMARY              = "LSTACK Hot List";
   resultMap3.HotEntryList         = ldtMap[M_HotEntryList];
-  info("\n<<<%s>>>\n", tostring(resultMap3));
+  trace("\n<<<%s>>>\n", tostring(resultMap3));
 
 end -- function ldtDebugDump()
--- ======================================================================
--- Make it easier to use ldtSummary(): Have a String version.
--- ======================================================================
-local function ldtSummaryString( ldtCtrl )
-  return tostring( ldtSummary( ldtCtrl ) );
-end
 
 -- ======================================================================
--- Switch to this name:  ldtSummaryString().  It's the new standard
+-- Make it easier to use ldtSummary(): Have a String version.
 -- ======================================================================
 local function ldtSummaryString( ldtCtrl )
   return tostring( ldtSummary( ldtCtrl ) );
@@ -1796,6 +1802,18 @@ local function extractHotListTransferList( ldtMap )
 end -- extractHotListTransferList()
 
 -- ======================================================================
+-- hotListFull( ldtMap )
+-- ======================================================================
+-- Return true if the HotList is Full
+-- (*) ldtMap: the map for the LDT Bin
+-- NOTE: This is in its own function because it is possible that we will
+-- want to add more sophistication in the future.
+-- ======================================================================
+local function hotListFull( ldtMap )
+  return list.size( ldtMap[M_HotEntryList] ) >= ldtMap[M_HotListMax];
+end
+
+-- ======================================================================
 -- hotListHasRoom( ldtMap, insertValue )
 -- ======================================================================
 -- Return true if there's room, otherwise return false.
@@ -1928,13 +1946,6 @@ local function   warmListSubRecCreate( src, topRec, ldtCtrl )
   -- Increment the Warm Count
   local warmLdrCount = ldtMap[M_WarmListDigestCount];
   ldtMap[M_WarmListDigestCount] = (warmLdrCount + 1);
-
-  -- NOTE: This may not be needed -- we may wish to update the topRec ONLY
-  -- after all of the underlying SUB-REC  operations have been done.
-  -- Update the top (LDT) record with the newly updated ldtMap;
-  -- info("[WARNING]<%s:%s> NOT UPDATING TOPREC in Warm Create", MOD, meth );
-  -- topRec[ ldtBinName ] = ldtCtrl;
-  -- record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
   GP=E and trace("[EXIT]: <%s:%s> LDR Summary(%s) ",
     MOD, meth, ldrSummary(ldrSubRec));
@@ -2912,6 +2923,13 @@ local function hotListTransfer( src, topRec, ldtCtrl )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
 
+  -- First check to see if we have a special case of the Capacity Limit
+  -- being within the bounds of the Warm List.  If so, AND if we need to do
+  -- some fancy footwork to purge the right amount of space from the warm list
+  -- to make room for the hot list transfer, THEN we'll do exactly that.
+  -- Otherwise, we'll just do the 
+  -- if specialWarmCapacityInsert( src, topRec, ldtCtrl ) == false then
+
   -- if no room in the WarmList, then make room (transfer some of the warm
   -- list to the cold list)
   if warmListHasRoom( ldtMap ) == 0 then
@@ -3352,6 +3370,119 @@ local function localTrim( topRec, ldtCtrl, searchPath )
 
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- localTrim()
+
+-- ========================================================================
+-- specialHotCapacityInsert()
+-- ========================================================================
+-- In the odd case that the user sets the LSTACK CAPACITY at a size SMALLER
+-- than the HotList Max Size, then we have to do something special with
+-- inserts.  We have to redo the HotList, removing the Oldest element and
+-- then insert the newest element.
+-- Return:
+-- TRUE if we did a special insert
+-- FALSE otherwise (so the caller can proceed with a regular insert)
+-- ========================================================================
+local function specialHotCapacityInsert( ldtMap, newStoreValue )
+  -- This is a high volume Function -- comment out all debugging when it is
+  -- in a stable state.
+  local meth = "specialHotCapacityInsert()";
+  GP=E and trace("[ENTER]:<%s:%s> NewVal(%s) LDT Map Summary(%s)",
+    MOD, meth, tostring(newStoreValue), ldtMapSummaryString(ldtMap));
+
+  local result = false; -- This is the likely result
+
+  -- Do we have a Capacity Setting that is LESS than or equal to the Hot
+  -- List Size?
+  local capacity = ldtMap[M_StoreLimit];
+  local hotListMax = ldtMap[M_HotListMax];
+  if capacity > 0 and capacity <= hotListMax then
+    -- If so, check to see if we're over Capacity.   If not, we'll just
+    -- fall thru and the caller will deal with the REGULAR stack push.
+    local hotList = ldtMap[M_HotEntryList];
+    local hotListSize = list.size( hotList );
+
+    GP=D and trace("[HOT LIST BEFORE]:<%s:%s> HotList(%s)",
+      MOD, meth, tostring(hotList));
+
+    if hotListSize == capacity then
+      -- Trim the Hot List to size, then append the new value.
+      -- The usual case (for this already unusual case) will be that we are
+      -- adding ONE MORE to a FULL HotList (full in the sense that we're at
+      -- the Capacity limit, even though HotList Max could be bigger).
+      -- For this case, we're going to just move the list items over by one,
+      -- and then put the new one at the end.
+      for i = 1, (hotListSize - 1) do
+        hotList[i] = hotList[i+1]; 
+      end
+      hotList[hotListSize] = newStoreValue;
+      result = true;
+
+    elseif hotListSize > capacity then
+      -- This case is a bit more weird -- this should happen ONLY when we've
+      -- just changed the capacity setting.  In this case, we have to create
+      -- a new list (because we do not yet have a TRIM() operator.
+      local diff = (hotListSize - capacity) + 1;
+      local newHotList = list.drop(hotList, diff)
+      list.append( newHotList, newStoreValue );
+      result = true;
+    end
+
+    GP=D and trace("[HOT LIST AFTER]:<%s:%s> HotList(%s) Result(%s)",
+      MOD, meth, tostring(hotList), tostring(result));
+
+    -- Otherwise, the caller will just perform the regular lstack push.
+  end -- end if special
+
+  GP=E and trace("[EXIT]: <%s:%s> result(%s)", MOD, meth, tostring(result));
+  return result;
+end -- specialHotCapacityInsert()
+
+-- ========================================================================
+-- localPush()
+-- ========================================================================
+-- Do the common work of the PUSH operation -- so that multiple routines
+-- here can use it.
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtCtrl: The main control structure
+-- (*) newStoreValue: The Post-Transformed value to be pushed on the stack
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- ========================================================================
+local function localPush( topRec, ldtCtrl, newStoreValue, src )
+  local meth = "localPush()";
+  GP=E and trace("[ENTER]:<%s:%s> NewStoreVal(%s) LDTSummary(%s)",
+    MOD, meth, tostring(newStoreValue), ldtSummaryString(ldtCtrl));
+    
+  local ldtMap = ldtCtrl[2];
+
+  -- This function is pretty easy.  We always start with the HotList, and
+  -- then move on from there if necessary.
+  -- Considerations:
+  -- (*) If the CAPACITY is actually set to LESS THAN the Hot List, then we
+  --     NEVER transfer to the warm list.  Instead, if we are AT CAPACITY,
+  --     we trim the Hot List and then do the simple insert.
+  -- (*) If CAPACITY is set to MORE than the Hot List, then it's a
+  --     Warm List Problem, and we deal with it there.
+  -- (*) For Regular (non-capacity issue) inserts, If we have room in the
+  --     Hot List, then we do the simple list insert.  If we don't have
+  --     room, then make room -- transfer half the list out to the warm list.
+  --     That may, in turn, have to make room by moving some items to the
+  --     cold list. 
+  -- NOTE: Ok to use ldtMap and not ldtCtrl here.
+  if specialHotCapacityInsert( ldtMap, newStoreValue ) == false then
+    if list.size( ldtMap[M_HotEntryList] ) >= ldtMap[M_HotListMax] then
+      GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
+      hotListTransfer( src, topRec, ldtCtrl );
+    end
+    hotListInsert( ldtCtrl, newStoreValue );
+  end
+
+  GP=D and trace("[DEBUG]<%s:%s> After Insert: HotList(%s)", MOD, meth,
+    tostring( ldtMap[M_HotEntryList]));
+  
+  GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
+end -- localPush()
+
 
 -- ========================================================================
 -- This function is under construction.
@@ -3806,11 +3937,6 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
     newStoreValue = newValue;
   end
 
-  -- If we have room, do the simple list insert.  If we don't have
-  -- room, then make room -- transfer half the list out to the warm list.
-  -- That may, in turn, have to make room by moving some items to the
-  -- cold list.  (Ok to use ldtMap and not ldtCtrl here).
- 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
   -- For the case of repeated calls from Lua, the caller must pass in
@@ -3819,11 +3945,10 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
     src = ldt_common.createSubRecContext();
   end
 
-  if hotListHasRoom( ldtMap, newStoreValue ) == false then
-    GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
-    hotListTransfer( src, topRec, ldtCtrl );
-  end
-  hotListInsert( ldtCtrl, newStoreValue );
+  -- Call the common "localPush()" function to do the actual insert.  This
+  -- is shared with the lstack.push_all() function.
+  localPush( topRec, ldtCtrl, newStoreValue, src );
+
   -- Must always assign the object BACK into the record bin.
   -- Check to see if we really need to reassign the MAP into the list as well.
   -- ldtCtrl[2] = ldtMap; (should NOT be needed)
@@ -3903,16 +4028,11 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
   end
 
   -- Loop thru the value list.  So, for each element ...
+  -- Call "localPush()", which does the following:
   -- If we have room, do the simple list insert.  If we don't have
   -- room, then make room -- transfer half the list out to the warm list.
   -- That may, in turn, have to make room by moving some items to the
-  -- cold list.  (Ok to use ldtMap and not ldtCtrl here).
-  -- First -- set up our sub-rec context to track open sub-recs.
-  -- !!!!!!!!!!!!!!!!!!!!!!!
-  -- TODO: Move this common PUSH code to "localPush()" so that regular
-  -- PUSH and PUSH_ALL can use it.
-  -- !!!!!!!!!!!!!!!!!!!!!!!!!
-
+  -- cold list.
   local rc = 0;
   local newStoreValue;
   if( valueList ~= nil and list.size(valueList) > 0 ) then
@@ -3929,12 +4049,8 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
       else
         newStoreValue = valueList[i];
       end
+      localPush( topRec, ldtCtrl, newStoreValue, src );
 
-      if hotListHasRoom( ldtMap, newStoreValue ) == false then
-        GP=F and trace("[DEBUG]<%s:%s> CALLING TRANSFER HOT LIST!!",MOD, meth);
-        hotListTransfer( src, topRec, ldtCtrl );
-      end
-      hotListInsert( ldtCtrl, newStoreValue );
     end -- For each item in the valueList
   else
     warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
@@ -4372,24 +4488,26 @@ end -- function lstack.size()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.get_capacity( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.GET_CAPACITY ] <<<<<<<<<< \n");
+--  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.GET_CAPACITY ] <<<<<<<<<< \n");
 
-  local meth = "lstack.get_capacity()";
+  return ldt_common.get_capacity(topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
 
-  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
-
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-  local ldtMap = ldtCtrl[2];
-  local capacity = ldtMap[M_StoreLimit];
-
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
-
-  GP=E and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, capacity );
-
-  return capacity;
+--  local meth = "lstack.get_capacity()";
+--
+--  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
+--    MOD, meth, tostring(ldtBinName));
+--
+--  -- validate the topRec, the bin and the map.  If anything is weird, then
+--  -- this will kick out with a long jump error() call.
+--  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+--  local ldtMap = ldtCtrl[2];
+--  local capacity = ldtMap[M_StoreLimit];
+--
+--  GD=DEBUG and ldtDebugDump( ldtCtrl );
+--
+--  GP=E and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, capacity );
+--
+--  return capacity;
 end -- function lstack.get_capacity()
 
 -- ========================================================================
@@ -4429,7 +4547,8 @@ function lstack.set_capacity( topRec, ldtBinName, newLimit )
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
-  info("[PARAMETER UPDATE]<%s:%s> StoreLimit: Old(%d) New(%d) ItemCount(%d)",
+  GP=D and
+  trace("[PARAMETER UPDATE]<%s:%s> StoreLimit: Old(%d) New(%d) ItemCount(%d)",
     MOD, meth, ldtMap[M_StoreLimit], newLimit, propMap[PM_ItemCount] );
 
   -- Use the new "Limit" to compute how this affects the storage parameters.
