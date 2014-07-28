@@ -42,10 +42,10 @@ local G_LDT_VERSION = 2;
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
 local GP;      -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
-local B=true; -- Set B (Banners) to true to turn ON Banner Print
-local D=true; -- Set D (Detail) to get more details
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local B=false; -- Set B (Banners) to true to turn ON Banner Print
+local D=false; -- Set D (Detail) to get more details
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 

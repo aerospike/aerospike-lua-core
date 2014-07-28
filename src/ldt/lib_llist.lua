@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_07_28.A";
+local MOD="lib_llist_2014_07_28.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -5380,24 +5380,25 @@ end -- llist.destroy()
 --   ERROR: The Error code via error() call
 -- ========================================================================
 function llist.size( topRec, ldtBinName )
---  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
---  local meth = "llist.size()";
---  GP=E and trace("[ENTER1]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
+  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
+  local meth = "llist.size()";
+  GP=E and trace("[ENTER1]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
 
-  return ldt_common.size( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
+--  COMMENTED OUT BECAUSE QAA/JETPACK has problems with this.
+--  return ldt_common.size( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
 
---  -- Validate the topRec, the bin and the map.  If anything is weird, then
---  -- this will kick out with a long jump error() call.
---  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
---
---  -- Extract the property map and control map from the ldt bin list.
---  -- local ldtCtrl = topRec[ ldtBinName ];
---  local propMap = ldtCtrl[1];
---  local itemCount = propMap[PM_ItemCount];
---
---  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
---
---  return itemCount;
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+
+  -- Extract the property map and control map from the ldt bin list.
+  -- local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local itemCount = propMap[PM_ItemCount];
+
+  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
+
+  return itemCount;
 end -- llist.size()
 
 -- ========================================================================
