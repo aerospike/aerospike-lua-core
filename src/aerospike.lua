@@ -64,6 +64,8 @@ function env_record()
         ["map"] = map,
         ["bytes"] = bytes,
         ["aerospike"] = aerospike,
+        ["Map"] = getmetatable(map()),
+        ["List"] = getmetatable(list()),
 
         ["putX"] = putX,
 
