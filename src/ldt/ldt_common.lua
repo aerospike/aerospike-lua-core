@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_07_24.E";
+local MOD="ldt_common_2014_07_31.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -91,6 +91,7 @@ local DO_EARLY_SUBREC_UPDATES=true;
 -- VALIDATION FUNCTIONS
 -- ldt_common.validateBinName( ldtBinName )
 -- ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVer)
+-- ldt_common.checkBin(topRec,ldtBinName,ldtType)
 --
 -- LIST FUNCTIONS
 -- ldt_common.listAppendList( baseList, additionalList )
@@ -106,6 +107,7 @@ local DO_EARLY_SUBREC_UPDATES=true;
 -- ldt_common.getCapacity( topRec, ldtBinName, ldtType, codeVer))
 -- ldt_common.setCapacity( topRec, ldtBinName, newCapacity, ldtType, codeVer))
 -- ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
+-- ldt_common.ldt_exists( topRec, ldtBinName, ldtType )
 --
 -- OBJECT FUNCTIONS
 -- ldt_common.createPersonObject( flavor, skew )
@@ -1650,6 +1652,51 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
 end -- ldt_common.validateRecBinAndMap()
 
 -- ======================================================================
+-- checkBin():
+-- ======================================================================
+-- Look into the soul of the bin and see if there is a valid instance of
+-- the specified LDT in there.  If so, return true, otherwise return false;
+--
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName: User's Name for the LDT Bin
+-- (*) ldtType: Caller must tell us the type of LDT
+-- Return:
+--   TRUE if the bin holds a valid LDT of the specified type
+--   FALSE if anything is wrong.
+-- ======================================================================
+function
+ldt_common.checkBin( topRec, ldtBinName, ldtType )
+  local meth = "ldt_common.checkBin()";
+  GP=E and trace("[ENTER]<%s:%s> BinName(%s)", MOD, meth, tostring(ldtBinName));
+
+  -- Start off with validating the bin name -- because we might as well
+  -- flag that error first if the user has given us a bad name.
+  -- Notice that we can't use our local method for this check, because we
+  -- don't want to jump out in the error case.
+  local result = false; -- Default is "NO", we have to prove it to get "YES".
+  if ldtBinName ~= nil and
+    type(ldtBinName) == "string" and
+    string.len( ldtBinName ) <= AS_BIN_NAME_LIMIT
+  then
+    -- So we must have the following to get a "YES" (true)
+    -- (*) Must have a record.
+    -- (*) Must have a valid Bin
+    -- (*) Must have a valid Map in the bin, with MAGIC and the right type
+    if aerospike:exists(topRec) and topRec[ldtBinName] ~= nil then
+      local ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
+      local propMap = ldtCtrl[1];
+      if propMap[PM_Magic] == MAGIC and propMap[PM_LdtType] == ldtType then
+        result = true;
+      end
+    end
+  end 
+
+  GP=E and trace("[EXIT]<%s:%s> result(%s)", MOD, meth, tostring(result));
+  return result;
+end -- ldt_common.checkBin()
+
+-- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
 -- huge amounts of crap in the console.
 -- Show Size, First Element, Last Element
@@ -2291,7 +2338,7 @@ end -- setLdtRecordType()
 -- Remove the ESR, Null out the topRec bin.
 -- ========================================================================
 function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
-  GP=B and trace("\n\n >>>>>>>>> API[ LLIST DESTROY ] <<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>> API[ COMMON DESTROY ] <<<<<<<<<< \n");
   local meth = "localLdtDestroy()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
   local rc = 0; -- start off optimistic
@@ -2382,7 +2429,7 @@ end -- ldt_common.destroy()
 --   ERROR: The Error code via error() call
 -- ========================================================================
 function ldt_common.size( topRec, ldtBinName, ldtType, codeVer )
-  GP=B and trace("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
+  GP=B and trace("\n\n >>>>>>>>> API[ COMMON SIZE ] <<<<<<<<<\n");
   local meth = "ldt_common.size()";
   GP=E and trace("[ENTER1]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
 
@@ -2420,7 +2467,7 @@ end -- ldt_common.size()
 --   ERROR: The Error code via error() call
 -- ========================================================================
 function ldt_common.config( topRec, ldtBinName, ldtType, codeVer)
-  GP=B and trace("\n\n >>>>>>>>>>> API[ LLIST CONFIG ] <<<<<<<<<<<< \n");
+  GP=B and trace("\n\n >>>>>>>>>>> API[ COMMON CONFIG ] <<<<<<<<<<<< \n");
 
   local meth = "ldt_common.config()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -2450,7 +2497,7 @@ end -- function ldt_common.config()
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function ldt_common.get_capacity( topRec, ldtBinName, ldtType, codeVer )
-  GP=B and trace("\n\n  >>>>>>>> API[ GET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and trace("\n\n  >>>>>>>> API[ COMMON GET CAPACITY ] <<<<<<<<<<<<< \n");
   local meth = "ldt_common.get_capacity()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -2486,7 +2533,7 @@ end -- function ldt_common.get_capacity()
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function ldt_common.set_capacity(topRec,ldtBinName,capacity,ldtType,codeVer)
-  GP=B and trace("\n\n  >>>>>>>> API[ SET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and trace("\n\n  >>>>>>>> API[ COMMON SET CAPACITY ] <<<<<<<<<<<<< \n");
   local meth = "ldt_common.set_capacity()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newCapacity(%s)",
@@ -2520,6 +2567,38 @@ function ldt_common.set_capacity(topRec,ldtBinName,capacity,ldtType,codeVer)
   GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function ldt_common.set_capacity()
+
+-- ldt_common.exists( topRec, ldtBinName, ldtType )
+
+-- ========================================================================
+-- ldt_common.ldt_exists()
+-- ========================================================================
+-- Return TRUE if this LDT exists in the bin, FALSE otherwise.
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) ldtType: The LDT Type (needed for type check)
+--
+-- Result:
+--   If bin exists, return TRUE
+--   Otherwise, return FALSE
+-- ========================================================================
+function ldt_common.ldt_exists( topRec, ldtBinName, ldtType )
+  GP=B and trace("\n\n >>>>>>>>>>> API[ COMMON LDT EXISTS ] <<<<<<<<<<<< \n");
+
+  local meth = "ldt_common.ldt_exists()";
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local result = ldt_common.checkBin(topRec,ldtBinName,ldtType);
+
+  GP=F and trace("[EXIT]<%s:%s> Result(%s)", MOD, meth, tostring(result) );
+  return result;
+end -- function ldt_common.ldt_exists()
+
 
 -- ======================================================================
 -- << END >>  GENERAL COMMON FUNCTIONS 

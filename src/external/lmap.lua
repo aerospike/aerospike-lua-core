@@ -17,6 +17,9 @@
 -- limitations under the License.
 -- ======================================================================
 
+-- Track the updates to this module
+local MOD="ext_lmap_2014_08_01.A";
+
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<   LMAP Main Functions   >>
@@ -24,17 +27,18 @@
 -- ======================================================================
 -- The following external functions are defined in the LMAP module:
 --
--- * Status = put( topRec, ldtBinName, newName, newValue, userModule) 
--- * Status = put_all( topRec, ldtBinName, nameValueMap, userModule)
--- * List   = get( topRec, ldtBinName, searchName )
--- * List   = scan( topRec, ldtBinName )
--- * List   = filter( topRec, ldtBinName, userModule, filter, fargs )
--- * Object = remove( topRec, ldtBinName, searchName )
--- * Status = destroy( topRec, ldtBinName )
--- * Number = size( topRec, ldtBinName )
--- * Map    = get_config( topRec, ldtBinName )
--- * Status = set_capacity( topRec, ldtBinName, new_capacity)
--- * Status = get_capacity( topRec, ldtBinName )
+-- Status = put( topRec, ldtBinName, newName, newValue, userModule) 
+-- Status = put_all( topRec, ldtBinName, nameValueMap, userModule)
+-- List   = get( topRec, ldtBinName, searchName )
+-- List   = scan( topRec, ldtBinName )
+-- List   = filter( topRec, ldtBinName, userModule, filter, fargs )
+-- Object = remove( topRec, ldtBinName, searchName )
+-- Status = destroy( topRec, ldtBinName )
+-- Number = size( topRec, ldtBinName )
+-- Map    = get_config( topRec, ldtBinName )
+-- Status = set_capacity( topRec, ldtBinName, new_capacity)
+-- Status = get_capacity( topRec, ldtBinName )
+-- Status = ldt_exists( topRec, ldtBinName )
 -- ======================================================================
 -- Reference the LMAP LDT Library Module:
 local lmap = require('ldt/lib_lmap');
@@ -149,6 +153,17 @@ end
 
 function set_capacity( topRec, ldtBinName, capacity )
   return lmap.set_capacity( topRec, ldtBinName, capacity );
+end
+
+-- ========================================================================
+-- ldt_exists() -- return 1 if LDT (with the right shape and size) exists
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_exists( topRec, ldtBinName )
+  return lmap.ldt_exists( topRec, ldtBinName );
 end
 
 -- ========================================================================

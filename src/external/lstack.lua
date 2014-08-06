@@ -17,6 +17,9 @@
 -- limitations under the License.
 -- ======================================================================
 
+-- Track the updates to this module
+local MOD="ext_lstack_2014_08_01.A";
+
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSTACK Main Functions >>
@@ -35,6 +38,7 @@
 -- (*) Map    = get_config( topRec, ldtBinName )
 -- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Status = get_capacity( topRec, ldtBinName )
+-- (*) Status = ldt_exists( topRec, ldtBinName )
 -- ======================================================================
 -- Reference the LSTACK LDT Library Module
 local lstack = require('ldt/lib_lstack');
@@ -300,6 +304,17 @@ end
 
 function set_storage_limit( topRec, ldtBinName, newLimit )
   return lstack.set_capacity( topRec, ldtBinName, newLimit );
+end
+
+-- ========================================================================
+-- ldt_exists() -- return 1 if LDT (with the right shape and size) exists
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_exists( topRec, ldtBinName )
+  return lstack.ldt_exists( topRec, ldtBinName );
 end
 
 -- ========================================================================

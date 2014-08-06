@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_07_25.A";
+local MOD="lib_lstack_2014_07_31.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -65,6 +65,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Map    = get_config(topRec, ldtBinName)
 -- (*) Status = set_capacity(topRec, ldtBinName, new_capacity)
 -- (*) Status = get_capacity(topRec, ldtBinName)
+-- (*) Number = exists(topRec, ldtBinName)
 
 -- ======================================================================
 -- >> Please refer to ldt/doc_lstack.md for architecture and design notes.
@@ -2192,7 +2193,6 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
 
   return rc;
 end -- warmListInsert
-
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -4692,6 +4692,34 @@ function lstack.config( topRec, ldtBinName )
 
   return config;
 end -- function lstack.config()
+
+-- ========================================================================
+-- lstack.ldt_exists() --
+-- ========================================================================
+-- return 1 if there is an LSTACK object here, otherwise 0
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   True:  (LSTACK exists in this bin) return 1
+--   False: (LSTACK does NOT exist in this bin) return 0
+-- ========================================================================
+function lstack.ldt_exists( topRec, ldtBinName )
+  GP=B and trace("\n\n >>>>>>>>>>> API[ LSTACK EXISTS ] <<<<<<<<<<<< \n");
+
+  local meth = "lstack.ldt_exists()";
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
+    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
+    return 1
+  else
+    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
+    return 0
+  end
+end -- function lstack.ldt_exists()
 
 -- ========================================================================
 -- lstack.destroy() -- Remove the LDT entirely from the record.

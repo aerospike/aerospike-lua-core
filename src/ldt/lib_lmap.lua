@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_07_28.A"; 
+local MOD="lib_lmap_2014_08_05.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -64,6 +64,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Map    = lmap.config( topRec, ldtBinName )
 -- (*) Status = lmap.set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Number = lmap.get_capacity( topRec, ldtBinName )
+-- (*) Number = lmap.ldt_exists(topRec, ldtBinName)
 -- ======================================================================
 -- Deprecated:
 -- (*) Status = lmap.create( topRec, ldtBinName, createSpec) 
@@ -191,6 +192,10 @@ local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
 -- name values are, by definition, simple and can't be complex.
 local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
 local KT_COMPLEX ='C'; -- the set value is complex. Use Function to get key.
+
+-- Result Returns (successful values).  Errors are a different category.
+local RESULT_OK = 0;
+local RESULT_OVERWRITE = 1;
 
 -- Key Compare Function for Complex Objects
 -- By default, a complex object will have a "KEY" field, which the
@@ -1678,7 +1683,7 @@ local function compactInsert( ldtCtrl, newName, newValue )
   
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
-  local rc = 0;
+  local rc = RESULT_OK;
   
   -- NOTE: We're expecting the lists to be built, and it's an error if
   -- they are not there.
@@ -1700,7 +1705,7 @@ local function compactInsert( ldtCtrl, newName, newValue )
                  MOD, meth, tostring(newName), tostring(newValue));
       error( ldte.ERR_UNIQUE_KEY );
     else
-      rc = 1;
+      rc = RESULT_OVERWRITE;
     end
   end
 
@@ -1791,7 +1796,7 @@ lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, check )
 
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
-  local rc = 0;
+  local rc = RESULT_OK;
 
   -- If we have a transform to perform, do that now and then store the value.
   -- We're setting the value up here, even though there's a small chance that
@@ -1813,7 +1818,7 @@ lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, check )
                  MOD, meth, tostring(newName), tostring(newValue));
       error( ldte.ERR_UNIQUE_KEY );
     else
-      rc = 1; -- we will overwrite.  Name is the same, new value.
+      rc = RESULT_OVERWRITE; -- we will overwrite.  Same Name, New Value.
       valueList[position] = storeValue;
     end
   else
@@ -2578,7 +2583,7 @@ local function localPut( src, topRec, ldtCtrl, newName, newValue )
     -- Now, if we're over "Threshold", convert to Sub-Rec organization.
     if ( totalCount + 1 > ldtMap[M_Threshold] ) then
       GP=F and trace("[DEBUG]<%s:%s> CALLING REHASH AFTER INSERT", MOD, meth);
-      rc = convertCompactToHashDir(src, topRec, ldtCtrl);
+      convertCompactToHashDir(src, topRec, ldtCtrl);
     end
   else
     rc = hashDirInsert( src, topRec, ldtCtrl, newName, newValue, 1); 
@@ -2883,6 +2888,9 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
       newCount = newCount + 1;
       GP=F and trace("[DEBUG]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
         MOD, meth, tostring(name), tostring(value), rc );
+    elseif ( rc == 1 ) then
+      GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
+           MOD, meth, propMap[PM_ItemCount]);
     else
       GP=F and trace("[ERROR]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
         MOD, meth, tostring(name), tostring(value), rc );
@@ -3384,6 +3392,34 @@ function lmap.set_capacity( topRec, ldtBinName, capacity )
   GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function lmap.set_capacity()
+
+-- ========================================================================
+-- lmap.ldt_exists() --
+-- ========================================================================
+-- return 1 if there is an lmap object here, otherwise 0
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   True:  (LMAP exists in this bin) return 1
+--   False: (LMAP does NOT exist in this bin) return 0
+-- ========================================================================
+function lmap.ldt_exists( topRec, ldtBinName )
+  GP=B and trace("\n\n >>>>>>>>>>> API[ LMAP EXISTS ] <<<<<<<<<<<< \n");
+
+  local meth = "lmap.ldt_exists()";
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
+    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
+    return 1
+  else
+    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
+    return 0
+  end
+end -- function lmap.ldt_exists()
 
 -- ========================================================================
 -- ========================================================================

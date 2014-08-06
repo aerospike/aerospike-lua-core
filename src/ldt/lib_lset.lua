@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_07_23.C"; 
+local MOD="lib_lset_2014_08_01.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -66,6 +66,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Map    = lset.get_config( topRec, ldtBinName )
 -- (*) Status = lset.set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Status = lset.get_capacity( topRec, ldtBinName )
+-- (*) Number = lset.ldt_exists(topRec, ldtBinName)
 -- ======================================================================
 
 -- Large Set Design/Architecture
@@ -4481,6 +4482,34 @@ function lset.set_capacity( topRec, ldtBinName, capacity )
   GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function lset.lset_capacity()
+
+-- ========================================================================
+-- lset.ldt_exists() --
+-- ========================================================================
+-- return 1 if there is an lset object here, otherwise 0
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   True:  (lset exists in this bin) return 1
+--   False: (lset does NOT exist in this bin) return 0
+-- ========================================================================
+function lset.ldt_exists( topRec, ldtBinName )
+  GP=B and trace("\n\n >>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<< \n");
+
+  local meth = "lset.ldt_exists()";
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
+    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
+    return 1
+  else
+    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
+    return 0
+  end
+end -- function lset.ldt_exists()
 
 -- ========================================================================
 -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> -- <D> <D> <D> 

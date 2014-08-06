@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_llist_2014_06_03.C";
+local MOD="ext_llist_2014_08_01.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
@@ -36,6 +36,7 @@ local MOD="ext_llist_2014_06_03.C";
 -- (*) Map    = get_config( topRec, ldtBinName )
 -- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Status = get_capacity( topRec, ldtBinName )
+-- (*) Number = ldt_exists( topRec, ldtBinName )
 -- ======================================================================
 -- Deprecated Functions
 -- (*) function create( topRec, ldtBinName, createSpec )
@@ -228,6 +229,17 @@ function set_capacity( topRec, ldtBinName, capacity )
 end
 
 -- ========================================================================
+-- ldt_exists() -- return 1 if LDT (with the right shape and size) exists
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_exists( topRec, ldtBinName )
+  return llist.ldt_exists( topRec, ldtBinName );
+end
+
+-- ========================================================================
 -- Dump: Debugging/Tracing mechanism -- show the WHOLE tree.
 -- ========================================================================
 function dump( topRec, ldtBinName )
@@ -313,12 +325,6 @@ bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
   return rc;
 end -- bulk_number_load()
 
--- =======================================================================
--- add_all() -- Iterate thru the list and insert each element
--- =======================================================================
--- Parms:
--- (*) topRec: the user-level record holding the LDT Bin
--- (*) ldtBinName: The user's chosen name for the LDT bin
 -- ========================================================================
 --   _      _     _____ _____ _____ 
 --  | |    | |   |_   _/  ___|_   _|

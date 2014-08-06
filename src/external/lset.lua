@@ -17,6 +17,9 @@
 -- limitations under the License.
 -- ======================================================================
 
+-- Track the updates to this module
+local MOD="ext_lset_2014_08_01.A";
+
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSET Main Functions >>
@@ -37,6 +40,7 @@
 -- (*) Map    = get_config( topRec, ldtBinName )
 -- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Status = get_capacity( topRec, ldtBinName )
+-- (*) Number = ldt_exists( topRec, ldtBinName )
 -- ======================================================================
 -- Reference the LMAP LDT Library Module:
 local lset = require('ldt/lib_lset');
@@ -314,6 +318,17 @@ function dump( topRec, ldtBinName )
   -- an existing SRC that lives across LDT calls.
   src = ldt_common.createSubRecContext();
   return lset.dump( topRec, ldtBinName, src )
+end
+
+-- ========================================================================
+-- ldt_exists() -- return 1 if LDT (with the right shape and size) exists
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_exists( topRec, ldtBinName )
+  return lset.ldt_exists( topRec, ldtBinName );
 end
 
 -- =======================================================================

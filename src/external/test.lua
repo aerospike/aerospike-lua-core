@@ -18,10 +18,10 @@
 
 -- Global Print Flags (set "F" to true to print)
 local GP;
-local F = true;
+local F=false;
 
 -- Used for version tracking in logging/debugging
-local MOD = "test:2014_06_04.A";
+local MOD = "test:2014_08_04.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  UDF Test Operations >>
@@ -40,19 +40,19 @@ local lstack   = require('ldt/lib_lstack');
 -- test_one() -- Return a single value
 -- test_one_lib() -- Return a single value -- using our library
 -- ========================================================================
-function test_one( topRec, ldtBinName )
+function test_one( topRec, binName )
   return 1;
 end
 
-function test_one_lib( topRec, ldtBinName )
-  return lib_test.one( topRec, ldtBinName );
+function test_one_lib( topRec, binName )
+  return lib_test.one( topRec, binName );
 end
 
 -- ========================================================================
 -- test_same()      -- Return Val parm.  Used for perf measurement.
 -- test_same_lib()  -- Return Val parm.  -- Using our Library
 -- ========================================================================
-function test_same( topRec, ldtBinName, val )
+function test_same( topRec, binName, val )
   if( val == nil or type(val) ~= "number") then
     return 1;
   else
@@ -60,18 +60,18 @@ function test_same( topRec, ldtBinName, val )
   end
 end -- test_same()
 
-function test_same_lib( topRec, ldtBinName, val )
-    return lib_test.same( topRec, ldtBinName, val );
+function test_same_lib( topRec, binName, val )
+    return lib_test.same( topRec, binName, val );
 end -- test_same_lib()
 
 -- ========================================================================
 -- test_list()     -- Create a LIST of N elements and return it.
 -- test_list_lib() -- Create a LIST of N elements, using our Library
 -- ========================================================================
-function test_list( topRec, ldtBinName, size )
+function test_list( topRec, binName, size )
   -- local meth = "test_list()";
-  -- info("[ENTER]<%s:%s> ldtBinName(%s) size(%s)", MOD, meth,
-  --   tostring(ldtBinName), tostring(size))
+  -- info("[ENTER]<%s:%s> binName(%s) size(%s)", MOD, meth,
+  --   tostring(binName), tostring(size))
   if( size == nil or type(size) ~= "number") then
     error("BAD SIZE PARAMETER");
   end
@@ -86,18 +86,18 @@ function test_list( topRec, ldtBinName, size )
   return resultList;
 end
 
-function test_list_lib( topRec, ldtBinName, size )
-  return lib_test.list_test( topRec, ldtBinName, size );
+function test_list_lib( topRec, binName, size )
+  return lib_test.list_test( topRec, binName, size );
 end
 
 -- ========================================================================
 -- test_map()      -- Create a MAP of N elements and return it.
 -- test_map_lib()  -- Create a MAP of N elements, using our Library.
 -- ========================================================================
-function test_map( topRec, ldtBinName, size )
+function test_map( topRec, binName, size )
   -- local meth = "test_map()";
-  -- info("[ENTER]<%s:%s> ldtBinName(%s) size(%s)",
-    -- MOD, meth, tostring(ldtBinName), tostring(size))
+  -- info("[ENTER]<%s:%s> binName(%s) size(%s)",
+    -- MOD, meth, tostring(binName), tostring(size))
   if( size == nil or type(size) ~= "number") then
     error("BAD SIZE PARAMETER");
   end
@@ -117,22 +117,22 @@ function test_map( topRec, ldtBinName, size )
 end -- test.map_test()
 
 -- ========================================================================
-function test_map_lib( topRec, ldtBinName, size )
-  return lib_test.map_test( topRec, ldtBinName, size );
+function test_map_lib( topRec, binName, size )
+  return lib_test.map_test( topRec, binName, size );
 end
 
 -- ========================================================================
--- lmap_load( topRec, ldtBinName, nameSeed, mapSeed )
+-- lmap_load( topRec, binName, nameSeed, mapSeed )
 -- ========================================================================
--- Generate a load test from LUA.
+-- Load up a LMAP LDT and measure the load overhead.
 -- ========================================================================
-function lmap_load( topRec, ldtBinName, nameSeed, valueSeed, count )
+function lmap_load( topRec, binName, nameSeed, valueSeed, count )
   local meth = "lmap_load";
   info("[ENTER]<%s:%s>BinNameType(%s) NSeedType(%s) VSeedType(%s) CountT(%s)",
-  MOD, meth, type(ldtBinName), type(nameSeed), type(valueSeed), type(count));
+  MOD, meth, type(binName), type(nameSeed), type(valueSeed), type(count));
 
-  info("[ENTER]<%s:%s> ldtBinName(%s) Nseed(%s), Vseed(%s) count(%s)",
-    MOD, meth, ldtBinName,
+  info("[ENTER]<%s:%s> binName(%s) Nseed(%s), Vseed(%s) count(%s)",
+    MOD, meth, binName,
     tostring(nameSeed), tostring(valueSeed), tostring(count) );
 
   local name;
@@ -140,65 +140,68 @@ function lmap_load( topRec, ldtBinName, nameSeed, valueSeed, count )
   for i = 1, count, 1 do
     name = 200 + i;
     value = tostring(valueSeed) .. tostring(nameSeed);
-    lmap.put( topRec, ldtBinName, name, value );
+    lmap.put( topRec, binName, name, value );
   end -- for
 
   info("[EXIT]<%s:%s>", MOD, meth );
 end -- lmap_load()
 
 -- ========================================================================
+-- Load up a LLIST LDT and measure the load overhead.
 -- ========================================================================
-function llist_load( topRec, ldtBinName, valueSeed, count )
+function llist_load( topRec, binName, valueSeed, count )
   local meth = "llist_load";
 
   info("[ENTER]<%s:%s>BinNameType(%s) VSeedType(%s) CountT(%s)",
-    MOD, meth, type(ldtBinName), type(valueSeed), type(count));
+    MOD, meth, type(binName), type(valueSeed), type(count));
 
-  info("[ENTER]<%s:%s> ldtBinName(%s) Vseed(%s) count(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(valueSeed), tostring(count) );
+  info("[ENTER]<%s:%s> binName(%s) Vseed(%s) count(%s)",
+    MOD, meth, tostring(binName), tostring(valueSeed), tostring(count) );
 
   local value;
   for i = 1, count, 1 do
     value = 200 + i;
-    llist.add( topRec, ldtBinName, value );
+    llist.add( topRec, binName, value );
   end -- for
 
   info("[EXIT]<%s:%s>", MOD, meth );
 end -- llist_load()
 
 -- ========================================================================
+-- Load up a LSET LDT and measure the load overhead.
 -- ========================================================================
-function lset_load( topRec, ldtBinName, valueSeed, count )
+function lset_load( topRec, binName, valueSeed, count )
   local meth = "lset_load";
   info("[ENTER]<%s:%s>BinNameType(%s) VSeedType(%s) CountT(%s)",
-    MOD, meth, type(ldtBinName), type(valueSeed), type(count));
+    MOD, meth, type(binName), type(valueSeed), type(count));
 
-  info("[ENTER]<%s:%s> ldtBinName(%s) Vseed(%s) count(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(valueSeed), tostring(count) );
+  info("[ENTER]<%s:%s> binName(%s) Vseed(%s) count(%s)",
+    MOD, meth, tostring(binName), tostring(valueSeed), tostring(count) );
 
   local value;
   for i = 1, count, 1 do
     value = 200 + i;
-    llist.add( topRec, ldtBinName, value );
+    llist.add( topRec, binName, value );
   end -- for
 
   info("[EXIT]<%s:%s>", MOD, meth );
 end -- lset_load()
 
 -- ========================================================================
+-- Load up a LSTACK LDT and measure the load overhead.
 -- ========================================================================
-function lstack_load( topRec, ldtBinName, valueSeed, count )
+function lstack_load( topRec, binName, valueSeed, count )
   local meth = "lstack_load";
   info("[ENTER]<%s:%s>BinNameType(%s) VSeedType(%s) CountT(%s)",
-    MOD, meth, type(ldtBinName), type(valueSeed), type(count));
+    MOD, meth, type(binName), type(valueSeed), type(count));
 
-  info("[ENTER]<%s:%s> ldtBinName(%s) Vseed(%s) count(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(valueSeed), tostring(count) );
+  info("[ENTER]<%s:%s> binName(%s) Vseed(%s) count(%s)",
+    MOD, meth, tostring(binName), tostring(valueSeed), tostring(count) );
 
   local value;
   for i = 1, count, 1 do
     value = 200 + i;
-    llist.add( topRec, ldtBinName, value );
+    llist.add( topRec, binName, value );
   end -- for
 
   info("[EXIT]<%s:%s>", MOD, meth );
@@ -248,9 +251,92 @@ end
 function cc_write( topRec, ccBinName, key, value, createSpec)
     return lib_test.cc_write( topRec, ccBinName, key, value, createSpec);
 end
+
 -- ========================================================================
+-- list_validate_size()()
+-- ========================================================================
+-- Run a simple list test that appends the current value to the existing
+-- list value.  If the list value doesn't exist yet, then create it.
+-- There is no max.  There is no checking.
+-- ========================================================================
+-- Parms:
+-- (*) topRec:
+-- (*) binName;
+-- =======================================================================
+function list_validate_size( topRec, binName )
+  GP=F and trace("\n\n >>>>>>>>> TEST[ LIST SIZE ] <<<<<<<<<<< \n");
+  local meth = "list_append_size()";
+  GP=F and trace("[ENTER]<%s:%s>BIN(%s) ", MOD, meth, tostring(binName));
 
+  local rc = 0;
+  local valueList;
+  local resultSize = 0;
 
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LIST.
+  if( topRec[binName] ) then
+    resultSize = list.size( topRec[binName] );
+  end
+
+  GP=F and trace("[EXIT]:<%s:%s> resultSize(%d)", MOD, meth, resultSize );
+  return resultSize;
+end -- function list_validate_size()
+
+-- ========================================================================
+-- list_append_test()
+-- ========================================================================
+-- Run a simple list test that appends the current value to the existing
+-- list value.  If the list value doesn't exist yet, then create it.
+-- There is no max.  There is no checking.
+-- ========================================================================
+-- Parms:
+-- (*) topRec:
+-- (*) binName;
+-- (*) newValue:
+-- =======================================================================
+function list_append_test( topRec, binName, newValue )
+  GP=F and trace("\n\n >>>>>>>>> TEST[ LIST APPEND ] <<<<<<<<<<< \n");
+  local meth = "list_append_test()";
+  GP=F and trace("[ENTER]<%s:%s>BIN(%s) NwVal(%s)", MOD, meth,
+    tostring(binName), tostring(newValue));
+
+  local rc = 0;
+  local valueList;
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LIST.
+  if( topRec[binName] ) then
+    valueList = topRec[binName];
+    GP=F and info("[INFO]<%s:%s>List Exists: size(%d)", MOD, meth, #valueList);
+  else
+    GP=F and info("[INFO]<%s:%s>List does not exist::Creating", MOD, meth );
+    valueList = list();
+  end
+
+  list.append( valueList, newValue );
+
+  -- All done, store the record
+  -- Update the Top Record with the new List Contents
+  topRec[binName] = valueList;
+
+  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+  if aerospike:exists( topRec ) then
+    rc = aerospike:update( topRec );
+  else
+    rc = aerospike:create( topRec );
+  end
+
+  if ( rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Cr8/Upd8 Error rc(%s)",MOD,meth,tostring(rc));
+    error("Record does not exist");
+  end 
+
+  GP=F and trace("[EXIT]:<%s:%s> rc(%d)", MOD, meth, rc );
+  return rc;
+end -- function list_append_test()
+
+-- =======================================================================
+-- =======================================================================
 -- Bin names and default value for record_update_test()
 local testBinName = "udf_bin";
 local testBinValue = 424242;

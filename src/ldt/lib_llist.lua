@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_07_28.B";
+local MOD="lib_llist_2014_07_31.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -73,6 +73,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Map    = llist.config(topRec, ldtBinName )
 -- (*) Status = llist.set_capacity(topRec, ldtBinName, new_capacity)
 -- (*) Status = llist.get_capacity(topRec, ldtBinName )
+-- (*) Number = llist.ldt_exists(topRec, ldtBinName)
 -- ======================================================================
 -- Large List Design/Architecture
 --
@@ -940,7 +941,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   if mustExist then
     -- Check Top Record Existence.
     if( not aerospike:exists( topRec ) ) then
-      warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+      info("[ERROR EXIT]:<%s:%s>:Missing Top Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
      
@@ -4654,6 +4655,9 @@ end -- function llist.create()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =======================================================================
 function llist.add( topRec, ldtBinName, newValue, createSpec, src )
+
+    debug("[[[ HI THERE ]]]");
+
   GP=B and trace("\n\n >>>>>>>>> API[ LLIST ADD ] <<<<<<<<<<< \n");
   local meth = "llist.add()";
   GP=E and trace("[ENTER]<%s:%s>LLIST BIN(%s) NwVal(%s) createSpec(%s) src(%s)",
@@ -4999,7 +5003,7 @@ function llist.find_min( topRec,ldtBinName, src)
             MOD, meth, rc );
       end
     else
-      warn("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
+      info("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
         tostring( key ) );
       error( ldte.ERR_NOT_FOUND );
     end
@@ -5510,6 +5514,34 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
   GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function llist.set_capacity()
+
+-- ========================================================================
+-- llist.ldt_exists() --
+-- ========================================================================
+-- return 1 if there is an llist object here, otherwise 0
+-- ========================================================================
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- Result:
+--   True:  (LLIST exists in this bin) return 1
+--   False: (LLIST does NOT exist in this bin) return 0
+-- ========================================================================
+function llist.ldt_exists( topRec, ldtBinName )
+  GP=B and trace("\n\n >>>>>>>>>>> API[ LLIST EXISTS ] <<<<<<<<<<<< \n");
+
+  local meth = "llist.ldt_exists()";
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
+    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
+    return 1
+  else
+    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
+    return 0
+  end
+end -- function llist.ldt_exists()
 
 -- ========================================================================
 -- llist.dump(): Debugging/Tracing mechanism -- show the WHOLE tree.
