@@ -50,9 +50,9 @@ local function clone(v)
     elseif t == 'table' then
         return clone_table(v)
     elseif t == 'userdata' then
-        if v.__index == Map then
+        if getmetatable(v) == Map then
             return map.clone(v)
-        elseif v.__index == List then
+        elseif getmetatable(v) == List then
             return list.clone(v)
         end
         return nil
