@@ -1469,6 +1469,7 @@ function ldt_common.removeSubRec( srcCtrl, digestString )
   end
 
   local rc = aerospike:remove_subrec( subRec );
+  rc = rc or 0; -- set to ZERO if null.
 
   GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
   return rc; -- Mask the error for now:: TODO::@TOBY::Figure this out.

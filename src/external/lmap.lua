@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_lmap_2014_08_01.A";
+local MOD="ext_lmap_2014_08_06.A";
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -39,6 +39,7 @@ local MOD="ext_lmap_2014_08_01.A";
 -- Status = set_capacity( topRec, ldtBinName, new_capacity)
 -- Status = get_capacity( topRec, ldtBinName )
 -- Status = ldt_exists( topRec, ldtBinName )
+-- Status = ldt_validate( topRec, ldtBinName )
 -- ======================================================================
 -- Reference the LMAP LDT Library Module:
 local lmap = require('ldt/lib_lmap');
@@ -164,6 +165,17 @@ end
 -- ========================================================================
 function ldt_exists( topRec, ldtBinName )
   return lmap.ldt_exists( topRec, ldtBinName );
+end
+
+-- ========================================================================
+-- ldt_validate() -- return 1 if LDT is in good shape
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_validate( topRec, ldtBinName )
+  return lmap.validate( topRec, ldtBinName );
 end
 
 -- ========================================================================

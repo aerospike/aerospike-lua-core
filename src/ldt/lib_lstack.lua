@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_07_31.A";
+local MOD="lib_lstack_2014_08_12.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -48,6 +48,7 @@ local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local D=false; -- Set D (Detail) to get more details
 local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
+local TEST_MODE=false; -- turn on for MINIMAL sizes (better testing)
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LSTACK Main Functions >>
@@ -196,7 +197,8 @@ local G_SETTINGS = "adjust_settings";
 -- Default storage limit for a stack -- can be overridden by setting
 -- one of the packages (e.g. package.ListLargeObject) or by direct calls
 -- from a userModule (using the "adjust_settings()" function).
-local DEFAULT_CAPACITY = 100000;
+local DEFAULT_CAPACITY = 0;
+local TEST_MODE_DEFAULT_CAPACITY = 10000;
 
 -- The most recently added items (i.e. the top of the stack) are held
 -- directly in the Top Database Record.  Access to this list is the fastest,
@@ -204,6 +206,7 @@ local DEFAULT_CAPACITY = 100000;
 -- reasonable:  Too large and we make all access to the record sluggish, but
 -- too small and we don't get much advantage.
 local DEFAULT_HOTLIST_CAPACITY = 100;
+local TEST_MODE_DEFAULT_HOTLIST_CAPACITY = 10;
 
 -- When the Hot List overflows, we must move some amount of it to the Warm
 -- List.  We don't want to move just one item at a time (for each stack push)
@@ -211,18 +214,23 @@ local DEFAULT_HOTLIST_CAPACITY = 100;
 -- we want to amortize the I/O cost (of a Warm List Write) over many Hot List
 -- writes.
 local DEFAULT_HOTLIST_TRANSFER = 50;
+local TEST_MODE_DEFAULT_HOTLIST_TRANSFER = 5;
 
 -- Default size for an LDT Data Record (LDR).  The LDT is the Sub-Record
 -- that is intially formed when data flows from the Hot List (items held
 -- directly in the Top Database Record) to the Warm List (items held in a
 -- Sub-Record).
 local DEFAULT_LDR_CAPACITY = 200;
+local TEST_MODE_DEFAULT_LDR_CAPACITY = 20;
 
 -- Similar to the HotList Transfer, we do a similar thing when we transfer
 -- data from the Warm List to the Cold List, except rather than Items (as in
 -- the Hot List), for the Warm List we transfer Sub-Records (e.g. LDRs).
 local DEFAULT_WARMLIST_CAPACITY = 100;
-local DEFAULT_WARMLIST_TRANSFER = 100;
+local TEST_MODE_DEFAULT_WARMLIST_CAPACITY = 10;
+
+local DEFAULT_WARMLIST_TRANSFER = 10;
+local TEST_MODE_DEFAULT_WARMLIST_TRANSFER = 2;
 
 -- ++====================++
 -- || INTERNAL BIN NAMES || -- Local, but global to this module
@@ -717,7 +725,8 @@ local function listAppend( baseList, additionalList )
     warn("[INTERNAL ERROR] Null baselist in listAppend()" );
     error( ldte.ERR_INTERNAL );
   end
-  local listSize = list.size( additionalList );
+  -- local listSize = list.size( additionalList );
+  local listSize = #additionalList;
   for i = 1, listSize, 1 do
     list.append( baseList, additionalList[i] );
   end -- for each element of additionalList
@@ -826,8 +835,23 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[M_ColdTopFull] = AS_FALSE; -- true when cold head is full (next write)
   ldtMap[M_ColdDataRecCount]= 0; -- # of Cold DATA Records (data LDRs)
   ldtMap[M_ColdDirRecCount] = 0; -- # of Cold DIRECTORY Records
-  ldtMap[M_ColdDirRecMax]   = 5; -- Max# of Cold DIRECTORY Records
+  ldtMap[M_ColdDirRecMax]   = 100; -- Max# of Cold DIRECTORY Records
   ldtMap[M_ColdListMax]     = 100; -- # of list entries in a Cold list dir node
+
+  -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  -- Special adjustment -- for TEST MODE.  If we're testing, then we want
+  -- to use extra-small sizes to exercise the mechanism.
+  -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  if TEST_MODE then
+    ldtMap[M_StoreLimit]       = TEST_MODE_DEFAULT_CAPACITY;
+    ldtMap[M_LdrEntryCountMax] = TEST_MODE_DEFAULT_LDR_CAPACITY;
+    ldtMap[M_HotListMax]       = TEST_MODE_DEFAULT_HOTLIST_CAPACITY;
+    ldtMap[M_HotListTransfer]  = TEST_MODE_DEFAULT_HOTLIST_TRANSFER;
+    ldtMap[M_WarmListMax]      = TEST_MODE_DEFAULT_WARMLIST_CAPACITY;
+    ldtMap[M_WarmListTransfer] = TEST_MODE_DEFAULT_WARMLIST_TRANSFER;
+  end
+
+    -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
   GP=F and trace("[DEBUG]: <%s:%s> : LDT Summary after Init(%s)",
       MOD, meth , ldtSummaryString(ldtCtrl));
@@ -889,7 +913,8 @@ local function  ldrSummary( ldrRec )
   resultMap.ParentDigest   = ldrPropMap[PM_ParentDigest];
 
   resultMap.WarmList = ldrRec[LDR_LIST_BIN];
-  resultMap.ListSize = list.size( resultMap.WarmList );
+  -- resultMap.ListSize = list.size( resultMap.WarmList );
+  resultMap.ListSize = #resultMap.WarmList;
 
   return tostring( resultMap );
 end -- ldrSummary()
@@ -956,7 +981,8 @@ local function readEntryList( resultList, ldtCtrl, entryList, count, all)
   -- (*) Count Mode: Read <count> or <entryListSize>, whichever is smaller
   local numRead = 0;
   local numToRead = 0;
-  local listSize = list.size( entryList );
+  -- local listSize = list.size( entryList );
+  local listSize = #entryList;
   if all == true or count >= listSize then
     numToRead = listSize;
   else
@@ -1050,7 +1076,8 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
   -- (*) Count Mode: Take <count> or <entryListSize>, whichever is smaller
   local numTaken = 0;
   local numToTake = 0;
-  local listSize = list.size( entryList );
+  -- local listSize = list.size( entryList );
+  local listSize = #entryList;
   if all == true or count >= listSize then
     numToTake = listSize;
   else
@@ -1325,7 +1352,8 @@ local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
 
   local ldrMap = ldrSubRec[LDR_CTRL_BIN];
   local ldrValueList = ldrSubRec[LDR_LIST_BIN];
-  local ldrIndexStart = list.size( ldrValueList ) + 1;
+  -- local ldrIndexStart = list.size( ldrValueList ) + 1;
+  local ldrIndexStart = #ldrValueList + 1;
   local ldrByteArray = ldrSubRec[LDR_BNRY_BIN]; -- might be nil
 
   GP=F and trace("[DEBUG]: <%s:%s> ldr: CTRL(%s) List(%s)",
@@ -1334,7 +1362,8 @@ local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
   -- Note: Since the index of Lua arrays start with 1, that makes our
   -- math for lengths and space off by 1. So, we're often adding or
   -- subtracting 1 to adjust.
-  local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
+  -- local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
+  local totalItemsToWrite = #insertList + 1 - listIndex;
   local itemSlotsAvailable = (ldtMap[M_LdrEntryCountMax] - ldrIndexStart) + 1;
 
   -- In the unfortunate case where our accounting is bad and we accidently
@@ -1432,7 +1461,8 @@ local function ldrInsertBytes( ldrSubRec, ldtMap, listIndex, insertList )
   -- subtracting 1 to adjust.
   -- Calculate how much space we have for items.  We could do this in bytes
   -- or items.  Let's do it in items.
-  local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
+  -- local totalItemsToWrite = list.size( insertList ) + 1 - listIndex;
+  local totalItemsToWrite = #insertList + 1 - listIndex;
   local maxEntries = math.floor(ldtMap[M_LdrByteCountMax] / entrySize );
   local itemSlotsAvailable = maxEntries - entryCount;
   GP=F and
@@ -1635,7 +1665,8 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   local remaining = count;
   local totalAmountRead = 0;
   local ldrItemsRead = 0;
-  local dirCount = list.size( digestList );
+  -- local dirCount = list.size( digestList );
+  local dirCount = #digestList;
   local ldrRec;
   local digestString;
   local status = 0;
@@ -1783,7 +1814,9 @@ local function extractHotListTransferList( ldtMap )
 
   -- Now that the front "transAmount" elements are gone, move the remaining
   -- elements to the front of the array (OldListSize - trans).
-  for i = 1, list.size(oldHotEntryList) - transAmount, 1 do 
+  -- for i = 1, list.size(oldHotEntryList) - transAmount, 1 do 
+  local oldHotListSize = #oldHotEntryList;
+  for i = 1, oldHotListSize - transAmount, 1 do 
     list.append( newHotEntryList, oldHotEntryList[i+transAmount] );
   end
 
@@ -1811,7 +1844,8 @@ end -- extractHotListTransferList()
 -- want to add more sophistication in the future.
 -- ======================================================================
 local function hotListFull( ldtMap )
-  return list.size( ldtMap[M_HotEntryList] ) >= ldtMap[M_HotListMax];
+  -- return list.size( ldtMap[M_HotEntryList] ) >= ldtMap[M_HotListMax];
+  return #ldtMap[M_HotEntryList] >= ldtMap[M_HotListMax];
 end
 
 -- ======================================================================
@@ -1830,7 +1864,8 @@ local function hotListHasRoom( ldtMap, insertValue )
 
   local hotListLimit = ldtMap[M_HotListMax];
   local hotList = ldtMap[M_HotEntryList];
-  if list.size( hotList ) >= hotListLimit then
+  -- if list.size( hotList ) >= hotListLimit then
+  if #hotList >= hotListLimit then
     return false;
   end
 
@@ -1980,7 +2015,9 @@ local function extractWarmListTransferList( ldtCtrl )
 
   -- Now that the front "transAmount" elements are gone, move the remaining
   -- elements to the front of the array (OldListSize - trans).
-  for i = 1, list.size(oldWarmDigestList) - transAmount, 1 do 
+  -- for i = 1, list.size(oldWarmDigestList) - transAmount, 1 do 
+  local oldWarmListSize = #oldWarmDigestList;
+  for i = 1, oldWarmListSize - transAmount, 1 do 
     list.append( newWarmDigestList, oldWarmDigestList[i+transAmount] );
   end
 
@@ -2057,10 +2094,12 @@ local function warmListGetTop( src, topRec, ldtMap )
   GP=E and trace("[ENTER]: <%s:%s> ldtMap(%s)", MOD, meth, tostring( ldtMap ));
 
   local warmDigestList = ldtMap[M_WarmDigestList];
-  local digestString = tostring( warmDigestList[ list.size(warmDigestList) ]);
+-- local digestString = tostring( warmDigestList[ list.size(warmDigestList) ]);
+  local digestString = tostring( warmDigestList[ #warmDigestList ]);
 
   GP=F and trace("[DEBUG]: <%s:%s> Warm Digest(%s) item#(%d)", 
-      MOD, meth, digestString, list.size( warmDigestList ));
+      -- MOD, meth, digestString, list.size( warmDigestList ));
+      MOD, meth, digestString, #warmDigestList );
 
   local topWarmSubRec = ldt_common.openSubRec( src, topRec, digestString );
 
@@ -2111,7 +2150,8 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
   -- Note that the last write may have filled up the warmTopSubRec, in which
   -- case it set a flag so that we will go ahead and allocate a new one now,
   -- rather than after we read the old top and see that it's already full.
-  if list.size( warmDigestList ) == 0 or ldtMap[M_WarmTopFull] == AS_TRUE then
+--if list.size( warmDigestList ) == 0 or ldtMap[M_WarmTopFull] == AS_TRUE then
+  if #warmDigestList == 0 or ldtMap[M_WarmTopFull] == AS_TRUE then
     GP=F and trace("[DEBUG]: <%s:%s> Calling SubRec Create ", MOD, meth );
     topWarmSubRec = warmListSubRecCreate(src, topRec, ldtCtrl ); -- create new
     ldtMap[M_WarmTopFull] = AS_FALSE; -- reset for next time.
@@ -2129,7 +2169,8 @@ local function warmListInsert( src, topRec, ldtCtrl, entryList )
 
   -- We have a warm SubRec -- write as much as we can into it.  If it didn't
   -- all fit -- then we allocate a new SubRec and write the rest.
-  local totalEntryCount = list.size( entryList );
+  -- local totalEntryCount = list.size( entryList );
+  local totalEntryCount = #entryList;
   GP=F and trace("[DEBUG]: <%s:%s> Calling SubRec Insert: List(%s)",
     MOD, meth, tostring( entryList ));
   local countWritten = ldrInsert( topWarmSubRec, ldtMap, 1, entryList );
@@ -2218,7 +2259,7 @@ local function releaseStorage( src, topRec, ldtCtrl, digestList )
   GP=E and trace("[ENTER]:<%s:%s> ldtSummary(%s) digestList(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ), tostring(digestList));
 
-    info("LSTACK Subrecord Eviction: Subrec List(%s)",tostring(digestList));
+    info("LSTACK SubRecord Eviction: Subrec List(%s)",tostring(digestList));
 
     local subrec;
     local digestString;
@@ -2226,10 +2267,12 @@ local function releaseStorage( src, topRec, ldtCtrl, digestList )
     local ldtMap  = ldtCtrl[2];
     local ldtBinName = propMap[PM_BinName];
 
-    if( digestList == nil or list.size( digestList ) == 0 ) then
+    -- if( digestList == nil or list.size( digestList ) == 0 ) then
+    if( digestList == nil or #digestList == 0 ) then
       warn("[INTERNAL ERROR]<%s:%s> DigestList is nil or empty", MOD, meth );
     else
-      local listSize = list.size( digestList );
+      -- local listSize = list.size( digestList );
+      local listSize = #digestList;
       for i = 1, listSize, 1 do
         digestString = tostring( digestList[i] );
         local subrec = ldt_common.openSubRec( src, topRec, digestString );
@@ -2244,6 +2287,7 @@ local function releaseStorage( src, topRec, ldtCtrl, digestList )
     end
 
   GP=E and trace("[EXIT]: <%s:%s> ", MOD, meth );
+  return rc;
 end -- releaseStorage()
 
 -- ======================================================================
@@ -3668,6 +3712,7 @@ end -- setupLdtBin()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 -- NOTE: This function not currently in use.
+-- NOTE: This function would also benefit from the eventual SubRec Release()
 -- ========================================================================
 function lstack_trim( topRec, ldtBinName, trimCount )
   local meth = "lstack_trim()";
@@ -4846,6 +4891,225 @@ function lstack.same( topRec, ldtBinName, val )
   end
 end -- lstack.same()
 
+-- ========================================================================
+-- lstack.validate()
+-- ========================================================================
+-- Look at the structure and SubRec pointers in this LDT.  Make sure that
+-- everything is consistent.
+-- When DEBUG is true, then print out header info for EACH SubRec.
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The LDT bin
+-- (3) src:  Optional (assuming there's no resultMap, otherwise required)
+-- (4) resultMap: Optional.  If not nil, resultMap = internal information
+-- Result:
+--   res = 1, if all is well
+--   res = 0, if there are any problems
+--   else, ERROR (<0) if something blows up
+-- ========================================================================
+function lstack.validate( topRec, ldtBinName, src, resultMap )
+  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.VALIDATE ] <<<<<<<<<< \n");
+  local meth = "lstack.validate()";
+
+  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
+    MOD, meth, tostring(ldtBinName));
+
+  -- Validate the Bin Name and ldtCtrl before moving forward
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+  local ldtList = topRec[ ldtBinName ];
+  local propMap = ldtList[1];
+  local  ldtMap = ldtList[2];
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- If the user has given us a resultMap, then use it.  Otherwise, create
+  -- a new one to hold all of our accounting information.
+  if not resultMap then
+    resultMap = map();
+  end
+  local result = 1; -- start off optimistic.
+
+  if type(resultMap) ~= "userdata" then
+    warn("[ERROR]<%s:%s> resultMap parameter must be a MAP", MOD, meth);
+    error( ldte.ERR_INTERNAL );
+  end
+
+  -- Assemble the information from the TopRec Property Map.  We'll use that
+  -- to compare Parent and ESR values in all of the SubRecs.  Also, we're
+  -- keeping this data in a map so that it's easy to move around, and to pass
+  -- back to the caller if there's interest in seeing everything.
+  resultMap.SubRecCount  = propMap[PM_SubRecCount];
+  resultMap.ItemCount    = propMap[PM_ItemCount];
+  resultMap.LdtType      = propMap[PM_LdtType];
+  resultMap.BinName      = propMap[PM_BinName];
+  resultMap.Magic        = propMap[PM_Magic];
+  resultMap.EsrDigest    = propMap[PM_EsrDigest];
+  resultMap.ParentDigest = propMap[PM_ParentDigest];
+
+  -- Save locally for use below.
+  local esrDigest        = propMap[PM_EsrDigest];
+  local parentDigest     = propMap[PM_ParentDigest];
+
+  -- ---------------------------------------------------------------------
+  -- Step 1:  Assemble all of the information
+  -- ---------------------------------------------------------------------
+  -- Create three lists of digests:
+  -- (1) Warm List Data SubRecs
+  -- (2) Cold List Directory SubRecs
+  -- (3) Cold List Data SubRecs
+  -- ---------------------------------------------------------------------
+  local subRecCount = 0;
+  local warmDigestList = ldtMap[M_WarmDigestList];
+  resultMap.WarmDigestList = list.take(warmDigestList, #warmDigestList)
+
+  subRecCount = subRecCount + #warmDigestList;
+
+  info("[SIZE CHECK] #WarmList(%d) list.size(WarmList)(%d)", 
+    #warmDigestList, list.size(warmDigestList));
+
+  info("[VALIDATE] WarmList(%s) WarmListCopy(%s)", 
+    tostring(warmDigestList), tostring(resultMap.WarmDigestList));
+
+  -- Process the coldDirList (a linked list) head to tail (that is "append"
+  -- order).  For each dir, read in the LDR Records (in reverse list order),
+  -- and then each page (in reverse list order), until we've read "count"
+  -- items.  If the 'all' flag is true, then read everything.
+  local coldDirDigestList = list();  -- a list of cold dir maps
+  local coldDataDigestList = list();
+  local coldDirRecDigest = ldtMap[M_ColdDirListHead];
+  local coldDirResultMap;
+  local coldDirMap; -- the map in the cold dir bin of the SubRec
+  
+  -- For each Cold Directory, save several things in a map.
+  while coldDirRecDigest ~= nil and coldDirRecDigest ~= 0 do
+    coldDirResultMap = map();
+    coldDirResultMap.Digest = coldDirRecDigest;
+    coldDirResultMap.DataDigestList = list();
+  
+    -- Open the ColdList Directory Page, read the digest list
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
+    local coldDataDitestList = coldDirRec[COLD_DIR_LIST_BIN];
+    coldDirResultMap.DataDigestList =
+      list.take(coldDataDigestList, #coldDataDigestList);
+
+    info("[VALIDATE] ColdList(%s) ColdListCopy(%s)", 
+      tostring(coldDataDigestList), tostring(coldDirResultMap.DataDigestList));
+  
+    -- Get the next Cold Dir Node in the list
+    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+    coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
+    -- If no more, we'll drop out of the loop, and if there's more, 
+    -- we'll get it in the next round.
+    -- Close this directory subrec before we open another one.
+    ldt_common.closeSubRec( src, coldDirRec, false );
+  
+    -- Done with this entry -- remember it in the cold dir list.
+    list.append( coldDirDigestList, coldDirResultMap );
+
+  end -- Loop thru each cold directory
+  
+  -- ---------------------------------------------------------------------
+  -- Step 2:  Process all of the information
+  -- ---------------------------------------------------------------------
+  -- (1) Validate each Data SubRec in the warm list
+  -- (2) Validate the Cold Directory List SubRecs
+  -- (3) Validate each Data SubRec in the cold list
+  --
+  -- ---------------------------------------------------------------------
+  -- Step 2.1 :: Process the Warm List
+  -- ---------------------------------------------------------------------
+  local warmSubRecDigest;
+  local warmSubRecDigestString;
+  local warmSubRec;
+  local warmEsrDigest;
+  local warmSelfDigest;
+  local warmParentDigest;
+  local wsrPropMap;
+  for i = 1, #resultMap.WarmDigestList do
+    warmSubRecDigest = resultMap.WarmDigestList[i];
+    warmSubRecDigestString = tostring(warmSubRecDigest);
+    warmSubRec = ldt_common.openSubRec( src, topRec, warmSubRecDigestString );
+    if not warmSubRec then
+      warn("[ERROR]<%s:%s> Warm SubRec Data NIL for digest(%s)", MOD, meth,
+        warmSubRecDigestString);
+      return 0;
+    end
+    wsrPropMap = warmSubRec[SUBREC_PROP_BIN];
+    warmEsrDigest = wsrPropMap[PM_EsrDigest];
+    -- NOTE: we can't compare the byte values directly with "==" or "~=",
+    -- but we CAN (apparently) compare the STRING versions.
+    if tostring(warmEsrDigest) ~= tostring(esrDigest) then
+      warn("[ERROR]<%s:%s> Warm Data(%s) ESR(%s) <>  TOP ESR(%s)",
+        MOD, meth, warmSubRecDigestString, tostring(warmEsrDigest),
+        tostring(esrDigest));
+      warn("[ERROR]<%s:%s> Warm Data ESR Type(%s) Top ESR Type(%s)",
+        MOD, meth, type(warmEsrDigest), type(esrDigest));
+      result = 0;
+    else
+      info("ESRs Match(%s)", tostring(esrDigest));
+    end
+
+    if tostring(warmEsrDigest) ~= tostring(esrDigest) then
+      info("ESR STRINGS << DO NOT >> Match");
+    else
+      info("ESR STRINGS Match(%s)", tostring(esrDigest));
+    end
+
+    warmSelfDigest = warmSubRec[PM_SelfDigest];
+    if tostring(warmSubRecDigest) ~= tostring(warmSelfDigest) then
+      warn("[ERROR]<%s:%s> Warm Self Digest(%s) <> Warm List Digest(%s)",
+        MOD, meth, tostring(warmSelfDigest), tostring(warmSubRecDigest));
+      warn("[ERROR]<%s:%s> Warm Self Digest Type(%s) Warm List Digest Type(%s)",
+        MOD, meth, type(warmSubRecDigest), type(warmSelfDigest));
+      result = 0;
+    else
+      info("SELF Digests Match(%s)", tostring(warmSelfDigest));
+    end
+
+    if tostring(warmSubRecDigest) ~= tostring(warmSelfDigest) then
+      info("SELF STRINGS << DO NOT >> Match:");
+    else
+      info("SELF STRINGS Match(%s)", tostring(warmSelfDigest));
+    end
+
+    warmParentDigest = warmSubRec[PM_ParentDigest];
+    if tostring(warmSubRecDigest) ~= tostring(parentDigest) then
+      warn("[ERROR]<%s:%s> Warm Parent Digest(%s) <> Top Parent Digest(%s)",
+        MOD, meth, tostring(warmParentDigest), tostring(parentDigest));
+      warn("[ERROR]<%s:%s> Warm Parent Type(%s) Top Parent Type(%s)",
+        MOD, meth, type(warmParentDigest), type(parentDigest));
+      result = 0;
+    else
+      info("PARENT Digests Match(%s)", tostring(warmSelfDigest));
+    end
+
+    -- All done -- close this subRec (otherwise, we run out of space)
+    ldt_common.closeSubRec( src, warmSubRec, false );
+
+  end -- for each SubRec digest in warm list
+
+  return result;
+end -- lstack.validate()()
+
+--local PM_ItemCount             = 'I'; -- (Top): # of items in LDT
+--local PM_SubRecCount           = 'S'; -- (Top): # of subrecs in the LDT
+--local PM_Version               = 'V'; -- (Top): Code Version
+--local PM_LdtType               = 'T'; -- (Top): Type: stack, set, map, list
+--local PM_BinName               = 'B'; -- (Top): LDT Bin Name
+--local PM_Magic                 = 'Z'; -- (All): Special Sauce
+--local PM_CreateTime            = 'C'; -- (All): Creation time of this rec
+--local PM_EsrDigest             = 'E'; -- (All): Digest of ESR
+--local PM_RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
+-- local PM_LogInfo               = 'L'; -- (All): Log Info (currently unused)
+--local PM_ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
+--local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- ======================================================================
 -- This is needed to export the function table for this module
 -- Leave this statement at the end of the module.

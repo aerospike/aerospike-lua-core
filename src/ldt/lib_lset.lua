@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_08_01.A"; 
+local MOD="lib_lset_2014_08_12.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2144,7 +2144,7 @@ local function topRecSearch( topRec, ldtCtrl, searchKey )
   end -- if there's a list
 
   if( resultFiltered == nil ) then
-    warn("[WARNING]<%s:%s> Value not found: Value(%s)",
+    debug("[WARNING]<%s:%s> Value not found: Value(%s)",
       MOD, meth, tostring( searchKey ) );
     error( ldte.ERR_NOT_FOUND );
   end
@@ -3245,7 +3245,7 @@ local function compactDelete( ldtMap, searchKey, resultList )
   local position = searchList( ldtMap, valueList, searchKey );
   if( position == 0 ) then
     -- Didn't find it -- report an error.
-    warn("[NOT FOUND]<%s:%s> searchKey(%s)", MOD, meth, tostring(searchKey));
+    debug("[NOT FOUND]<%s:%s> searchKey(%s)", MOD, meth, tostring(searchKey));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -3255,7 +3255,7 @@ local function compactDelete( ldtMap, searchKey, resultList )
   local resultValue = validateValue( valueList[position] );
   if ( not resultValue ) then
     -- The object did NOT pass the filter criteria, so then NOT FOUND.
-    warn("[NOT QUALIFIED]<%s:%s> Object for Key(%s) did not satisfy filter",
+    debug("[NOT QUALIFIED]<%s:%s> Object for Key(%s) did not satisfy filter",
       MOD, meth, tostring(searchKey));
     error( ldte.ERR_NOT_FOUND );
   end
@@ -3304,7 +3304,7 @@ local function regularDelete(src, topRec, ldtCtrl, searchKey, resultList)
 
   -- If no sub-record, then not found.
   if( cellAnchorEmpty( cellAnchor ) ) then 
-    warn("[NOT FOUND]<%s:%s>searchKey(%s)", MOD, meth, tostring(searchKey));
+    debug("[NOT FOUND]<%s:%s>searchKey(%s)", MOD, meth, tostring(searchKey));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -3352,7 +3352,7 @@ local function regularDelete(src, topRec, ldtCtrl, searchKey, resultList)
   if( position == 0 ) then
     -- Didn't find it: report an error.  First, Close the subRec (not dirty)
     ldt_common.closeSubRec( src, subRec, false);
-    warn("[NOT FOUND]<%s:%s> searchKey(%s)", MOD, meth, tostring(searchKey));
+    debug("[NOT FOUND]<%s:%s> searchKey(%s)", MOD, meth, tostring(searchKey));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -3470,7 +3470,7 @@ local function topRecDelete( topRec, ldtCtrl, searchKey, returnList)
   end -- if there's a list
 
   if( position == 0 or resultFiltered == nil ) then
-    warn("[WARNING]<%s:%s> Value not found: SearchKey(%s)",
+    debug("[WARNING]<%s:%s> Value not found: SearchKey(%s)",
       MOD, meth, tostring(searchKey) );
     error( ldte.ERR_NOT_FOUND );
   end
@@ -4024,7 +4024,7 @@ lset.get( topRec, ldtBinName, searchValue, userModule, filter, fargs, src )
 
   -- Report an error if we did not find the object.
   if( resultObject == nil ) then
-    info("[NOT FOUND]<%s:%s> SearchKey(%s) SearchValue(%s)",
+    debug("[NOT FOUND]<%s:%s> SearchKey(%s) SearchValue(%s)",
       MOD, meth, tostring(searchKey), tostring(searchValue));
     error(ldte.ERR_NOT_FOUND);
   end

@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_llist_2014_08_01.A";
+local MOD="ext_llist_2014_08_06.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
@@ -37,6 +37,7 @@ local MOD="ext_llist_2014_08_01.A";
 -- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
 -- (*) Status = get_capacity( topRec, ldtBinName )
 -- (*) Number = ldt_exists( topRec, ldtBinName )
+-- (*) Number = ldt_validate( topRec, ldtBinName )
 -- ======================================================================
 -- Deprecated Functions
 -- (*) function create( topRec, ldtBinName, createSpec )
@@ -237,6 +238,18 @@ end
 -- ========================================================================
 function ldt_exists( topRec, ldtBinName )
   return llist.ldt_exists( topRec, ldtBinName );
+end
+
+
+-- ========================================================================
+-- ldt_validate() -- return 1 if LDT is in good shape.
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function ldt_validate( topRec, ldtBinName )
+  return llist.validate( topRec, ldtBinName );
 end
 
 -- ========================================================================

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_08_05.A"; 
+local MOD="lib_lmap_2014_08_12.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2271,7 +2271,7 @@ local function compactDelete( ldtMap, searchName, resultMap )
   local position = searchList( nameList, searchName );
   if( position == 0 ) then
     -- Didn't find it -- report an error.
-    warn("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
+    debug("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -2315,7 +2315,7 @@ local function regularDelete( src, topRec, ldtCtrl, searchName, resultMap )
 
   -- If no sub-record, then not found.
   if ( cellAnchorEmpty( cellAnchor )) then
-    warn("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
+    debug("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -2362,7 +2362,7 @@ local function regularDelete( src, topRec, ldtCtrl, searchName, resultMap )
   if( position == 0 ) then
     -- Didn't find it -- report an error. First, Close the subRec(Not Dirty)
     ldt_common.closeSubRec( src, subRec, false);
-    warn("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
+    debug("[NOT FOUND]<%s:%s> searchName(%s)", MOD, meth, tostring(searchName));
     error( ldte.ERR_NOT_FOUND );
   end
 
@@ -2408,7 +2408,7 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
 
   if ( cellAnchorEmpty( cellAnchor )) then
   -- if ( cellAnchor[C_CellState] == C_STATE_EMPTY ) then
-    warn("[WARNING]<%s:%s> Value not found for name(%s)",
+    debug("[WARNING]<%s:%s> Value not found for name(%s)",
       MOD, meth, tostring( searchName ) );
     error( ldte.ERR_NOT_FOUND );
   end
@@ -2431,9 +2431,9 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
   else
     -- Get the lists from the correct Sub-Rec in the Radix Tree.
     -- Radix tree support not yet implemented
-    info("[NOT FOUND]<%s:%s> name(%s) not found, RADIX Tree Not Ready",
+    warn("[INTERNAL ERROR]<%s:%s> Search name(%s), RADIX Tree Not Ready",
       MOD, meth, tostring( searchName ));
-    error( ldte.ERR_NOT_FOUND );
+    error( ldte.ERR_INTERNAL );
   end
 
   -- We've got a namelist to search.
@@ -2451,7 +2451,7 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
   end
 
   if( resultObject == nil ) then
-    warn("[WARNING]<%s:%s> Value not found for name(%s)",
+    debug("[WARNING]<%s:%s> Value not found for name(%s)",
       MOD, meth, tostring( searchName ) );
     error( ldte.ERR_NOT_FOUND );
   end
@@ -2979,7 +2979,7 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs, src)
       resultObject = validateValue( valueList[position] );
     end
     if( resultObject == nil ) then
-      trace("[NOT FOUND]<%s:%s> name(%s) not found",
+      debug("[NOT FOUND]<%s:%s> name(%s) not found",
         MOD, meth, tostring(searchName));
       error( ldte.ERR_NOT_FOUND );
     end

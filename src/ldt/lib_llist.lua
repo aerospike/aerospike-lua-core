@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_07_31.B";
+local MOD="lib_llist_2014_08_12.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -48,7 +48,7 @@ local E=false; -- Set F (flag) to true to turn ON Enter/Exit print
 local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local D=false; -- Set D (Detail) to get more Detailed Debug Output.
 local GD;      -- Global Debug instrument.
-local DEBUG=false; -- turn on for more elaborate state dumps.
+local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -148,6 +148,10 @@ local llistPackage = require('ldt/settings_llist');
 -- module, namely the subrec routines and some list management routines.
 -- We will likely move some other functions in there as they become common.
 local ldt_common = require('ldt/ldt_common');
+
+-- We need this for testing down below.
+local Map = getmetatable( map() );
+local List = getmetatable( list() );
 
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- || FUNCTION TABLE ||
@@ -1241,8 +1245,15 @@ local function getKeyValue( ldtMap, value )
     return nil;
   end
 
-  GP=D and trace("[DEBUG]<%s:%s> Value type(%s)", MOD, meth,
-    tostring( type(value)));
+  -- Do some lengthy type checks to see what was passed in.
+  if DEBUG then
+    debug("[DEBUG]<%s:%s> >>>>>  Value TYPE Check <<<<<<", MOD, meth );
+    debug("[DEBUG]<%s:%s> Value type(%s)", MOD, meth, tostring( type(value)));
+    debug("[DEBUG]<%s:%s> Map Check(%s)", MOD, meth,
+           tostring( getmetatable(value) == Map ));
+    debug("[DEBUG]<%s:%s> List Check(%s)", MOD, meth, 
+           tostring( getmetatable(value) == List));
+  end
 
   local keyValue;
   if( ldtMap[M_KeyType] == KT_ATOMIC or type(value) ~= "userdata" ) then
@@ -1253,7 +1264,7 @@ local function getKeyValue( ldtMap, value )
       -- there, look for the special case where the object has a field
       -- called "key".  If not, then, well ... tough.  We tried.
       keyValue = G_KeyFunction( value );
-    elseif( value[KEY_FIELD] ~= nil ) then
+    elseif getmetatable(value) == Map and value[KEY_FIELD] ~= nil then
       -- Use the default action of using the object's KEY field
       keyValue = value[KEY_FIELD];
     else
@@ -1772,7 +1783,7 @@ local function searchObjectListLinear( ldtMap, objectList, searchKey )
     end
     if compareResult  == CR_LESS_THAN then
       -- We want the child pointer that goes with THIS index (left ptr)
-      GP=D and trace("[NOT FOUND LESS THAN]<%s:%s> : SV(%s) Obj(%s) I(%d)",
+      GP=D and debug("[NOT FOUND LESS THAN]<%s:%s> : SV(%s) Obj(%s) I(%d)",
         MOD, meth, tostring(searchKey), tostring(liveObject), i );
       resultMap.Position = i;
       return resultMap;
@@ -1788,7 +1799,7 @@ local function searchObjectListLinear( ldtMap, objectList, searchKey )
   end -- for each list item
 
   -- Remember: Can't use "i" outside of Loop.   
-  GP=F and trace("[NOT FOUND: EOL]: <%s:%s> :Key(%s) Final Index(%d)",
+  GP=F and debug("[NOT FOUND: EOL]: <%s:%s> :Key(%s) Final Index(%d)",
     MOD, meth, tostring(searchKey), listSize );
 
   resultMap.Position = listSize + 1;
@@ -1927,7 +1938,7 @@ local function searchObjectListBinary( ldtMap, objectList, searchKey )
   resultMap.Position = iMid + finalState;
   resultMap.Found = false;
 
-  GP=F and trace("[NOT FOUND]: <%s:%s> SKey(%s) KeyList(%s)", 
+  GP=F and debug("[NOT FOUND]: <%s:%s> SKey(%s) KeyList(%s)", 
     MOD, meth, tostring(searchKey), tostring(objectList));
   GP=F and trace("[Result]<%s:%s> iStart(%d) iMid(%d) iEnd(%d)", MOD, meth,
     iStart, iMid, iEnd );
@@ -2079,7 +2090,7 @@ local function printTree( src, topRec, ldtBinName )
   -- Release ALL of the read-only subrecs that might have been opened.
   rc = ldt_common.closeAllSubRecs( src );
   if( rc < 0 ) then
-    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+    info("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
@@ -2370,7 +2381,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
 
     compareResult = objectCompare( ldtMap, searchKey, liveObject );
     if compareResult == CR_ERROR then
-      warn("[WARNING]<%s:%s> Compare Error", MOD, meth );
+      debug("[WARNING]<%s:%s> Compare Error", MOD, meth );
       return 0, CR_ERROR; -- error result.
     end
     -- Equals is always good.  If we are doing a true range scan, then
@@ -2599,11 +2610,11 @@ treeSearch( src, topRec, sp, ldtCtrl, searchKey )
       GP=D and trace("[DEBUG]<%s:%s> UPPER NODE Search", MOD, meth );
       position = searchKeyList( ldtMap, keyList, searchKey );
       if( position < 0 ) then
-        warn("[ERROR]<%s:%s> searchKeyList Problem", MOD, meth );
+        info("[ERROR]<%s:%s> searchKeyList Problem", MOD, meth );
         error( ldte.ERR_INTERNAL );
       end
       if( position == 0 ) then
-        warn("[ERROR]<%s:%s> searchKeyList Problem:Position ZERO", MOD, meth );
+        info("[ERROR]<%s:%s> searchKeyList Problem:Position ZERO", MOD, meth );
         error( ldte.ERR_INTERNAL );
       end
       updateSearchPath(sp,propMap,ldtMap,nodeRec,position,keyCount );
@@ -2748,7 +2759,7 @@ leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, position)
   end
 
   if( position <= 0 ) then
-    warn("[ERROR]<%s:%s> Search Path Position is wrong", MOD, meth );
+    info("[ERROR]<%s:%s> Search Path Position is wrong", MOD, meth );
     error( ldte.ERR_INTERNAL );
   end
 
@@ -3075,7 +3086,7 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, key, digest )
     nodeInsert( ldtMap, rightKeyList, rightDigestList, key, digest, 0 );
   else
     -- We got some sort of goofy error.
-    warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
+    info("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
     error( ldte.ERR_INTERNAL );
   end
 
@@ -3227,7 +3238,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, key, digest, level )
       nodeInsert( ldtMap, rightKeyList, rightDigestList, key, digest, 0 );
     else
       -- We got some sort of goofy error.
-      warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
+      info("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
       error( ldte.ERR_INTERNAL );
     end
 
@@ -4481,7 +4492,7 @@ local function treeMin( topRec,ldtBinName, take )
   -- If our itemCount is ZERO, then quickly return NIL before we get into
   -- any trouble.
   if( propMap[PM_ItemCount] == 0 ) then
-    info("[ATTENTION]<%s:%s> Searching for MIN of EMPTY TREE", MOD, meth );
+    debug("[ATTENTION]<%s:%s> Searching for MIN of EMPTY TREE", MOD, meth );
     return nil;
   end
 
@@ -4655,9 +4666,6 @@ end -- function llist.create()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =======================================================================
 function llist.add( topRec, ldtBinName, newValue, createSpec, src )
-
-    debug("[[[ HI THERE ]]]");
-
   GP=B and trace("\n\n >>>>>>>>> API[ LLIST ADD ] <<<<<<<<<<< \n");
   local meth = "llist.add()";
   GP=E and trace("[ENTER]<%s:%s>LLIST BIN(%s) NwVal(%s) createSpec(%s) src(%s)",
@@ -4873,7 +4881,7 @@ function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
         error( ldte.ERR_INTERNAL );
       end
     else
-      warn("[ERROR]<%s:%s> Search Not Found: Key(%s), List(%s)", MOD, meth,
+      debug("[ERROR]<%s:%s> Search Not Found: Key(%s), List(%s)", MOD, meth,
         tostring( key ), tostring( objectList ) );
       error( ldte.ERR_NOT_FOUND );
     end
@@ -4889,7 +4897,7 @@ function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
             MOD, meth, rc );
       end
     else
-      warn("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
+      debug("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
         tostring( key ) );
       error( ldte.ERR_NOT_FOUND );
     end
@@ -4952,7 +4960,7 @@ function llist.find_min( topRec,ldtBinName, src)
   -- If our itemCount is ZERO, then quickly return NIL before we get into
   -- any trouble.
   if( propMap[PM_ItemCount] == 0 ) then
-    info("[ATTENTION]<%s:%s> Searching for MIN of EMPTY TREE", MOD, meth );
+    debug("[ATTENTION]<%s:%s> Searching for MIN of EMPTY TREE", MOD, meth );
     return nil;
   end
 
@@ -5003,7 +5011,7 @@ function llist.find_min( topRec,ldtBinName, src)
             MOD, meth, rc );
       end
     else
-      info("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
+      debug("[ERROR]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
         tostring( key ) );
       error( ldte.ERR_NOT_FOUND );
     end
@@ -5338,8 +5346,8 @@ function llist.destroy( topRec, ldtBinName, src)
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
-    MOD, meth, ldtBinName );
+    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+      MOD, meth, ldtBinName );
   end
 
   topRec[ldtBinName] = nil;
