@@ -66,7 +66,7 @@ function env_record()
         ["aerospike"] = aerospike,
         ["Map"] = getmetatable(map()),
         ["List"] = getmetatable(list()),
-
+        ["Bytes"] = getmetatable(bytes()),
         ["putX"] = putX,
 
         -- logging functions
