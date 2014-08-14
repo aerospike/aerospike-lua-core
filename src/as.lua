@@ -16,7 +16,10 @@
 -- See the License for the specific language governing permissions and
 -- limitations under the License.
 -- ======================================================================
-
+Map = Map or  getmetatable(map())
+List  = List or getmetatable(list())
+Bytes = Bytes or getmetatable(bytes())
+        
 
 -- ############################################################################
 --
