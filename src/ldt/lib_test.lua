@@ -647,7 +647,7 @@ function test.cc_write( topRec, ccBinName, key, value, createSpec, src)
   local ccTimeBin  = ccCtrl[CC_TimeBin];
 
   -- Search for the value.  If not found, insert it.  If found,
-  -- then udpate the TIME associated with the value.
+  -- then update the TIME associated with the value.
   local addedCount = 1;
   local key = getKeyValue( ccCtrl, value );
   local insertTime = aerospike:get_current_time();

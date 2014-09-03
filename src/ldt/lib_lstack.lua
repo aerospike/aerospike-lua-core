@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_08_12.A";
+local MOD="lib_lstack_2014_09_02.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -141,6 +141,12 @@ local ldt_common = require('ldt/ldt_common');
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
 -- ++==================++
 local MAGIC="MAGIC";     -- the magic value for Testing LSTACK integrity
+
+-- The LDT Control Structure is a LIST of two MAPs, where the first Map
+-- is the Property Map that is common to all LDTs.  The second map is
+-- the LDT-Specific Map, which is different for each of the LDTs.
+local PROP_MAP = 1;
+local LDT_MAP  = 2;
 
 -- AS_BOOLEAN TYPE:
 -- There are apparently either storage or conversion problems with booleans
@@ -381,7 +387,7 @@ local CDM_DigestCount          = 'C';-- Current Digest Count
 -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
 local M_UserModule             = 'P'; -- Name of the User Module
 local M_KeyFunction            = 'F'; -- User Supplied Key Extract Function
-local M_KeyType                = 'k'; -- Key Type: Atomic or Complex
+--local M_KeyType                = 'k'; -- Key Type: Atomic or Complex
 local M_StoreMode              = 'M'; -- List or Binary Mode
 local M_StoreLimit             = 'L'; -- Max Item Count for stack
 local M_Transform              = 't'; -- User's Transform function
@@ -426,6 +432,9 @@ local M_ColdListMax            = 'c';-- Max # of items in a cold dir list
 local M_ColdDirRecMax          = 'C';-- Max # of Cold Dir subrecs we'll have
 local M_ColdDirRecCount        = 'r';-- # of Cold Dir sub-Records
 
+--  resultMap.ColdListDirRecCount   = ldtMap[M_ColdListDirRecCount];
+--  resultMap.ColdListDataRecCount  = ldtMap[M_ColdListDataRecCount];
+--
 -- ------------------------------------------------------------------------
 -- Maintain the LSTACK letter Mapping here, so that we never have a name
 -- collision: Obviously -- only one name can be associated with a character.
@@ -547,7 +556,7 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.UserModule           = ldtMap[M_UserModule];
   resultMap.Transform            = ldtMap[M_Transform];
   resultMap.UnTransform          = ldtMap[M_UnTransform];
-  resultMap.KeyType              = ldtMap[M_KeyType];
+--  resultMap.KeyType              = ldtMap[M_KeyType];
 
   -- LDT Data Record (LDR) Settings:
   resultMap.LdrEntryCountMax     = ldtMap[M_LdrEntryCountMax];
@@ -568,8 +577,8 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.ColdDirListHead       = ldtMap[M_ColdDirListHead];
   resultMap.ColdListMax           = ldtMap[M_ColdListMax];
   resultMap.ColdDirRecMax         = ldtMap[M_ColdDirRecMax];
-  resultMap.ColdListDirRecCount   = ldtMap[M_ColdListDirRecCount];
-  resultMap.ColdListDataRecCount  = ldtMap[M_ColdListDataRecCount];
+  resultMap.ColdListRecCount      = ldtMap[M_ColdDirRecCount];
+  resultMap.ColdListDataRecCount  = ldtMap[M_ColdDataRecCount];
   resultMap.ColdTopFull           = ldtMap[M_ColdTopFull];
   resultMap.ColdTopListCount      = ldtMap[M_ColdTopListCount];
 
@@ -633,6 +642,7 @@ end -- ldtSummary()
 -- information is too big for a single print (it gets truncated).
 -- ======================================================================
 local function ldtDebugDump( ldtCtrl )
+  local meth = "ldtDebugDump()";
 
   -- Print MOST of the "TopRecord" contents of this LMAP object.
   local resultMap                = map();
@@ -671,7 +681,7 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Reset for each section, otherwise the result would be too much for
   -- the info call to process, and the information would be truncated.
-  resultMap2 = map();
+  local resultMap2 = map();
   resultMap2.SUMMARY              = "LSTACK-SPECIFIC Values";
 
   -- Load the LMAP-specific properties
@@ -680,7 +690,7 @@ local function ldtDebugDump( ldtCtrl )
   resultMap2 = nil;
 
   -- Print the Hash Directory
-  resultMap3 = map();
+  local resultMap3 = map();
   resultMap3.SUMMARY              = "LSTACK Hot List";
   resultMap3.HotEntryList         = ldtMap[M_HotEntryList];
   trace("\n<<<%s>>>\n", tostring(resultMap3));
@@ -805,7 +815,7 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   -- Specific LDT Parms: Held in LdtMap
   ldtMap[M_StoreMode]   = SM_LIST; -- SM_LIST or SM_BINARY:
   ldtMap[M_StoreLimit]  = DEFAULT_CAPACITY;  -- Store no more than this.
-  ldtMap[M_KeyType]     = KT_ATOMIC;      -- For lstack, everything is a blob
+  -- ldtMap[M_KeyType]     = KT_ATOMIC;    -- For lstack, everything is a blob
 
   -- LDT Data Record Settings: Passed into "LDR Create"
   -- Max # of Data LDR items (List Mode)
@@ -1145,7 +1155,7 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
   local newHotList;
   local empty = false;
   if( newSize > 0 ) then
-    newHotList = list.take( entryList, spaceEstimate );
+    newHotList = list.take( entryList, newSize );
   else
     newHotList = list();
     empty = true;
@@ -1340,10 +1350,10 @@ end -- takeByteArray()
 -- (*) insertList: The list of elements to be copied in
 -- Return: Number of items written
 -- ======================================================================
-local function ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList )
+local function ldrInsertList(ldrSubRec, ldtMap, listIndex, insertList)
   local meth = "ldrInsertList()";
   GP=E and trace("[ENTER]<%s:%s> LDR_SR(%s) Index(%d) List(%s)",
-    MOD, meth, tostring(ldtSubRec), listIndex, tostring( insertList ) );
+    MOD, meth, tostring(ldrSubRec), listIndex, tostring( insertList ) );
 
   GP=F and trace("[DEBUG]<%s:%s> LDT MAP(%s)", MOD, meth, tostring(ldtMap));
 
@@ -1669,7 +1679,6 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   local dirCount = #digestList;
   local ldrRec;
   local digestString;
-  local status = 0;
 
   GP=F and trace("[DEBUG]:<%s:%s>:DirCount(%d)  Reading DigestList(%s)",
     MOD, meth, dirCount, tostring( digestList) );
@@ -2259,32 +2268,32 @@ local function releaseStorage( src, topRec, ldtCtrl, digestList )
   GP=E and trace("[ENTER]:<%s:%s> ldtSummary(%s) digestList(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ), tostring(digestList));
 
-    info("LSTACK SubRecord Eviction: Subrec List(%s)",tostring(digestList));
+  info("LSTACK SubRecord Eviction: Subrec List(%s)",tostring(digestList));
 
-    local subrec;
-    local digestString;
-    local propMap = ldtCtrl[1];
-    local ldtMap  = ldtCtrl[2];
-    local ldtBinName = propMap[PM_BinName];
+  local subrec;
+  local digestString;
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+  local ldtBinName = propMap[PM_BinName];
 
-    -- if( digestList == nil or list.size( digestList ) == 0 ) then
-    if( digestList == nil or #digestList == 0 ) then
-      warn("[INTERNAL ERROR]<%s:%s> DigestList is nil or empty", MOD, meth );
-    else
-      -- local listSize = list.size( digestList );
-      local listSize = #digestList;
-      for i = 1, listSize, 1 do
-        digestString = tostring( digestList[i] );
-        local subrec = ldt_common.openSubRec( src, topRec, digestString );
-        rc = ldt_common.removeSubRec( src, digestString );
-        if( rc == nil or rc == 0 ) then
-          GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
-        else
-          warn("[SUB DELETE ERROR] RC(%d) Bin(%s)", MOD, meth, rc, ldtBinName);
-          error( ldte.ERR_SUBREC_DELETE );
-        end
+  -- if( digestList == nil or list.size( digestList ) == 0 ) then
+  if( digestList == nil or #digestList == 0 ) then
+    warn("[INTERNAL ERROR]<%s:%s> DigestList is nil or empty", MOD, meth );
+  else
+    -- local listSize = list.size( digestList );
+    local listSize = #digestList;
+    for i = 1, listSize, 1 do
+      digestString = tostring( digestList[i] );
+      local subrec = ldt_common.openSubRec( src, topRec, digestString );
+      rc = ldt_common.removeSubRec( src, topRec, digestString );
+      if( rc == nil or rc == 0 ) then
+        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
+      else
+        warn("[SUB DELETE ERROR] RC(%d) Bin(%s)", MOD, meth, rc, ldtBinName);
+        error( ldte.ERR_SUBREC_DELETE );
       end
     end
+  end
 
   GP=E and trace("[EXIT]: <%s:%s> ", MOD, meth );
   return rc;
@@ -2389,7 +2398,8 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     itemsDeleted = subrecsDeleted * ldrItemCount;
 
     -- Save the changes to the Cold Head
-    updateSubrec( src, coldDirRec, coldDirDigest );
+    -- updateSubrec( src, coldDirRec, coldDirDigest );
+    ldt_common.updateSubRec( src, coldDirRec );
     returnColdHead = coldDirRec;
 
   elseif( coldDirRecCount >= coldDirRecMax ) then
@@ -2442,7 +2452,8 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
     end -- while; count down Cold Dir Recs
 
     -- Update the LAST Cold Dir that we were in.  It's the new tail
-    updateSubrec( src, coldDirRec, coldDirDigest );
+    -- updateSubrec( src, coldDirRec, coldDirDigest );
+    ldt_common.updateSubRec( src, coldDirRec );
 
     -- Gather up some statistics:
     -- Track the sub-record counts (LDRs and Cold Dirs). 
@@ -2684,8 +2695,8 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
   -- the "release storage" method and return.
   if( ldtMap[M_ColdDirRecMax] == 0 ) then
     rc = releaseStorage( src, topRec, ldtCtrl, digestList );
-    GP=E and trace("[Early EXIT]: <%s:%s> Release Storage Status(%s) RC(%d)",
-      MOD,meth, tostring(status), rc );
+    GP=E and trace("[Early EXIT]: <%s:%s> Release Storage RC(%d)",
+      MOD,meth, rc );
     return rc;
   end
 
@@ -2769,11 +2780,11 @@ local function coldListInsert( src, topRec, ldtCtrl, digestList )
 
   GP=F and trace("[DEBUG]: <%s:%s> New Cold Head Save: Summary(%s) ",
     MOD, meth, coldDirRecSummary( coldHeadRec ));
-  local status = ldt_common.udpateSubRec( src, coldHeadRec );
+  local status = ldt_common.updateSubRec( src, coldHeadRec );
   GP=F and trace("[DEBUG]: <%s:%s> SUB-REC  Update Status(%s) ",
     MOD,meth, tostring(status));
 
-  local status = ldt_common.closeSubRec( src, coldHeadRec, true);
+  status = ldt_common.closeSubRec( src, coldHeadRec, true);
   GP=E and trace("[EXIT]: <%s:%s> SUB-REC  Close Status(%s) RC(%d)",
     MOD,meth, tostring(status), rc );
 
@@ -2801,8 +2812,8 @@ end -- coldListInsert
 -- ======================================================================
 local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
   local meth = "coldListRead()";
-  GP=E and trace("[ENTER]: <%s:%s> Count(%d) All(%s) ldtMap(%s)",
-      MOD, meth, count, tostring( all ), tostring( ldtMap ));
+  GP=E and trace("[ENTER]: <%s:%s> Count(%d) All(%s) LdtSummary(%s)",
+      MOD, meth, count, tostring( all ), ldtSummaryString(ldtCtrl));
 
   -- Extract the property map and LDT map from the LDT Control.
   local propMap = ldtCtrl[1];
@@ -2830,6 +2841,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
   trace("[DEBUG]:<%s:%s>:Starting ColdDirPage Loop: DPDigest(%s)",
       MOD, meth, tostring(coldDirRecDigest) );
 
+  local coldDirMap;
   while coldDirRecDigest ~= nil and coldDirRecDigest ~= 0 do
     trace("[DEBUG]:<%s:%s>:Top of ColdDirPage Loop: DPDigest(%s)",
       MOD, meth, tostring(coldDirRecDigest) );
@@ -2837,7 +2849,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     local digestString = tostring( coldDirRecDigest ); -- must be a string
     local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
     local digestList = coldDirRec[COLD_DIR_LIST_BIN];
-    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+    coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
 
     GP=F and trace("[DEBUG]<%s:%s>Cold Dir subrec digest(%s) Map(%s) List(%s)",
       MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
@@ -2872,7 +2884,7 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
     -- Ok, so now we've read ALL of the contents of a Directory Record
     -- and we're still not done.  Close the old dir, open the next and
     -- keep going.
-    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+    coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
 
     GP=F and trace("[DEBUG]:<%s:%s>Looking at subrec digest(%s) Map(%s) L(%s)",
       MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
@@ -3109,104 +3121,105 @@ local function buildSubRecList( src, topRec, ldtCtrl, position )
 
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
-
-  info("\n\n [WARNING]<%s:%s> UNDER CONSTRUCTION !!!!!!!!!\n",MOD, meth);
-  info("\n\n [WARNING]<%s:%s> UNDER CONSTRUCTION !!!!!!!!!\n",MOD, meth);
-
-  -- If position puts us into or past the warmlist, make the adjustment
-  -- here.  Otherwise, drop down into the FULL MONTY
-  --
-  if( position < 0 ) then
-    warn("[ERROR]<%s:%s> BUILD SUBREC LIST ERROR: Bad Position(%d)",
-      MOD, meth, position );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  -- Call buildSearchPath() to give us a searchPath object that shows us
-  -- the storage we are going to release.  It will tell us what do to in
-  -- each of the three types of storage: Hot, Warm and Cold, although, we
-  -- care only about warm and cold in this case
-  local searchPath = map();
-  buildSearchPath( topRec, ldtCtrl, searchPath, position );
-
-  -- Use the search path to show us where to start collecting digests in
-  -- the WARM List.
-  local wdList = ldtMap[M_WarmDigestList];
-  local warmListSize = list.size(  wdList );
-
-  -- If warmListStart is outside the size of the list, then that means we
-  -- will just skip the for loop for the warm list.  Also, if the WarmPosition
-  -- is ZERO, then we treat that as the same case.
   local resultList;
-  local warmListStart = searchPath.WarmPosition;
-  if( warmListStart == 0 or warmListStart > warmListSize ) then
-    trace("[REC LIST]<%s:%s> Skipping over warm list: Size(%d) Pos(%d)",
-      MOD, meth, warmListSize, warmListStart );
-    resultList = list(); -- add only cold list items
-  elseif( warmListStart == 1 ) then
-    -- Take it all
-    resultList = list.take( wdList, warmListSize );
-  else
-    -- Check this
-    resultList = list.drop( wdList, warmListStart - 1 );
-  end
 
-  -- Now for the harder part.  We will still have open the cold list directory
-  -- subrecords to know what is inside.  The searchPath is going to give us
-  -- a digest position in the cold list.  We will open each Cold Directory
-  -- Page until we get to the start position (which can be 1, or N)
-  local count = 0;
-
-  -- Now pull the digests from the Cold List
-  -- There are TWO types subrecords:
-  -- (*) There are the LDRs (Data Records) subrecs
-  -- (*) There are the Cold List Directory subrecs
-  -- We will read a Directory Head, and enter it's digest
-  -- Then we'll pull the digests out of it (just like a warm list)
-
-  -- If there is no Cold List, then return immediately -- nothing more read.
-  if(ldtMap[M_ColdDirListHead] == nil or ldtMap[M_ColdDirListHead] == 0) then
-    return resultList;
-  end
-
-  -- The challenge here is to collect the digests of all of the subrecords
-  -- that are to be released.
-
-  -- Process the coldDirList (a linked list) head to tail (that is "append"
-  -- order).  For each dir, read in the LDR Records (in reverse list order),
-  -- and then each page (in reverse list order), until we've read "count"
-  -- items.  If the 'all' flag is true, then read everything.
-  local coldDirRecDigest = ldtMap[M_ColdDirListHead];
-
-  -- LEFT OFF HERE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  -- Note that we're not using this function in production (whew)
-  info("\n\n LEFT OFF HERE<%s:%s>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n",MOD, meth);
-  info("\n\n LEFT OFF HERE<%s:%s>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n",MOD, meth);
-
-  while coldDirRecDigest ~= nil and coldDirRecDigest ~= 0 do
-    -- Save the Dir Digest
-    list.append( resultList, coldDirRecDigest );
-
-    -- Open the Directory Page, read the digest list
-    local digestString = tostring( coldDirRecDigest ); -- must be a string
-    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
-    local digestList = coldDirRec[COLD_DIR_LIST_BIN];
-    for i = 1, list.size(digestList), 1 do 
-      list.append( resultList, digestList[i] );
-    end
-
-    -- Get the next Cold Dir Node in the list
-    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
-    coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
-    -- If no more, we'll drop out of the loop, and if there's more, 
-    -- we'll get it in the next round.
-    -- Close this directory subrec before we open another one.
-    ldt_common.closeSubRec( src, coldDirRec, false );
-  end -- for each coldDirRecDigest
-
-  GP=E and trace("[EXIT]:<%s:%s> SubRec Digest Result List(%s)",
-      MOD, meth, tostring( resultList ) );
-
+  info("\n\n [WARNING]<%s:%s> UNDER CONSTRUCTION !!!!!!!!!\n",MOD, meth);
+  info("\n\n [WARNING]<%s:%s> UNDER CONSTRUCTION !!!!!!!!!\n",MOD, meth);
+--
+--  -- If position puts us into or past the warmlist, make the adjustment
+--  -- here.  Otherwise, drop down into the FULL MONTY
+--  --
+--  if( position < 0 ) then
+--    warn("[ERROR]<%s:%s> BUILD SUBREC LIST ERROR: Bad Position(%d)",
+--      MOD, meth, position );
+--    error( ldte.ERR_INTERNAL );
+--  end
+--
+--  -- Call buildSearchPath() to give us a searchPath object that shows us
+--  -- the storage we are going to release.  It will tell us what do to in
+--  -- each of the three types of storage: Hot, Warm and Cold, although, we
+--  -- care only about warm and cold in this case
+--  local searchPath = map();
+--  buildSearchPath( topRec, ldtCtrl, searchPath, position );
+--
+--  -- Use the search path to show us where to start collecting digests in
+--  -- the WARM List.
+--  local wdList = ldtMap[M_WarmDigestList];
+--  local warmListSize = list.size(  wdList );
+--
+--  -- If warmListStart is outside the size of the list, then that means we
+--  -- will just skip the for loop for the warm list.  Also, if the WarmPosition
+--  -- is ZERO, then we treat that as the same case.
+--  local resultList;
+--  local warmListStart = searchPath.WarmPosition;
+--  if( warmListStart == 0 or warmListStart > warmListSize ) then
+--    trace("[REC LIST]<%s:%s> Skipping over warm list: Size(%d) Pos(%d)",
+--      MOD, meth, warmListSize, warmListStart );
+--    resultList = list(); -- add only cold list items
+--  elseif( warmListStart == 1 ) then
+--    -- Take it all
+--    resultList = list.take( wdList, warmListSize );
+--  else
+--    -- Check this
+--    resultList = list.drop( wdList, warmListStart - 1 );
+--  end
+--
+--  -- Now for the harder part.  We will still have open the cold list directory
+--  -- subrecords to know what is inside.  The searchPath is going to give us
+--  -- a digest position in the cold list.  We will open each Cold Directory
+--  -- Page until we get to the start position (which can be 1, or N)
+--  local count = 0;
+--
+--  -- Now pull the digests from the Cold List
+--  -- There are TWO types subrecords:
+--  -- (*) There are the LDRs (Data Records) subrecs
+--  -- (*) There are the Cold List Directory subrecs
+--  -- We will read a Directory Head, and enter it's digest
+--  -- Then we'll pull the digests out of it (just like a warm list)
+--
+--  -- If there is no Cold List, then return immediately -- nothing more read.
+--  if(ldtMap[M_ColdDirListHead] == nil or ldtMap[M_ColdDirListHead] == 0) then
+--    return resultList;
+--  end
+--
+--  -- The challenge here is to collect the digests of all of the subrecords
+--  -- that are to be released.
+--
+--  -- Process the coldDirList (a linked list) head to tail (that is "append"
+--  -- order).  For each dir, read in the LDR Records (in reverse list order),
+--  -- and then each page (in reverse list order), until we've read "count"
+--  -- items.  If the 'all' flag is true, then read everything.
+--  local coldDirRecDigest = ldtMap[M_ColdDirListHead];
+--
+--  -- LEFT OFF HERE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+--  -- Note that we're not using this function in production (whew)
+--  info("\n\n LEFT OFF HERE<%s:%s>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n",MOD, meth);
+--  info("\n\n LEFT OFF HERE<%s:%s>!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n",MOD, meth);
+--
+--  while coldDirRecDigest ~= nil and coldDirRecDigest ~= 0 do
+--    -- Save the Dir Digest
+--    list.append( resultList, coldDirRecDigest );
+--
+--    -- Open the Directory Page, read the digest list
+--    local digestString = tostring( coldDirRecDigest ); -- must be a string
+--    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
+--    local digestList = coldDirRec[COLD_DIR_LIST_BIN];
+--    for i = 1, list.size(digestList), 1 do 
+--      list.append( resultList, digestList[i] );
+--    end
+--
+--    -- Get the next Cold Dir Node in the list
+--    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+--    coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
+--    -- If no more, we'll drop out of the loop, and if there's more, 
+--    -- we'll get it in the next round.
+--    -- Close this directory subrec before we open another one.
+--    ldt_common.closeSubRec( src, coldDirRec, false );
+--  end -- for each coldDirRecDigest
+--
+--  GP=E and trace("[EXIT]:<%s:%s> SubRec Digest Result List(%s)",
+--      MOD, meth, tostring( resultList ) );
+--
   return resultList
 end -- buildSubRecList()
 
@@ -3365,12 +3378,12 @@ local function locatePosition( topRec, ldtCtrl, sp, position )
     local warmFullCount = ldtMap[M_WarmListDigestCount] - 1;
     local warmTopEntries = ldtMap[M_WarmTopEntryCount];
     local warmListPart = (warmFullCount * warmListMax) + warmTopEntries;
-    local warmListAmount = hotListPart + warmListPart;
-    if( position <= hotListLimit ) then
+    local warmListAmount = hotListAmount + warmListPart;
+    if( position <= hotListAmount ) then
       GP=F and trace("[Status]<%s:%s> In the Hot List", MOD, meth );
       -- It's a hot list position:
       entryListPosition = position;
-    elseif( position <= warmListSize ) then
+    elseif( position <= warmListAmount ) then
       GP=F and trace("[Status]<%s:%s> In the Warm List", MOD, meth );
       -- Its a warm list position: Subtract off the HotList portion and then
       -- calculate where in the Warm list we are.  Integer divide to locate
@@ -3553,7 +3566,7 @@ end -- localPush()
 -- ========================================================================
 -- THIS FUNCTION IS NOT CURRENTLY IN USE.
 -- ========================================================================
-function lstack_delete_subrecs( src, topRec, ldtBinName )
+local function lstack_delete_subrecs( src, topRec, ldtBinName )
   local meth = "lstack_delete()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3581,7 +3594,7 @@ function lstack_delete_subrecs( src, topRec, ldtBinName )
         MOD, meth, digestString );
       subrec = ldt_common.openSubRec( src, topRec, digestString );
       if( subrec ~= nil ) then
-        rc = ldt_common.removeSubRec(src , digestString );
+        rc = ldt_common.removeSubRec(src, topRec, digestString );
         if( rc == nil or rc == 0 ) then
           GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         else
@@ -3714,30 +3727,33 @@ end -- setupLdtBin()
 -- NOTE: This function not currently in use.
 -- NOTE: This function would also benefit from the eventual SubRec Release()
 -- ========================================================================
-function lstack_trim( topRec, ldtBinName, trimCount )
+local function lstack_trim( topRec, ldtBinName, trimCount )
   local meth = "lstack_trim()";
 
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s) trimCount(%s)",
     MOD, meth, tostring(ldtBinName), tostring( trimCount ));
 
   warn("[NOTICE!!]<%s:%s> Under Construction", MOD, meth );
+  local rc = 0;
 
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-
-  -- Move to the location (Hot, Warm or Cold) that is the trim point.
-  -- TODO: Create locatePosition()
-  local searchPath = locatePosition( topRec, ldtCtrl, trimCount );
-
-  -- From searchPath to the end, release storage.
-  -- TODO: Create localTrim()
-  localTrim( topRec, ldtCtrl, searchPath );
+--  -- validate the topRec, the bin and the map.  If anything is weird, then
+--  -- this will kick out with a long jump error() call.
+--  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+--
+--  -- Move to the location (Hot, Warm or Cold) that is the trim point.
+--  -- TODO: Create locatePosition()
+--  local searchPath = locatePosition( topRec, ldtCtrl, trimCount );
+--
+--  -- From searchPath to the end, release storage.
+--  -- TODO: Create localTrim()
+--  localTrim( topRec, ldtCtrl, searchPath );
+--
 
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 
-  return config;
+  return rc;
 end -- function lstack_trim()
+
 -- ========================================================================
 -- This function is (still) under construction.
 -- ========================================================================
@@ -3754,7 +3770,7 @@ end -- function lstack_trim()
 -- ========================================================================
 -- THIS FUNCTION IS NOT CURRENTLY IN USE.
 -- ========================================================================
-function lstack_subrec_list( src, topRec, ldtBinName )
+local function lstack_subrec_list( src, topRec, ldtBinName )
   local meth = "lstack_subrec_list()";
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -4334,9 +4350,9 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
   local meth = "lstack.pop()";
-  GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) func(%s) fargs(%s)",
+  GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) Filter(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(count),
-    tostring(func), tostring(fargs) );
+    tostring(filter), tostring(fargs) );
 
   -- Some simple protection of faulty records or bad bin names
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -4813,10 +4829,10 @@ function lstack.destroy( topRec, ldtBinName, src )
   local esrDigest = propMap[PM_EsrDigest];
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
-    GP=f and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -5003,7 +5019,7 @@ function lstack.validate( topRec, ldtBinName, src, resultMap )
       tostring(coldDataDigestList), tostring(coldDirResultMap.DataDigestList));
   
     -- Get the next Cold Dir Node in the list
-    local coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+    coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
     coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
     -- If no more, we'll drop out of the loop, and if there's more, 
     -- we'll get it in the next round.

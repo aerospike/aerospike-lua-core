@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_08_12.A"; 
+local MOD="lib_lmap_2014_09_02.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -270,6 +270,7 @@ local M_Transform              = 't'; -- Transform Lua to Byte format
 local M_UnTransform            = 'u'; -- UnTransform from Byte to Lua format
 
 -- Fields unique to lmap 
+local M_HashType               = 'h'; -- Hash Type: HS_STATIC or HS_DYNAMIC.
 local M_LdrEntryCountMax       = 'e'; -- Max # of items in an LDR
 local M_LdrByteEntrySize       = 's';
 local M_LdrByteCountMax        = 'b';
@@ -324,7 +325,7 @@ local M_HashCellMaxList        = 'X';-- Max List size in a Cell anchor
 -- E:                         e:M_LdrEntryCountMax      4:
 -- F:M_KeyFunction            f:                        5:
 -- G:                         g:                        6:
--- H:M_Thresold               h:                        7:
+-- H:M_Thresold               h:M_HashType              7:
 -- I:                         i:                        8:
 -- J:                         j:                        9:
 -- K:                         k:M_KeyType         
@@ -650,6 +651,7 @@ end -- function ldtMapSummary
 -- information is too big for a single print (it gets truncated).
 -- ======================================================================
 local function ldtDebugDump( ldtCtrl )
+  local meth = "ldtDebugDump()";
 
   -- Print MOST of the "TopRecord" contents of this LMAP object.
   local resultMap                = map();
@@ -680,7 +682,7 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Reset for each section, otherwise the result would be too much for
   -- the info call to process, and the information would be truncated.
-  resultMap2 = map();
+  local resultMap2 = map();
   resultMap2.SUMMARY              = "LMAP-SPECIFIC Values";
 
   -- Load the LMAP-specific properties
@@ -689,7 +691,7 @@ local function ldtDebugDump( ldtCtrl )
   resultMap2 = nil;
 
   -- Print the Hash Directory
-  resultMap3 = map();
+  local resultMap3 = map();
   resultMap3.SUMMARY              = "LMAP Hash Directory";
   resultMap3.HashDirectory        = ldtMap[M_HashDirectory];
   trace("\n<<<%s>>>\n", tostring(resultMap3));
@@ -868,7 +870,9 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[M_KeyType]          = KT_ATOMIC; -- assume "atomic" values for now.
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
   ldtMap[M_HashDirSize]      = DEFAULT_HASH_MODULO; -- Hash Dir Size
-  ldtMap[M_HashDepth]        = DEFAULT_HASH_DEPTH; -- # of hash bits to use
+  -- Set this when we're ready to use dynamic hashing.
+  -- ldtMap[M_HashDepth]        = DEFAULT_HASH_DEPTH; -- # of hash bits to use
+  
   -- Rehash after this many have been inserted
   ldtMap[M_Threshold]       = DEFAULT_THRESHOLD;
   -- name-entries of name-value pair in lmap to be held in compact mode 
@@ -927,7 +931,7 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   -- All the other params must already be set by default. 
   local ldtBinName = propMap[PM_BinName];
  
-  GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type: %s",
+  GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type(%s)",
       MOD, meth, tostring(ldtBinName), tostring(ldtMap[M_KeyType]));
 
   ldtMap[M_StoreState]  = SS_REGULAR; -- Now Regular, was compact.
@@ -1192,6 +1196,7 @@ local function validateValue( storedValue )
     liveObject = storedValue;
   end
   -- If we have a filter, apply that.
+  local resultFiltered;
   if( G_Filter ~= nil ) then
     resultFiltered = G_Filter( liveObject, G_FunctionArgs );
   else
@@ -2245,7 +2250,7 @@ local function hashDirInsert( src, topRec, ldtCtrl, newName, newValue, check)
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  -- NOTE: Caller will udpate stats (e.g. ItemCount).
+  -- NOTE: Caller will update stats (e.g. ItemCount).
   GP=E and trace("[EXIT]<%s:%s> SubRecInsert Successful: N(%s) V(%s) rc(%d)",
     MOD, meth, tostring(newName), tostring(newValue), rc);
   return rc;
@@ -2408,7 +2413,7 @@ local function regularSearch(src, topRec, ldtCtrl, searchName, resultMap )
 
   if ( cellAnchorEmpty( cellAnchor )) then
   -- if ( cellAnchor[C_CellState] == C_STATE_EMPTY ) then
-    debug("[WARNING]<%s:%s> Value not found for name(%s)",
+    debug("[NOT FOUND]<%s:%s> Value not found for name(%s)",
       MOD, meth, tostring( searchName ) );
     error( ldte.ERR_NOT_FOUND );
   end
@@ -2836,9 +2841,8 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   local meth = "lmap.put_all()";
   local rc = 0;
    
-  GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(newName),tostring(newValue),
-    tostring(createSpec) );
+  GP=E and trace("[ENTER]<%s:%s> Bin(%s) Name/Val MAP(%s) module(%s)", MOD,
+    meth, tostring(ldtBinName), tostring(nameValMap), tostring(createSpec) );
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -2874,26 +2878,32 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
 
   local newCount = 0;
   for name, value in map.pairs( nameValMap ) do
-    GP=F and trace("[DEBUG]<%s:%s> Processing Arg: Name(%s) Val(%s) TYPE : %s",
+    if name and value then
+
+      GP=F and trace("[DEBUG]<%s:%s> Arg: Name(%s) Val(%s) TYPE(%s)",
         MOD, meth, tostring( name ), tostring( value ), type(value));
-    rc = localPut( src, topRec, ldtCtrl, name, value );
-    -- We need to drop out of here if there's an error, but we have to do it
-    -- carefully because all previous PUTS must have succeeded.  So, we
-    -- should really return a VECTOR of return status!!!!
-    -- Although -- Subrecs do not get written until the end, so if we do
-    -- jump out with an error, then (in theory), no Sub-Rec gets udpated.
-    -- TODO: Return a VECTOR of error status and jump out with that vector
-    -- on error!!
-    if( rc == 0 ) then
-      newCount = newCount + 1;
-      GP=F and trace("[DEBUG]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
-        MOD, meth, tostring(name), tostring(value), rc );
-    elseif ( rc == 1 ) then
-      GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
-           MOD, meth, propMap[PM_ItemCount]);
+      rc = localPut( src, topRec, ldtCtrl, name, value );
+      -- We need to drop out of here if there's an error, but we have to do it
+      -- carefully because all previous PUTS must have succeeded.  So, we
+      -- should really return a VECTOR of return status!!!!
+      -- Although -- Subrecs do not get written until the end, so if we do
+      -- jump out with an error, then (in theory), no Sub-Rec gets updated.
+      -- TODO: Return a VECTOR of error status and jump out with that vector
+      -- on error!!
+      if( rc == 0 ) then
+        newCount = newCount + 1;
+        GP=F and trace("[DEBUG]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
+          MOD, meth, tostring(name), tostring(value), rc );
+      elseif ( rc == 1 ) then
+        GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
+             MOD, meth, propMap[PM_ItemCount]);
+      else
+        GP=F and trace("[ERROR]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
+          MOD, meth, tostring(name), tostring(value), rc );
+      end
     else
-      GP=F and trace("[ERROR]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
-        MOD, meth, tostring(name), tostring(value), rc );
+      debug("[NOTICE]<%s:%s> Nil Value in Name(%s) Value(%s) Pair.", MOD, meth,
+        tostring(name), tostring(value));
     end
   end -- for each new value in the map
 
@@ -3205,7 +3215,7 @@ function lmap.destroy( topRec, ldtBinName, src )
     GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -3383,7 +3393,7 @@ function lmap.set_capacity( topRec, ldtBinName, capacity )
   -- Update the Top Record with the new control info
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
-  rc = aerospike:update( topRec );
+  local rc = aerospike:update( topRec );
   if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
@@ -3460,6 +3470,7 @@ function lmap.dump( topRec, ldtBinName, src )
   local ldtMap = ldtCtrl[2]; 
   local cellAnchor;
   local count = 0;
+  local rc = 0;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.

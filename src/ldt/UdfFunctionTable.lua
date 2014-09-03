@@ -206,7 +206,7 @@ function UdfFunctionTable.compressTest4( entryList, arglist )
   bytes.put_int32(b16, 9,  entryList[3] ); -- 4 byte int
   bytes.put_int32(b16, 13, entryList[4] ); -- 4 byte int
 
-  GP=F and trace("[EXIT]: <%s:%s> Result(%s) \n", MOD, meth, tostring(b16));
+  GP=F and trace("[EXIT]: <%s:%s> b16 Result(%s) \n", MOD, meth, tostring(b16));
   return b16
 end -- compressTest4()
 
@@ -532,7 +532,7 @@ local KEY = 'KEY';
 function UdfFunctionTable.keyCompareEqual( searchValue, databaseValue )
   local meth = "keyCompareEqual()";
   
-  result = true; -- be optimistic
+  local result = true; -- be optimistic
 
   if searchValue == nil or databaseValue == nil or
      searchValue[KEY] == nil or databaseValue[KEY] == nil or
@@ -563,7 +563,7 @@ local KEY = 'key';
 function UdfFunctionTable.debugListCompareEqual( searchValue, databaseValue )
   local meth = "debugListCompareEqual()";
   
-  result = true; -- be optimistic
+  local result = true; -- be optimistic
 
   -- Note: This might blow up if it's not a LIST type.  We'll have to add a
   -- check for that -- but type(SV) might only return "userdata".
@@ -634,8 +634,8 @@ end -- compressNumber()
 -- ======================================================================
 function UdfFunctionTable.unCompressNumber( b2, arglist )
 local meth = "unCompressNumber()";
-GP=F and trace("[ENTER]: <%s:%s> packedB16(%s) ArgList(%s) \n",
-              MOD, meth, tostring(b16), tostring(arglist));
+GP=F and trace("[ENTER]: <%s:%s> packedB2(%s) ArgList(%s) \n",
+              MOD, meth, tostring(b2), tostring(arglist));
 
 local numberObject = bytes.get_int16(b2, 1 ); -- 2 byte int
 

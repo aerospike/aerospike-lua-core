@@ -1,0 +1,5 @@
+# use this command to validate the Lua program
+# Usage:  validate_lua  lib_lstack.lua
+
+luac -p -l $1 | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+

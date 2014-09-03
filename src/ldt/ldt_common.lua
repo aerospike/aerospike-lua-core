@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_07_31.A";
+local MOD="ldt_common_2014_09_02.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -336,7 +336,11 @@ local M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
 local M_StoreLimit          = 'L';-- Storage Capacity Limit
 local M_Transform           = 't';-- Transform Object (from User to bin store)
 local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
---
+
+-- KeyType (KT) values
+local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
+local KT_COMPLEX ='C'; -- the set value is complex. Use Function to get key.
+
 -- ======================================================================
 -- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
 -- ======================================================================
@@ -415,6 +419,9 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
   GP=E and trace("[ENTER]<%s:%s> Required(%s) CurFP(%s)", MOD, meth,
     tostring(required), tostring(currentFunctionPtr));
 
+  GP=D and debug("[ENTER]<%s:%s> Required(%s) CurFP(%s)", MOD, meth,
+    tostring(required), tostring(currentFunctionPtr));
+
   -- If there is ALREADY a non-NULL Key Function Ptr (passed in by the
   -- caller who apparently forgot to check), then just give that ptr
   -- back to her.  Careful coding suggests that this should not happen.
@@ -432,7 +439,7 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
   local keyFunctionPtr = nil;
   if( keyFunctionName ~= nil ) then
     if( type(keyFunctionName) ~= "string" or keyFunctionName == "" ) then
-      warn("[ERROR]<%s:%s> Bad KeyFunction Name: type(%s) KeyFunction(%s)",
+      info("[WARNING]<%s:%s> Bad KeyFunction Name: type(%s) KeyFunction(%s)",
         MOD, meth, type(keyFunctionName), tostring(keyFunctionName) );
       error( ldte.ERR_KEY_FUN_BAD );
     else
@@ -456,13 +463,13 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( keyFunctionPtr == nil ) then
-        warn("[ERROR]<%s:%s> KeyFunction not found: type(%s) KeyFunction(%s)",
+        info("[WARNING]<%s:%s>KeyFunction not found: type(%s) KeyFunction(%s)",
           MOD, meth, type(keyFunctionName), tostring(keyFunctionName) );
         error( ldte.ERR_KEY_FUN_NOT_FOUND );
       end
     end
-  elseif( ldtMap[M_KeyType] == KT_COMPLEX and required == true ) then
-    warn("[ERROR]<%s:%s> Key Function is Required for this LDT Complex Object",
+  elseif( required and ldtMap[M_KeyType] == KT_COMPLEX ) then
+    info("[WARNING]<%s:%s>Key Function is Required for LDT Complex Object",
       MOD, meth );
     error( ldte.ERR_KEY_FUN_NOT_FOUND );
   end
@@ -507,68 +514,68 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   
   if( filter ~= nil ) then
     if( type(filter) ~= "string" or filter == "" ) then
-      warn("[ERROR]<%s:%s> Bad filter Name: type(%s) filter(%s)",
+      info("[WARNING]<%s:%s> Bad filter Name: type(%s) filter(%s)",
         MOD, meth, type(filter), tostring(filter) );
       error( ldte.ERR_FILTER_BAD );
     else
       -- Ok -- so far, looks like we have a valid filter name, 
-      -- info("<CHECK><%s:%s>userModule(%s) filter(%s)", MOD, meth,
-        -- tostring(userModule), tostring(filter));
+      info("<CHECK><%s:%s>userModule(%s) filter(%s)", MOD, meth,
+      tostring(userModule), tostring(filter));
       
       if( userModule ~= nil and type(userModule) == "string" ) then
         userModuleRef = require(userModule);
 
-        -- info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s) Ref(%s)", MOD,
-        -- meth, tostring(filter), tostring(userModule), tostring(userModuleRef));
+        info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s) Ref(%s)", MOD,
+        meth, tostring(filter), tostring(userModule), tostring(userModuleRef));
 
         if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
           L_Filter = userModuleRef[filter];
-          -- info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s)", MOD, meth,
-          -- tostring(filter), tostring(userModule));
+          info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s)", MOD, meth,
+          tostring(filter), tostring(userModule));
         else
-          -- info("[NOTE]<%s:%s> <NO> Filter(%s) from UserMod(%s) M(%s)",MOD,meth,
-          -- tostring(filter), tostring(userModule), tostring(userModuleRef));
+          info("[NOTE]<%s:%s> <NO> Filter(%s) from UserMod(%s) M(%s)",MOD,meth,
+          tostring(filter), tostring(userModule), tostring(userModuleRef));
         end
       end
 
-      -- info("[POST USER MOD] L_Filter(%s) createModule(%s)",
-        -- tostring(L_Filter), tostring(createModule));
+      info("[POST USER MOD] L_Filter(%s) createModule(%s)",
+      tostring(L_Filter), tostring(createModule));
 
       -- If we didn't find a good filter, keep looking.  Try the createModule.
       -- The createModule should already have been checked for validity.
       if( L_Filter == nil and createModule ~= nil ) then
-        -- info("<CHECK><%s:%s>CREATE Module(%s) filter(%s)", MOD, meth,
-          -- tostring(createModule), tostring(filter));
+        info("<CHECK><%s:%s>CREATE Module(%s) filter(%s)", MOD, meth,
+        tostring(createModule), tostring(filter));
 
         createModuleRef = require(createModule);
 
-        -- info("[NOTE]<%s:%s> Require UserModule(%s) Ref(%s)", MOD, meth,
-          -- tostring(createModule), tostring(createModuleRef));
+        info("[NOTE]<%s:%s> Require UserModule(%s) Ref(%s)", MOD, meth,
+        tostring(createModule), tostring(createModuleRef));
 
         if(createModuleRef ~= nil and createModuleRef[filter] ~= nil) then
           L_Filter = createModuleRef[filter];
-          -- info("[NOTE]<%s:%s> Set Filter(%s) from CreateModule(%s)", MOD, meth,
-          -- tostring(filter), tostring(createModule));
+          info("[NOTE]<%s:%s> Set Filter(%s) from CreateModule(%s)", MOD, meth,
+          tostring(filter), tostring(createModule));
         else
-          -- info("[NOTE]<%s:%s> <NO> Filter(%s) from CreateModule(%s)", MOD, meth,
-          -- tostring(filter), tostring(CreateModule));
+          info("[NOTE]<%s:%s> <NO> Filter(%s) from CreateModule(%s)", MOD, meth,
+          tostring(filter), tostring(createModule));
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
       -- one of the standard Functions.
       if( L_Filter == nil and functionTable ~= nil ) then
         L_Filter = functionTable[filter];
-        -- info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
-        -- tostring(filter), tostring(createModule));
+        info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
+        tostring(filter), tostring(createModule));
       else
-        -- info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
-          -- tostring(L_Filter), tostring( functionTable ));
+        info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
+        tostring(L_Filter), tostring( functionTable ));
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( L_Filter == nil ) then
-        warn("[ERROR]<%s:%s> filter not found: type(%s) filter(%s)",
+        info("[WARNING]<%s:%s> filter not found: type(%s) filter(%s)",
           MOD, meth, type(filter), tostring(filter) );
         error( ldte.ERR_FILTER_NOT_FOUND );
       end
@@ -580,7 +587,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   local L_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
-      warn("[ERROR]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
+      info("[WARNING]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
         MOD, meth, type(untrans), tostring(untrans) );
       error( ldte.ERR_UNTRANS_FUN_BAD );
     else
@@ -600,7 +607,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( L_UnTransform == nil ) then
-        warn("[ERROR]<%s:%s> UnTransform Func not found: type(%s) Func(%s)",
+        info("[WARNING]<%s:%s> UnTransform Func not found: type(%s) Func(%s)",
           MOD, meth, type(untrans), tostring(untrans) );
         error( ldte.ERR_UNTRANS_FUN_NOT_FOUND );
       end
@@ -637,7 +644,7 @@ function ldt_common.setWriteFunctions( ldtMap )
   local L_Transform;
   if( trans ~= nil ) then
     if( type(trans) ~= "string" or trans == "" ) then
-      warn("[ERROR]<%s:%s> Bad Transformation Name: type(%s) function(%s)",
+      info("[WARNING]<%s:%s> Bad Transformation Name: type(%s) function(%s)",
         MOD, meth, type(trans), tostring(trans) );
       error( ldte.ERR_TRANS_FUN_BAD );
     else
@@ -657,7 +664,7 @@ function ldt_common.setWriteFunctions( ldtMap )
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( L_Transform == nil ) then
-        warn("[ERROR]<%s:%s> Transform Func not found: type(%s) Func(%s)",
+        info("[WARNING]<%s:%s> Transform Func not found: type(%s) Func(%s)",
           MOD, meth, type(trans), tostring(trans) );
         error( ldte.ERR_TRANS_FUN_NOT_FOUND );
       end
@@ -1246,7 +1253,7 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
 
   if( dirtyStatus ) then
     GP=F and trace("[NOTICE]<%s:%s> Can't close Dirty Record(%s) St(%s)",
-      MOD, meth, digestString, tostring(dirtyStats));
+      MOD, meth, digestString, tostring(dirtyStatus));
   else
     rc = aerospike:close_subrec( subRec );
     -- Now erase this subrec from the SRC maps.
@@ -1434,7 +1441,7 @@ end -- closeAllSubRecs()
 -- ======================================================================
 -- Remove this SubRec from the pool and also close system
 -- ======================================================================
-function ldt_common.removeSubRec( srcCtrl, digestString )
+function ldt_common.removeSubRec( srcCtrl, topRec, digestString )
   local meth = "removeSubRec()";
   GP=E and trace("[ENTER]<%s:%s> src(%s) DigestStr(%s)", MOD, meth,
     tostring(srcCtrl), tostring(digestString));
@@ -1599,7 +1606,7 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
      
     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
     if ( not  topRec[ldtBinName] ) then
-      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
+      info("[ERROR]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
@@ -1669,7 +1676,8 @@ end -- ldt_common.validateRecBinAndMap()
 function
 ldt_common.checkBin( topRec, ldtBinName, ldtType )
   local meth = "ldt_common.checkBin()";
-  GP=E and trace("[ENTER]<%s:%s> BinName(%s)", MOD, meth, tostring(ldtBinName));
+  GP=E and trace("[ENTER]<%s:%s> BinName(%s) ldtType(%s)", MOD, meth,
+    tostring(ldtBinName), tostring(ldtType));
 
   -- Start off with validating the bin name -- because we might as well
   -- flag that error first if the user has given us a bad name.
@@ -2073,6 +2081,8 @@ local function searchOrderedList( valList, searchKey )
 end -- searchOrderedList()
 
 -- =======================================================================
+-- Reference from the Lua Doc:
+-- =======================================================================
 -- ldt_common.binSearchOrderedList()
 -- =======================================================================
 -- Search the ordered list, using binary search, for the given value.
@@ -2101,42 +2111,43 @@ end -- searchOrderedList()
 -- FAILURE: nil
 -- =======================================================================
 -- Avoid heap allocs for performance
-local default_fcompval = function( value ) return value end
-local fcompf = function( a,b ) return a < b end
-local fcompr = function( a,b ) return a > b end
-local function binarySearch( t,value,fcompval,reversed )
-    -- Initialise functions
-    local fcompval = fcompval or default_fcompval
-    local fcomp = reversed and fcompr or fcompf
-    --  Initialise numbers
-    local iStart,iEnd,iMid = 1,#t,0
-    -- Binary Search
-    while iStart <= iEnd do
-        -- calculate middle
-        iMid = math.floor( (iStart+iEnd)/2 )
-        -- get compare value
-        local value2 = fcompval( t[iMid] )
-        -- get all values that match
-        if value == value2 then
-            local tfound,num = { iMid,iMid },iMid - 1
-            while value == fcompval( t[num] ) do
-                tfound[1],num = num,num - 1
-            end
-            num = iMid + 1
-            while value == fcompval( t[num] ) do
-                tfound[2],num = num,num + 1
-            end
-            return tfound
-            -- keep searching
-        elseif fcomp( value,value2 ) then
-            iEnd = iMid - 1
-        else
-            iStart = iMid + 1
-        end
-    end
-end -- binarySearch()
+-- local default_fcompval = function( value ) return value end
+-- local fcompf = function( a,b ) return a < b end
+-- local fcompr = function( a,b ) return a > b end
+-- local function binarySearch( t,value,fcompval,reversed )
+--     -- Initialise functions
+--     local fcompval = fcompval or default_fcompval
+--     local fcomp = reversed and fcompr or fcompf
+--     --  Initialise numbers
+--     local iStart,iEnd,iMid = 1,#t,0
+--     -- Binary Search
+--     while iStart <= iEnd do
+--         -- calculate middle
+--         iMid = math.floor( (iStart+iEnd)/2 )
+--         -- get compare value
+--         local value2 = fcompval( t[iMid] )
+--         -- get all values that match
+--         if value == value2 then
+--             local tfound,num = { iMid,iMid },iMid - 1
+--             while value == fcompval( t[num] ) do
+--                 tfound[1],num = num,num - 1
+--             end
+--             num = iMid + 1
+--             while value == fcompval( t[num] ) do
+--                 tfound[2],num = num,num + 1
+--             end
+--             return tfound
+--             -- keep searching
+--         elseif fcomp( value,value2 ) then
+--             iEnd = iMid - 1
+--         else
+--             iStart = iMid + 1
+--         end
+--     end
+-- end -- binarySearch()
 
-
+-- =======================================================================
+-- Reference from the Lua Doc:
 -- =======================================================================
 -- table.bininsert( table, value [, comp] )
 --
@@ -2151,26 +2162,26 @@ end -- binarySearch()
 -- returns the index where 'value' was inserted
 -- =======================================================================
 -- Avoid heap allocs for performance
-local fcomp_default = function( a,b ) return a < b end
-local function bininsert(t, value, fcomp)
-    -- Initialise compare function
-    local fcomp = fcomp or fcomp_default
-    --  Initialise numbers
-    local iStart,iEnd,iMid,iState = 1,#t,1,0
-    -- Get insert position
-    while iStart <= iEnd do
-        -- calculate middle
-        iMid = math.floor( (iStart+iEnd)/2 )
-        -- compare
-        if fcomp( value,t[iMid] ) then
-            iEnd,iState = iMid - 1,0
-        else
-            iStart,iState = iMid + 1,1
-        end
-    end
-    table.insert( t,(iMid+iState),value )
-    return (iMid+iState)
-end
+-- local fcomp_default = function( a,b ) return a < b end
+-- local function bininsert(t, value, fcomp)
+--     -- Initialise compare function
+--     local fcomp = fcomp or fcomp_default
+--     --  Initialise numbers
+--     local iStart,iEnd,iMid,iState = 1,#t,1,0
+--     -- Get insert position
+--     while iStart <= iEnd do
+--         -- calculate middle
+--         iMid = math.floor( (iStart+iEnd)/2 )
+--         -- compare
+--         if fcomp( value,t[iMid] ) then
+--             iEnd,iState = iMid - 1,0
+--         else
+--             iStart,iState = iMid + 1,1
+--         end
+--     end
+--     table.insert( t,(iMid+iState),value )
+--     return (iMid+iState)
+-- end
 
 -- =========================================================================
 -- ldt_common.validateList()
@@ -2353,7 +2364,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
   local propMap = ldtCtrl[1];
 
   GP=D and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
-    tostring( propMap ), ldtSummaryString( ldtCtrl ));
+    tostring( propMap ), tostring( ldtCtrl ));
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2559,7 +2570,7 @@ function ldt_common.set_capacity(topRec,ldtBinName,capacity,ldtType,codeVer)
   -- Update the Top Record with the new control info
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
-  rc = aerospike:update( topRec );
+  local rc = aerospike:update( topRec );
   if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
@@ -2589,8 +2600,8 @@ function ldt_common.ldt_exists( topRec, ldtBinName, ldtType )
   GP=B and trace("\n\n >>>>>>>>>>> API[ COMMON LDT EXISTS ] <<<<<<<<<<<< \n");
 
   local meth = "ldt_common.ldt_exists()";
-  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
+  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s), ldtType(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(ldtType));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.

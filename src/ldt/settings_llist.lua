@@ -57,10 +57,12 @@ local AS_TRUE='T';
 local AS_FALSE='F';
 
 -- Switch from a single Compact list to a B+ Tree after this amount.
-local DEFAULT_LARGE_THRESHOLD  =    5; -- Objs over 100 kb
+local DEFAULT_LARGE_THRESHOLD  =   5;  -- Objs over 100 kb
 local DEFAULT_MEDIUM_THRESHOLD = 100;  -- Objs around 1 kb
 local DEFAULT_SMALL_THRESHOLD  = 500;  -- Objs under  20kb
---
+
+local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
+    
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++

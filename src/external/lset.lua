@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_lset_2014_08_06.A";
+local MOD="ext_lset_2014_09_03.A";
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -317,7 +317,7 @@ function dump( topRec, ldtBinName )
   -- SubRecords during the call. Then, allows us to close them all at the end.
   -- For the case of repeated calls from Lua, the caller must pass in
   -- an existing SRC that lives across LDT calls.
-  src = ldt_common.createSubRecContext();
+  local src = ldt_common.createSubRecContext();
   return lset.dump( topRec, ldtBinName, src )
 end
 

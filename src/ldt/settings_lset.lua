@@ -45,6 +45,10 @@ local ST_SUBRECORD = 'S'; -- Store values (lists) in Sub-Records
 local HT_STATIC  ='S'; -- Use a FIXED set of bins for hash lists
 local HT_DYNAMIC ='D'; -- Use a DYNAMIC set of bins for hash lists
 
+-- KeyType (KT) values
+local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
+local KT_COMPLEX ='C'; -- the set value is complex. Use Function to get key.
+
 -- ======================================================================
 -- NOTE: It's important that these three values remain consistent with
 -- the matching variable names in the ldt/lib_lset.lua file.
@@ -365,7 +369,7 @@ function package.DebugModeObjectTop( ldtMap )
   ldtMap[T.M_LdrEntryCountMax]      = nil; -- not used in top rec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_TOPRECORD; -- Use TOPRecord Store
+  ldtMap[T.M_SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_KeyFunction]           = nil; -- no key function (use whole Obj)
   ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
@@ -388,7 +392,7 @@ function package.DebugModeNumberTop( ldtMap )
   ldtMap[T.M_LdrEntryCountMax]      = nil; -- not used for TopRec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_TOPRECORD; -- Use TOPRecord Store
+  ldtMap[T.M_SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
   ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
   ldtMap[T.M_KeyFunction]           = nil; -- no key function for Numbers
   ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;

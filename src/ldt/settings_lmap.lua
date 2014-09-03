@@ -72,6 +72,7 @@ local DEFAULT_JUMBO_THRESHOLD  =  5;   -- Objs over  100 kb
 local DEFAULT_LARGE_THRESHOLD  = 10;   -- Objs over   10 kb
 local DEFAULT_MEDIUM_THRESHOLD = 20;   -- Objs around  1 kb
 local DEFAULT_SMALL_THRESHOLD  = 100;  -- Objs under  20 kb
+
 local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
 
 -- The BIN LIST THRESHOLD is the number of items in a single Hash Cell
@@ -168,7 +169,7 @@ function package.StandardList( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHHOLD;
+  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHOLD;
   ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -191,7 +192,7 @@ function package.ListJumboObject( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_JUMBO_THRESHHOLD;
+  ldtMap[T.M_ThreshHold]            = DEFAULT_JUMBO_THRESHOLD;
   ldtMap[T.M_LdrEntryCountMax]      = 6; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -214,7 +215,7 @@ function package.ListLargeObject( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_LARGE_THRESHHOLD;
+  ldtMap[T.M_ThreshHold]            = DEFAULT_LARGE_THRESHOLD;
   ldtMap[T.M_LdrEntryCountMax]      = 50; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -236,7 +237,7 @@ function package.ListMediumObject( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHHOLD;
+  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHOLD;
   ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -258,7 +259,7 @@ function package.ListSmallObject( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_SMALL_THRESHHOLD;
+  ldtMap[T.M_ThreshHold]            = DEFAULT_SMALL_THRESHOLD;
   ldtMap[T.M_LdrEntryCountMax]      = 200; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -277,7 +278,7 @@ function package.TestModeNumber( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
+  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
   ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -297,7 +298,7 @@ function package.TestModeObject( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
+  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
   ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
@@ -316,7 +317,7 @@ function package.TestModeObjectKey( ldtMap )
   ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
   ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
   ldtMap[T.M_Modulo]                = DEFAULT_DISTRIB; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHHOLD; -- Rehash after this #
+  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
   ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
   ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
   ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here

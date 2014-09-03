@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_08_12.A"; 
+local MOD="lib_lset_2014_09_02.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -759,6 +759,8 @@ end
 -- information is too big for a single print (it gets truncated).
 -- ======================================================================
 local function ldtDebugDump( ldtCtrl )
+  local meth = "ldtDebugDump()";
+
   -- Print MOST of the "TopRecord" contents of this LSET object.
   local resultMap                = map();
   resultMap.SUMMARY              = "LSET Summary";
@@ -788,7 +790,7 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Reset for each section, otherwise the result would be too much for
   -- the info call to process, and the information would be truncated.
-  resultMap2 = map();
+  local resultMap2 = map();
   resultMap2.SUMMARY              = "LSET-SPECIFIC Values";
 
   -- Load the LSET-specific properties
@@ -797,7 +799,7 @@ local function ldtDebugDump( ldtCtrl )
   resultMap2 = nil;
 
   -- Print the Hash Directory
-  resultMap3 = map();
+  local resultMap3 = map();
   resultMap3.SUMMARY              = "LSET Hash Directory";
   resultMap3.HashDirectory        = ldtMap[M_HashDirectory];
   info("\n<<<%s>>>\n", tostring(resultMap3));
@@ -812,6 +814,7 @@ end -- function ldtDebugDump()
 -- as a string that can be printed.
 -- ======================================================================
 local function ldtSummary( ldtCtrl )
+  local meth = "ldtSummary()";
 
   if ( ldtCtrl == nil ) then
     warn("[ERROR]: <%s:%s>: EMPTY LDT BIN VALUE", MOD, meth);
@@ -1172,7 +1175,7 @@ local function subRecSummary( subrec )
     resultMap.SubRecSummary = "Regular SubRec";
 
     local propMap  = subrec[SUBREC_PROP_BIN];
-    local ctrlMap  = subrec[LDT_CTRL_BIN];
+    local ctrlMap  = subrec[REC_LDT_CTRL_BIN];
     local valueList  = subrec[LDR_LIST_BIN];
 
     -- General Properties (the Properties Bin)
@@ -1231,20 +1234,21 @@ local function validateValue( storedValue )
 --
 --  return resultFiltered;
                  
-   local liveObject;
-   -- Apply the Transform (if needed), as well as the filter (if present)
-   if( G_UnTransform ~= nil ) then
-     liveObject = G_UnTransform( storedValue );
-   else
-     liveObject = storedValue;
-   end
+  local liveObject;
+  -- Apply the Transform (if needed), as well as the filter (if present)
+  if( G_UnTransform ~= nil ) then
+    liveObject = G_UnTransform( storedValue );
+  else
+    liveObject = storedValue;
+  end
    -- If we have a filter, apply that.
-   if( G_Filter ~= nil ) then
-     resultFiltered = G_Filter( liveObject, G_FunctionArgs );
-   else
-     resultFiltered = liveObject;
-   end
-   return resultFiltered; -- nil or not, we just return it.
+  local resultFiltered;
+  if( G_Filter ~= nil ) then
+    resultFiltered = G_Filter( liveObject, G_FunctionArgs );
+  else
+    resultFiltered = liveObject;
+  end
+  return resultFiltered; -- nil or not, we just return it.
 end -- validateValue()
 
 -- =======================================================================
@@ -1399,6 +1403,7 @@ local function searchList(ldtMap, valueList, searchKey )
   local listSize = list.size(valueList);
   local item;
   local dbKey;
+  local modValue;
   for i = 1, listSize, 1 do
     item = valueList[i];
     GP=F and trace("[COMPARE]<%s:%s> index(%d) SV(%s) and ListVal(%s)",
@@ -1659,7 +1664,7 @@ local function subRecScan( src, topRec, ldtCtrl, resultList )
           -- When we do a Radix Tree, we will STILL end up with a SubRecord
           -- but it will come from a Tree.  We just need to manage the SubRec
           -- correctly.
-          warn("[ERROR]<%s:%s> Not yet ready to handle Radix Trees in Hash Cell",
+          warn("[ERROR]<%s:%s> Not yet ready to handle Radix Trees in HashCell",
             MOD, meth );
           error( ldte.ERR_INTERNAL );
           -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1697,7 +1702,6 @@ local function localTopRecInsert( topRec, ldtCtrl, newValue, stats )
   local propMap = ldtCtrl[1];  
   local ldtMap = ldtCtrl[2];
   local ldtBinName = propMap[PM_BinName];
-  local rc = 0;
   
   -- We'll get the KEY and use that to feed to the hash function, which will
   -- tell us what bin we're in.
@@ -1748,10 +1752,10 @@ local function localTopRecInsert( topRec, ldtCtrl, newValue, stats )
     GP=F and trace("[STATUS]<%s:%s>NOT updating stats(%d)",MOD,meth,stats);
   end
 
-  GP=E and trace("[EXIT]<%s:%s>Insert Results: RC(%d) Value(%s) binList(%s)",
-    MOD, meth, rc, tostring( newValue ), tostring(binList));
+  GP=E and trace("[EXIT]<%s:%s>Insert Results: RC(0) Value(%s) binList(%s)",
+    MOD, meth, tostring( newValue ), tostring(binList));
 
-  return rc;
+  return 0;
 end -- localTopRecInsert()
 
 -- ======================================================================
@@ -1805,95 +1809,6 @@ local function topRecRehashSet( topRec, ldtCtrl )
 end -- topRecRehashSet()
 
 -- ======================================================================
--- initializeSubRec()
--- Set up a Hash Sub-Record 
--- There are potentially FOUR bins in a Sub-Record:
--- (0) subRec[SUBREC_PROP_BIN]: The Property Map
--- (1) subRec[LSR_CTRL_BIN]:   The control Map (defined here)
--- (2) subRec[LSR_LIST_BIN]:   The Data Entry List (when in list mode)
--- (3) subRec[LSR_BINARY_BIN]: The Packed Data Bytes (when in Binary mode)
--- Pages are either in "List" mode or "Binary" mode (the whole LDT value is in
--- one mode or the other), so the record will employ only three fields.
--- Either Bins 0,1,2 or Bins 0,1,3.
--- Parms:
--- (*) topRec
--- (*) ldtCtrl
--- (*) subRec
--- ======================================================================
-local function initializeSubRec( topRec, ldtCtrl, subRec )
-  local meth = "initializeSubRec()";
-  GP=E and trace("[ENTER]:<%s:%s> ", MOD, meth );
-
-  local topDigest = record.digest( topRec );
-  local subRecDigest = record.digest( subRec );
-  
-  -- Extract the property map and control map from the ldt bin list.
-  local topPropMap = ldtCtrl[1];
-  local topLdtMap  = ldtCtrl[2];
-
-  -- NOTE: Use Top level LDT entry for mode and max values
-  --
-  -- Set up the LDR Property Map
-  subRecPropMap = map();
-  subRecPropMap[PM_Magic] = MAGIC;
-  subRecPropMap[PM_EsrDigest] = topPropMap[PM_EsrDigest]; 
-  subRecPropMap[PM_RecType] = RT_SUB;
-  subRecPropMap[PM_ParentDigest] = topDigest;
-  subRecPropMap[PM_SelfDigest] = subRecDigest;
-  -- For sub-recs, set create time to ZERO.
-  subRecPropMap[PM_CreateTime] = 0;
-
-  -- Set up the LDR Control Map
-  subRecLdtMap = map();
-
-  -- Depending on the StoreMode, we initialize the control map for either
-  -- LIST MODE, or BINARY MODE
-  if( topLdtMap[R_StoreMode] == SM_LIST ) then
-    -- List Mode
-    GP=F and trace("[DEBUG]: <%s:%s> Initialize in LIST mode", MOD, meth );
-    subRecLdtMap[LF_ByteEntryCount] = 0;
-    -- If we have an initial value, then enter that in our new object list.
-    -- Otherwise, create an empty list.
-    local objectList = list();
-    if( firstValue ~= nil ) then
-      list.append( objectList, firstValue );
-      subRecLdtMap[LF_ListEntryCount] = 1;
-      subRecLdtMap[LF_ListEntryTotal] = 1;
-    else
-      subRecLdtMap[LF_ListEntryCount] = 0;
-      subRecLdtMap[LF_ListEntryTotal] = 0;
-    end
-    subRec[LSR_LIST_BIN] = objectList;
-  else
-    -- Binary Mode
-    GP=F and trace("[DEBUG]: <%s:%s> Initialize in BINARY mode", MOD, meth );
-    warn("[WARNING!!!]<%s:%s>Not ready for BINARY MODE YET!!!!", MOD, meth );
-    subRecLdtMap[LF_ListEntryTotal] = 0;
-    subRecLdtMap[LF_ListEntryCount] = 0;
-    subRecLdtMap[LF_ByteEntryCount] = 0;
-  end
-
-  -- Take our new structures and put them in the subRec record.
-  subRec[SUBREC_PROP_BIN] = subRecPropMap;
-  subRec[LSR_CTRL_BIN] = subRecLdtMap;
-  -- We must tell the system what type of record this is (sub-record)
-  -- NOTE: No longer needed.  This is handled in the ldt setup.
-  -- record.set_type( subRec, RT_SUB );
-
-  aerospike:update_subrec( subRec );
-  -- Note that the caller will write out the record, since there will
-  -- possibly be more to do (like add data values to the object list).
-  GP=F and trace("[DEBUG]<%s:%s> TopRec Digest(%s) subRec Digest(%s))",
-    MOD, meth, tostring(topDigest), tostring(subRecDigest));
-
-  GP=F and trace("[DEBUG]<%s:%s> subRecPropMap(%s) subRec Map(%s)",
-    MOD, meth, tostring(subRecPropMap), tostring(subRecLdtMap));
-
-  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return rc;
-end -- initializeSubRec()
-
--- ======================================================================
 -- subRecSearch()
 -- ======================================================================
 -- Search the contents of the Sub-Record Oriented Hash Directory. If the
@@ -1917,7 +1832,6 @@ local function subRecSearch( src, topRec, ldtCtrl, searchKey )
   -- Extract the property map and control map from the ldt bin list.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
-  local rc = 0;
   local position = 0;
 
   local resultObject;
@@ -2025,7 +1939,6 @@ local function SaveSubRecSearch( src, topRec, ldtCtrl, searchKey )
 
   local valueList;
   local position = 0;
-  local rc = 0;
   local subRec = 0;
 
   local cellNumber = computeHashCell( searchKey, ldtMap );
@@ -2062,7 +1975,7 @@ local function SaveSubRecSearch( src, topRec, ldtCtrl, searchKey )
         MOD, meth, digestString );
       error( ldte.ERR_SUBREC_OPEN );
     end
-    valueList = subRec[LDR_VLIST_BIN];
+    valueList = subRec[LDR_LIST_BIN];
     position = searchList( ldtMap, valueList, searchKey );
     ldt_common.closeSubRec( src, subRec, false);
   else
@@ -2103,8 +2016,6 @@ local function topRecSearch( topRec, ldtCtrl, searchKey )
   GP=E and trace("[ENTER]: <%s:%s> Search Key(%s)",
                  MOD, meth, tostring( searchKey ) );
 
-  local rc = 0; -- Start out ok.
-
   -- Extract the property map and control map from the ldt bin list.
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
@@ -2114,7 +2025,7 @@ local function topRecSearch( topRec, ldtCtrl, searchKey )
   local binName = getBinName( binNumber );
   local binList = topRec[binName];
   local liveObject = nil;
-  local resultFitlered = nil;
+  local resultFiltered = nil;
   local position = 0;
 
   GP=F and trace("[DEBUG]<%s:%s> UnTrans(%s) Filter(%s) SrchKey(%s) List(%s)",
@@ -2253,17 +2164,13 @@ local function createLSetSubRec( src, topRec, ldtCtrl )
   local ldrPropMap = subRec[SUBREC_PROP_BIN];
   local ldrCtrlMap = map();
 
-  -- Set up the Sub-Rec Ctrl Map - Still not sure what's in here.
-  -- ldrCtrlMap[???] = 0;
-
   -- Store the new maps in the record.
   -- subRec[SUBREC_PROP_BIN] = ldrPropMap;
   subRec[LDR_CTRL_BIN]    = ldrCtrlMap;
   subRec[LDR_LIST_BIN] = list(); -- Holds the Items
   -- subRec[LDR_BNRY_BIN] = nil; -- not used (yet)
 
-  -- NOTE: The SubRec business is Handled by subRecCreate().
-  -- Also, If we had BINARY MODE working for inner nodes, we would initialize
+  -- Note, If we had BINARY MODE working for inner nodes, we would initialize
   -- the Key BYTE ARRAY here.
 
   GP=E and trace("[EXIT]<%s:%s> SubRec Summary(%s)",
@@ -2640,7 +2547,7 @@ local function hashDirInsert( src, topRec, ldtCtrl, newValue )
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
-  -- NOTE: Caller will udpate stats (e.g. ItemCount).
+  -- NOTE: Caller will update stats (e.g. ItemCount).
   GP=E and trace("[EXIT]<%s:%s>Insert Results: RC(%d) Value(%s) ",
     MOD, meth, rc, tostring( newValue ));
 
@@ -3123,7 +3030,7 @@ local function topRecInsert( topRec, ldtCtrl, newValue )
   -- All done, store the record
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   local rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
+  if rc and  rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
@@ -3217,7 +3124,7 @@ local function subRecInsert( src, topRec, ldtCtrl, newValue )
   -- All done, store the record
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   local rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
+  if rc and  rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
@@ -3291,7 +3198,6 @@ local function regularDelete(src, topRec, ldtCtrl, searchKey, resultList)
   GP=E and trace("[ENTER]: <%s:%s> SearchKey(%s)",
                  MOD, meth, tostring( searchKey ) );
 
-  local rc = 0; -- start out OK.
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
@@ -3402,7 +3308,6 @@ local function subRecDelete(src, topRec, ldtCtrl, searchKey, resultList)
   GP=E and trace("[ENTER]: <%s:%s> Delete Value(%s)",
                  MOD, meth, tostring( searchKey ) );
 
-  local rc = 0; -- start out OK.
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
@@ -3435,7 +3340,6 @@ local function topRecDelete( topRec, ldtCtrl, searchKey, returnList)
   GP=E and trace("[ENTER]: <%s:%s> Delete Value(%s)",
                  MOD, meth, tostring( searchKey ) );
 
-  local rc = 0; -- Start out ok.
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
 
@@ -3444,7 +3348,7 @@ local function topRecDelete( topRec, ldtCtrl, searchKey, returnList)
   local binName = getBinName( binNumber );
   local binList = topRec[binName];
   local liveObject = nil;
-  local resultFitlered = nil;
+  local resultFiltered = nil;
   local position = 0;
 
   -- We bother to search only if there's a real list.
@@ -3518,7 +3422,7 @@ local function subRecDump( src, topRec, ldtCtrl )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
 
-  resultMap = map();
+  local resultMap = map();
 
   local resultList = list(); -- list of BIN LISTS
   local listCount = 0;
@@ -3655,7 +3559,6 @@ local function topRecDestroy( topRec, ldtCtrl )
 
   GP=E and trace("[ENTER]: <%s:%s> LDT CTRL(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl));
-  local rc = 0; -- start off optimistic
 
   -- The caller has already dealt with the Common/Hidden LDT Prop Bin.
   -- All we need to do here is deal with the Numbered bins.
@@ -3721,7 +3624,7 @@ local function subRecDestroy( src, topRec, ldtCtrl )
     info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
@@ -4117,7 +4020,6 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   local meth = "lset.scan()";
   GP=B and trace("\n\n  >>>>>>>>>>>>> API[ LSET SCAN ] <<<<<<<<<<<<<<<<<< \n");
 
-  rc = 0; -- start out OK.
   GP=E and trace("[ENTER]<%s:%s> BinName(%s) Module(%s) Filter(%s) Fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(userModule), tostring(filter),
     tostring(fargs));
@@ -4238,12 +4140,11 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
     error( ldte.ERR_TOPREC_UPDATE );
   end 
 
-  GP=E and trace("[EXIT]<%s:%s>: Success: DVal(%s) Key(%s) Res(%s)",
-    MOD, meth, tostring(deleteValue), tostring(searchKey),
-    tostring(resultFiltered));
-
   -- If the user is asking for the value back, then send it.
   if resultList then
+    GP=E and trace("[EXIT]<%s:%s>: Success: DVal(%s) Key(%s) resultList(%s)",
+      MOD, meth, tostring(deleteValue), tostring(searchKey),
+      tostring(resultList));
     return resultList[1];
   end
 
@@ -4317,6 +4218,7 @@ function lset.destroy( topRec, ldtBinName, src )
     record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
   end
 
+  local resultObject;
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
     -- Use the SubRec style Destroy
@@ -4330,7 +4232,7 @@ function lset.destroy( topRec, ldtBinName, src )
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
   -- so just turn any NILs into zeros.
   rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
+  if rc and  rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
@@ -4473,7 +4375,7 @@ function lset.set_capacity( topRec, ldtBinName, capacity )
   -- Update the Top Record with the new control info
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
-  rc = aerospike:update( topRec );
+  local rc = aerospike:update( topRec );
   if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
@@ -4497,16 +4399,15 @@ end -- function lset.lset_capacity()
 -- ========================================================================
 function lset.ldt_exists( topRec, ldtBinName )
   GP=B and trace("\n\n >>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<< \n");
-
   local meth = "lset.ldt_exists()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
   if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
-    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
+    GP=F and debug("[EXIT]<%s:%s> Exists", MOD, meth);
     return 1
   else
-    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
+    GP=F and debug("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
     return 0
   end
 end -- function lset.ldt_exists()

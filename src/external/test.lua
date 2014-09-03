@@ -76,7 +76,7 @@ function test_list( topRec, binName, size )
     error("BAD SIZE PARAMETER");
   end
 
-  resultList = list();
+  local resultList = list();
 
   for i = 1, size, 1 do
     list.append(resultList, i);
