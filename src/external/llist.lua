@@ -27,6 +27,7 @@ local MOD="ext_llist_2014_08_06.A";
 --
 -- (*) Status = add( topRec, ldtBinName, newValue, userModule )
 -- (*) Status = add_all( topRec, ldtBinName, valueList, userModule )
+-- (*) Status = update( topRec, ldtBinName, newValue, userModule )
 -- (*) List   = find( topRec, bin, value, module, filter, fargs )
 -- (*) List   = scan( topRec, ldtBinName )
 -- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
@@ -89,6 +90,21 @@ end
 -- =======================================================================
 function add_all( topRec, ldtBinName, valueList, createSpec )
   return llist.add_all( topRec, ldtBinName, valueList, createSpec, nil);
+end
+
+-- =======================================================================
+-- update() -- insert a new value into an ordered list, if the value is
+--             not already present, or if it is present (and uniqueness is
+--             set), then overwrite the old value with the new value.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) newValue: The value to be inserted
+-- (*) createSpec: The map or module that contains Create Settings
+-- =======================================================================
+function update( topRec, ldtBinName, newValue, createSpec )
+  return llist.update( topRec, ldtBinName, newValue, createSpec, nil)
 end
 
 -- =======================================================================

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_09_02.A"; 
+local MOD="lib_lset_2014_09_04.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -3214,7 +3214,7 @@ local function regularDelete(src, topRec, ldtCtrl, searchKey, resultList)
     error( ldte.ERR_NOT_FOUND );
   end
 
-  if DEBUG then
+  if DEBUG == true then
     trace("[DUMP]<%s:%s>Cell Anchor::Number(%d) DUMP:", MOD, meth, cellNumber);
     local resultMap = cellAnchorDump( src, topRec, cellAnchor, cellNumber );
     trace("\n\n[DUMP]: <<< %s >>>\n", tostring(resultMap));
@@ -3584,7 +3584,6 @@ local function topRecDestroy( topRec, ldtCtrl )
 
 end -- topRecDestroy()
 
-
 -- ========================================================================
 -- subRecDestroy() -- Remove the LDT (and subrecs) entirely from the record.
 -- Remove the ESR, Null out the topRec bin.
@@ -3602,7 +3601,7 @@ end -- topRecDestroy()
 --   res = -1: Some sort of error
 -- ========================================================================
 local function subRecDestroy( src, topRec, ldtCtrl )
-  local meth = "subRecDestroy()";
+  local meth = "LSET subRecDestroy()";
 
   GP=E and trace("[ENTER]: <%s:%s> LDT CTRL(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl));
@@ -3635,7 +3634,7 @@ local function subRecDestroy( src, topRec, ldtCtrl )
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
     MOD, meth, binName );
   end
 

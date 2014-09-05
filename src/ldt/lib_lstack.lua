@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_09_02.A";
+local MOD="lib_lstack_2014_09_05.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2549,13 +2549,10 @@ local function coldDirHeadCreate( src, topRec, ldtCtrl, spaceEstimate )
 
     ldt_common.updateSubRec( src, newColdHeadRec );
 
-    -- NOTE: We don't want to update the TOP RECORD until we know that
-    -- the  underlying children record operations are complete.
-    -- However, we can update topRec here, since that won't get written back
-    -- to storage until there's an explicit update_subrec() call.
-    warn("[WARNING:NOTICE]<%s:%s> Updating Top Rec.  Verify this is needed",
-      MOD, meth );
-
+    -- NOTE: We don't want to flush the TOP RECORD until we know that the
+    -- underlying children record operations are complete.  However, we can
+    -- change the memory copy of the topRec here, since that won't get written
+    -- back to storage until there's an explicit aerospike:update() call.
     topRec[ ldtBinName ] = ldtCtrl;
     record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
     returnColdHead = newColdHeadRec;
@@ -3038,13 +3035,13 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   if mustExist then
     -- Check Top Record Existence.
     if( not aerospike:exists( topRec ) ) then
-      warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+      debug("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
      
     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
     if ( not  topRec[ldtBinName] ) then
-      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
+      debug("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
@@ -4843,7 +4840,7 @@ function lstack.destroy( topRec, ldtBinName, src )
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
       MOD, meth, ldtBinName );
   end
 

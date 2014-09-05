@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_09_02.A"; 
+local MOD="lib_lmap_2014_09_05.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2803,7 +2803,12 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   end 
 
   -- Look at the results after EACH insert.
-  if DEBUG then
+  -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  -- Must make SURE that this is never done in production, as it is a very
+  -- costly operation.
+  -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  if ( DEBUG == true ) then
+    info("EXPENSIVE LMAP VALIDATION TURNED ON!!");
     local startSize = propMap[PM_ItemCount];
 
     trace("\n\n>>>>>>>>>>>>>>> VALIDATE PUT: Count Size(%d) <<<<<<<<<<<<\n",
@@ -3226,7 +3231,7 @@ function lmap.destroy( topRec, ldtBinName, src )
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
   else
-    trace("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
       MOD, meth, ldtBinName );
   end
   

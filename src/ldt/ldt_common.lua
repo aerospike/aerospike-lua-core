@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_09_02.A";
+local MOD="ldt_common_2014_09_03.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -811,49 +811,54 @@ local function cleanSRC( srcCtrl )
   local rc = 0;
   local closeCount = 0;
   for name, value in map.pairs( recMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-    if( name == "ItemCount" ) then
-      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
-    else
-      if ( type(name) == "string" ) then
-        digestString = name;
-        subRec = value;
-        -- We'll assume it's a digest, since it shouldn't be anything else.
-        GP=F and trace("[DEBUG]<%s:%s>: Processing Digest(%s)", MOD, meth,
-          digestString );
-        
+    if name and value then
+      GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
+        MOD, meth, tostring( name ), tostring( value ));
+      if( name == "ItemCount" ) then
+        GP=F and trace("[DEBUG]<%s:%s>:Processing(%d) Items", MOD, meth, value);
+      else
+        if ( type(name) == "string" ) then
+          digestString = name;
+          subRec = value;
+          -- We'll assume it's a digest, since it shouldn't be anything else.
+          GP=F and trace("[DEBUG]<%s:%s>: Processing Digest(%s)", MOD, meth,
+            digestString );
+          
 
-        -- If this guy is CLEAN (not dirty) then we can close it and free up
-        -- a slot for a NEW Sub-Rec to come in.
-        local state = dirtyMap[digestString];
-        if( state == DM_DIRTY or state == DM_BUSY ) then
-          trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD, meth,
-            tostring( state), tostring( digestString ));
-        else
-          trace("[DEBUG]<%s:%s> Closing (%s) Sub-Rec: Dig(%s)", MOD, meth,
-            tostring( state), tostring( digestString ));
-          rc = aerospike:close_subrec( subRec );
-          if( rc ~= nil and rc < 0 ) then
-            warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
-            MOD, meth, tostring(rc), tostring( digestString ));
+          -- If this guy is CLEAN (not dirty) then we can close it and free up
+          -- a slot for a NEW Sub-Rec to come in.
+          local state = dirtyMap[digestString];
+          if( state == DM_DIRTY or state == DM_BUSY ) then
+            trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD,
+              meth, tostring( state), tostring( digestString ));
           else
-            -- We're ok.  It's closed.  Decrement the count and free up the
-            -- slot.
+            trace("[DEBUG]<%s:%s> Closing (%s) Sub-Rec: Dig(%s)", MOD, meth,
+              tostring( state), tostring( digestString ));
+            rc = aerospike:close_subrec( subRec );
+            if( rc ~= nil and rc < 0 ) then
+              warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
+                MOD, meth, tostring(rc), tostring( digestString ));
+            else
+              -- We're ok.  It's closed.  Decrement the count and free up the
+              -- slot.
 
-            dirtyMap[digestString] = nil;
-            recMap[digestString] = nil;
-            local itemCount = recMap.ItemCount;
-            recMap.ItemCount = itemCount - 1;
-            closeCount = closeCount + 1;
+              dirtyMap[digestString] = nil;
+              recMap[digestString] = nil;
+              local itemCount = recMap.ItemCount;
+              recMap.ItemCount = itemCount - 1;
+              closeCount = closeCount + 1;
 
-            GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
-            MOD, meth, digestString, tostring(recMap[digestString]),
-            recMap.ItemCount, closeCount );
-          end
-        end -- else we have something to close
-      end -- it's the right type for a Digest Field.
-    end -- else it's (assumed to be) a Sub-Rec Field in recMap
+              GP=F and trace("[DEBUG]<%s:%s> Closed(%s) RM(%s) IC(%d) CC(%d)",
+              MOD, meth, digestString, tostring(recMap[digestString]),
+              recMap.ItemCount, closeCount );
+            end
+          end -- else we have something to close
+        end -- it's the right type for a Digest Field.
+      end -- else it's (assumed to be) a Sub-Rec Field in recMap
+    else
+      warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
+        tostring(name), tostring(value));
+    end -- if both name and value NOT NIL
   end -- for all fields in SRC
 
   GP=E and trace("[EXIT]<%s:%s> POST CLEAN: CloseCnt(%d) ItemCount(%d)",
@@ -1417,23 +1422,30 @@ function ldt_common.closeAllSubRecs( srcCtrl )
   -- Iterate thru the SubRecContext and close all Sub-Records.
   local digestString;
   local rec;
-  local rc = 0;
   for name, value in map.pairs( recMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-    if( name == "ItemCount" ) then
-      GP=F and trace("[DEBUG]<%s:%s>: Processing(%d) Items", MOD, meth, value);
+    if name and value then
+      GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
+        MOD, meth, tostring( name ), tostring( value ));
+      if( name == "ItemCount" ) then
+        GP=F and trace("[DEBUG]<%s:%s>:Processing(%d) Items", MOD, meth, value);
+      else
+        digestString = name;
+        rec = value;
+        -- Now we have to check for NON-NIL map values.
+        if rec then
+          GP=F and trace("[DEBUG]<%s:%s>: Marking UNBUSY: SubRec(%s) Rec(%s)",
+            MOD, meth, digestString, tostring(rec) );
+          ldt_common.markUnBusy( srcCtrl, digestString );
+        end
+      end
     else
-      digestString = name;
-      rec = value;
-      GP=F and trace("[DEBUG]<%s:%s>: Marking UNBUSY: SubRec(%s) Rec(%s)",
-      MOD, meth, digestString, tostring(rec) );
-      ldt_common.markUnBusy( srcCtrl, digestString );
-    end
+      warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
+        tostring(name), tostring(value));
+    end -- for name/value NOT NIL
   end -- for all fields in SRC
 
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
-  return 0; -- Mask the error for now:: TODO::@TOBY::Figure this out.
+  GP=E and trace("[EXIT]: <%s:%s> : OK", MOD, meth);
+  return 0; -- Any errors would have jumped out with error().
 end -- closeAllSubRecs()
 
 -- ======================================================================
@@ -1778,13 +1790,18 @@ function ldt_common.summarizeMap( myMap )
   else
     local limit = 5;
     for name, value in map.pairs( myMap ) do
-      summaryMap[name] = value;
-      limit = limit - 1;
-      if( limit < 1 ) then
-        resultMap.Summary = summaryMap;
+      if name and value then
+        summaryMap[name] = value;
+        limit = limit - 1;
+        if( limit < 1 ) then
+          resultMap.Summary = summaryMap;
+        end
+      else
+        warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
+          tostring(name), tostring(value));
       end
-    end
-  end
+    end -- for each pair
+  end -- if non zero
 
   return tostring( resultMap );
 end -- summarizeMap()
@@ -1809,15 +1826,17 @@ function ldt_common.dumpMap( myMap, msg )
   local subCount = 0;
   local subMap = map();
   for name, value in map.pairs( myMap ) do
-    subMap[name] = value;
-    subCount = subCount + 1;
-    count = count + 1;
-    if( subCount > subSize ) then
-      info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
-      subMap = map(); -- start a new map for the next round.
-      subCount = 0;
+    if name and value then
+      subMap[name] = value;
+      subCount = subCount + 1;
+      count = count + 1;
+      if( subCount > subSize ) then
+        info("\nSubMap[%d:%d] Map(%s)",count-subCount,count,tostring(subMap));
+        subMap = map(); -- start a new map for the next round.
+        subCount = 0;
+      end
     end
-  end
+  end -- for each pair
   -- Print anything remaining -- after we fall out of the for loop.
   if( map.size( subMap ) ) then
       info("\nSubMap[%d:%d] Map(%s)", count-subCount, count, tostring(subMap));
@@ -1827,10 +1846,52 @@ function ldt_common.dumpMap( myMap, msg )
 end -- ldt_common.dumpMap()
 
 -- ======================================================================
+-- ldt_common.listUpdate()
+-- ======================================================================
+-- General List Insert function that can be used to UPDATE (overwrite
+-- in place) keys, digests or objects.  This function does NOT perform any
+-- transformation -- it is assumed that any transformation from a Live Obj
+-- to a DB Obj has already been done for the "newValue".
+-- Return:
+-- Success: 0
+-- Error: Error String
+-- ======================================================================
+function ldt_common.listUpdate( valList, newValue, position )
+  local meth = "ldt_common.listUpdate()";
+  GP=E and trace("[ENTER]<%s:%s> Val(%s) Pos(%d) List(%s) ", MOD, meth,
+    tostring(newValue), position, tostring(valList));
+
+  if DEBUG and valList and type(valList) == "userdata" then
+    GP=D and trace("[DEBUG]<%s:%s>List(%s) size(%d) Value(%s) Position(%d)",
+    MOD, meth, tostring(valList), list.size(valList), tostring(newValue),
+    position );
+  end
+
+  -- Unlike Insert, for Update we must point at a valid CURRENT object.
+  -- So, position must be within the range of the list size.
+  local listSize = list.size( valList );
+  if position >= 1 and position <= listSize then
+    valList[position] = newValue;
+  else
+    warn("[WARNING]<%s:%s> INVALID POSITION(%d) for List Size(%d)", MOD, meth,
+      position, listSize);
+    error(ldte.ERR_INTERNAL);
+  end
+
+  GP=F and trace("[EXIT]<%s:%s> Appended(%s) to list(%s)", MOD, meth,
+    tostring(newValue), tostring(valList));
+
+  return 0; -- Always OK
+end -- ldt_common.listUpdate()
+
+
+-- ======================================================================
 -- ldt_common.listInsert()
 -- ======================================================================
 -- General List Insert function that can be used to insert
--- keys, digests or objects.
+-- keys, digests or objects.  This function does NOT perform any
+-- transformation -- it is assumed that any transformation from a Live Obj
+-- to a DB Obj has already been done for the "newValue".
 -- Return:
 -- Success: 0
 -- Error: Error String
@@ -2252,12 +2313,17 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
     -- looked up dynamically.
     -- Notice that this is the old way to change settings.  The new way is
     -- to use a "user module", which contains UDFs that control LDT settings.
-    if name == "Package" and type( value ) == "string" then
-      local ldtPackage = ldtSpecificPackage[value];
-      if( ldtPackage ~= nil ) then
-        ldtPackage( ldtMap );
+    if name and value then
+      if name == "Package" and type( value ) == "string" then
+        local ldtPackage = ldtSpecificPackage[value];
+        if( ldtPackage ~= nil ) then
+          ldtPackage( ldtMap );
+        end
       end
-    end
+    else
+      warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
+        tostring(name), tostring(value));
+    end -- for NON NIL name/value
   end -- for each argument
 
   GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
