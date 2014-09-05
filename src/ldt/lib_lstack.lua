@@ -4344,6 +4344,14 @@ end -- function lstack.peek()
 -- ======================================================================
 function
 lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
+
+  -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+  -- This function is currently under construction. We will throw an error
+  -- until it is complete and tested.
+  warn("[ERROR]<%s:%s> THIS FUNCTION UNDER CONSTRUCTION", MOD, meth);
+  error( ldte.ERR_INTERNAL );
+  -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
   GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
   local meth = "lstack.pop()";
