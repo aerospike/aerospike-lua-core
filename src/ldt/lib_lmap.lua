@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_09_05.A"; 
+local MOD="lib_lmap_2014_09_23.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -167,14 +167,16 @@ local DEFAULT_HASH_MODULO = 512;
 
 -- The Hash Directory has a "number of bits" (hash depth) that it uses to
 -- to calculate calculate the current hash value.
-local DEFAULT_HASH_DEPTH = 9; -- goes with HASH_MODULO, above.
+-- local DEFAULT_HASH_DEPTH = 9; -- goes with HASH_MODULO, above.
 --
 -- Switch from a single list to distributed lists after this amount, i.e.
 -- convert the compact list to a hash directory of cells.
 local DEFAULT_THRESHOLD = 20;
+--local DEFAULT_THRESHOLD = 5; (Temporary Test Value)
 
--- Max size of our Compact List before we convert to a full Hash Table.
+-- Max size of a Hash Cell List before we switch to a Sub-Record.
 local DEFAULT_BINLIST_THRESHOLD = 4;
+-- local DEFAULT_BINLIST_THRESHOLD = 1; (Temp Test Value)
 
 local MAGIC="MAGIC";     -- the magic value for Testing LDT integrity
 
@@ -888,7 +890,7 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   -- have small lists that we'll keep in each Hash Cell -- to keep us from
   -- allocating a subrecord for just one or two items.  As soon as we pass
   -- the threshold (e.g. 4), then we'll convert to a sub-record.
-  ldtMap[M_HashCellMaxList]   = 4; --Keep lists small in the cells.
+  ldtMap[M_HashCellMaxList] = DEFAULT_BINLIST_THRESHOLD;
  
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
   -- then we know that the main LDT record type has already been set.
@@ -1875,7 +1877,7 @@ local function hashCellConvert( src, topRec, ldtCtrl, cellAnchor )
     warn("[ERROR]<%s:%s>: SubRec Create Error",  MOD, meth );
     error( ldte.ERR_SUBREC_CREATE );
   else
-    GP=F and trace("[NOTICE]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
+    GP=F and trace("[DEBUG]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
         MOD, meth, ldrSubRecSummary( subRec ), tostring(subRecDigest));
   end
 
@@ -1956,7 +1958,7 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
     warn("[ERROR]<%s:%s>: SubRec Create Error",  MOD, meth );
     error( ldte.ERR_SUBREC_CREATE );
   else
-    GP=F and trace("[NOTICE]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
+    GP=F and trace("[DEBUG]<%s:%s>: SubRec Create SUCCESS(%s) Dig(%s)",
         MOD, meth, ldrSubRecSummary( subRec ), tostring(subRecDigest));
   end
 

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_09_03.A";
+local MOD="ldt_common_2014_09_10.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -842,8 +842,11 @@ local function cleanSRC( srcCtrl )
               -- We're ok.  It's closed.  Decrement the count and free up the
               -- slot.
 
-              dirtyMap[digestString] = nil;
-              recMap[digestString] = nil;
+              -- Try out our NEW map Remove Function. Note that we no longer
+              -- remove map entrys by assigning "nil".
+              map.remove(dirtyMap, digestString);
+              map.remove(recMap, digestString);
+
               local itemCount = recMap.ItemCount;
               recMap.ItemCount = itemCount - 1;
               closeCount = closeCount + 1;
@@ -1262,8 +1265,12 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
   else
     rc = aerospike:close_subrec( subRec );
     -- Now erase this subrec from the SRC maps.
-    recMap[digestString] = nil;
-    dirtyMap[digestString] = nil;
+    -- Note that we no longer remove map entrys by assigning "nil".
+    -- recMap[digestString] = nil;
+    -- dirtyMap[digestString] = nil;
+    map.remove(dirtyMap, digestString);
+    map.remove(recMap, digestString);
+
     recMap.ItemCount = itemCount - 1;
     GP=F and trace("[STATUS]<%s:%s>Closed Rec: Digest(%s) IC(%d) rc(%s)",
       MOD, meth, digestString, recMap.ItemCount, tostring( rc ));
@@ -1295,7 +1302,6 @@ function ldt_common.closeSubRec( srcCtrl, subRec, dirty )
   return ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty );
 end -- closeSubRec()
 
-
 -- ======================================================================
 -- markUnBusy()
 -- ======================================================================
@@ -1325,7 +1331,7 @@ function ldt_common.markUnBusy( srcCtrl, digestString )
   local cleaned = 0;
   local subRecStatus = dirtyMap[digestString];
   if( subRecStatus ~= nil and subRecStatus == DM_BUSY ) then
-    dirtyMap[digestString] = nil;
+    map.remove( dirtyMap, digestString );
     cleaned = 1;
   end
 
@@ -1474,10 +1480,13 @@ function ldt_common.removeSubRec( srcCtrl, topRec, digestString )
   local subRec = recMap[digestString];
   if ( subRec ~= nil ) then
     if ( recMap[digestString] ~= nil ) then
-      -- We can do this blind -- since whether or not it's there, we're removing
-      -- it from both maps.
-      dirtyMap[digestString] = nil;
-      recMap[digestString] = nil;
+      -- We can do this blind -- since whether or not it's there, we're
+      -- removing it from both maps.
+      -- dirtyMap[digestString] = nil;
+      -- recMap[digestString] = nil;
+      map.remove(dirtyMap, digestString);
+      map.remove(recMap, digestString);
+
       local itemCount = recMap.ItemCount;
       recMap.ItemCount = itemCount - 1;
     end
@@ -1778,6 +1787,8 @@ end -- ldt_common.dumpList()
 -- make much sense of "first and last" items.
 -- ======================================================================
 function ldt_common.summarizeMap( myMap )
+  local meth = "ldt_common.summarizeMap()"
+
   if( myMap == nil ) then return "NULL MAP"; end;
 
   local resultMap = map();
@@ -2465,6 +2476,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
     MOD, meth, ldtBinName );
   end
 
+  -- Remove the bin entry from the record
   topRec[ldtBinName] = nil;
 
   -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
@@ -2477,7 +2489,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
   end
   local ldtCount = recPropMap[RPM_LdtCount];
   if( ldtCount <= 1 ) then
-    -- Remove this bin
+    -- Remove the LDT Control bin
     topRec[REC_LDT_CTRL_BIN] = nil;
   else
     recPropMap[RPM_LdtCount] = ldtCount - 1;

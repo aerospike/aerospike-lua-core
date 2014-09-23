@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_09_05.A";
+local MOD="lib_lstack_2014_09_17.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -184,12 +184,6 @@ local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 
 -- LDT TYPES (only lstack is defined here)
 local LDT_TYPE = "LSTACK";
-
--- We maintain a pool, or "context", of subrecords that are open.  That allows
--- us to look up subrecs and get the open reference, rather than bothering
--- the lower level infrastructure.  There's also a limit to the number
--- of open subrecs.
-local G_OPEN_SR_LIMIT = 20;
 
 -- Special Function -- if supplied by the user in the "userModule", then
 -- we call that UDF to adjust the LDT configuration settings.
@@ -4344,6 +4338,7 @@ end -- function lstack.peek()
 -- ======================================================================
 function
 lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
+  local meth = "lstack.pop()";
 
   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   -- This function is currently under construction. We will throw an error
@@ -4354,7 +4349,6 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
 
   GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
-  local meth = "lstack.pop()";
   GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) Filter(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(count),
     tostring(filter), tostring(fargs) );
@@ -5119,18 +5113,6 @@ function lstack.validate( topRec, ldtBinName, src, resultMap )
   return result;
 end -- lstack.validate()()
 
---local PM_ItemCount             = 'I'; -- (Top): # of items in LDT
---local PM_SubRecCount           = 'S'; -- (Top): # of subrecs in the LDT
---local PM_Version               = 'V'; -- (Top): Code Version
---local PM_LdtType               = 'T'; -- (Top): Type: stack, set, map, list
---local PM_BinName               = 'B'; -- (Top): LDT Bin Name
---local PM_Magic                 = 'Z'; -- (All): Special Sauce
---local PM_CreateTime            = 'C'; -- (All): Creation time of this rec
---local PM_EsrDigest             = 'E'; -- (All): Digest of ESR
---local PM_RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
--- local PM_LogInfo               = 'L'; -- (All): Log Info (currently unused)
---local PM_ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
---local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- ======================================================================
 -- This is needed to export the function table for this module
 -- Leave this statement at the end of the module.

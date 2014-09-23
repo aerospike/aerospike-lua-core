@@ -10,8 +10,17 @@ local MOD="2014_04_04.A";
 -- as_status.h::AEROSPIKE_ERR_LDT_INTERNAL == ldt_errors.lua::ERR_INTERNAL
 local exports = {
 
+  -- Special LDT Error Codes
+
+  -- NOTE: We've changed "Top Rec" not found from 1415 to 2, to be 
+  -- consistent with the rest of Aerospike KV convention (record not found).
+  ERR_TOP_REC_NOT_FOUND    ="0002:LDT-Top Record Not Found",
+  -- Also, we've changed the "Item Not Found" (1401) to 125, as this is now
+  -- a real wire-protocol return code (must be less than 255).
+  ERR_NOT_FOUND            ="0125:LDT-Item Not Found",
+
+  -- Regular LDT Error Codes
   ERR_INTERNAL             ="1400:LDT-Internal Error",
-  ERR_NOT_FOUND            ="1401:LDT-Item Not Found",
   ERR_UNIQUE_KEY           ="1402:LDT-Unique Key or Value Violation",
   ERR_INSERT               ="1403:LDT-Insert Error",
   ERR_SEARCH               ="1404:LDT-Search Error",
@@ -26,7 +35,6 @@ local exports = {
   ERR_BIN_NAME_NOT_STRING  ="1412:LDT-Bin Name Not a String",
   ERR_BIN_NAME_TOO_LONG    ="1413:LDT-Bin Name Exceeds 14 char",
   ERR_TOO_MANY_OPEN_SUBRECS="1414:LDT-Exceeded Open Sub-Record Limit",
-  ERR_TOP_REC_NOT_FOUND    ="1415:LDT-Top Record Not Found",
   ERR_SUB_REC_NOT_FOUND    ="1416:LDT-Sub Record Not Found",
   ERR_BIN_DOES_NOT_EXIST   ="1417:LDT-LDT Bin Does Not Exist",
   ERR_BIN_ALREADY_EXISTS   ="1418:LDT-LDT Bin Already Exists",

@@ -28,6 +28,7 @@ local MOD="ext_llist_2014_08_06.A";
 -- (*) Status = add( topRec, ldtBinName, newValue, userModule )
 -- (*) Status = add_all( topRec, ldtBinName, valueList, userModule )
 -- (*) Status = update( topRec, ldtBinName, newValue, userModule )
+-- (*) Status = update_all( topRec, ldtBinName, valueList, userModule )
 -- (*) List   = find( topRec, bin, value, module, filter, fargs )
 -- (*) List   = scan( topRec, ldtBinName )
 -- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
@@ -80,12 +81,12 @@ function add( topRec, ldtBinName, newValue, createSpec )
 end
 
 -- =======================================================================
--- add_all() -- Iterate thru the list and insert each element
+-- add_all() -- Insert a list of values into the LLIST.
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) valueList: The value to be inserted
+-- (*) valueList: The list of values to be inserted
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
 function add_all( topRec, ldtBinName, valueList, createSpec )
@@ -105,6 +106,19 @@ end
 -- =======================================================================
 function update( topRec, ldtBinName, newValue, createSpec )
   return llist.update( topRec, ldtBinName, newValue, createSpec, nil)
+end
+
+-- =======================================================================
+-- update_all() -- Update a list of values in LLIST.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) valueList: The list of values to be updated.
+-- (*) createSpec: The map or module that contains Create Settings
+-- =======================================================================
+function update_all( topRec, ldtBinName, valueList, createSpec )
+  return llist.update_all( topRec, ldtBinName, valueList, createSpec, nil)
 end
 
 -- =======================================================================
