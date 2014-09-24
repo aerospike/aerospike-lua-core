@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_09_23.A";
+local MOD="lib_llist_2014_09_24.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -273,8 +273,8 @@ local KDT_STRING = 'S'; -- The key (or derived key) is a STRING
 -- << Search Constants >>
 -- Use Numbers so that it translates to our C conventions
 local ST = {
-  FOUND    =  0,
-  NOTFOUND = -1
+  FOUND     =  0,
+  NOT_FOUND = -1
 };
 
 -- Values used in Compare (CR = Compare Results)
@@ -733,8 +733,8 @@ initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[R_TreeLevel] = 1;     -- Start off Lvl 1: Root ONLY. Leaves Come l8tr
   ldtMap[M_KeyType]   = KT_NONE; -- atomic or complex Key Type (start w/ None)
   ldtMap[R_KeyUnique] = AS_TRUE; -- Keys ARE unique by default.
-  ldtMap[M_Transform] = nil; -- (set later) transform Func (user to storage)
-  ldtMap[M_UnTransform] = nil; -- (set later) Un-transform (storage to user)
+  -- ldtMap[M_Transform];   -- (set later) transform Func (user to storage)
+  -- ldtMap[M_UnTransform]; -- (set later) Un-transform (storage to user)
   ldtMap[R_StoreState] = SS_COMPACT; -- start in "compact mode"
 
   ldtMap[R_Threshold] = DEFAULT.THRESHOLD;-- Amount to Move out of compact mode
@@ -746,8 +746,8 @@ initializeLdtCtrl( topRec, ldtBinName )
   -- Top Node Tree Root Directory
   ldtMap[R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
   ldtMap[R_RootByteCountMax] = 0; -- Max bytes for key space in the root
-  ldtMap[R_KeyByteArray] = nil; -- Byte Array, when in compressed mode
-  ldtMap[R_DigestByteArray] = nil; -- DigestArray, when in compressed mode
+  -- ldtMap[R_KeyByteArray];    -- (UNSET) Byte Array, when in compressed mode
+  -- ldtMap[R_DigestByteArray]; -- (UNSET) DigestArray, when in compressed mode
   ldtMap[R_RootKeyList] = list();    -- Key List, when in List Mode
   ldtMap[R_RootDigestList] = list(); -- Digest List, when in List Mode
   ldtMap[R_CompactList] = list();-- Simple Compact List -- before "tree mode"
@@ -2834,7 +2834,6 @@ end -- treeSearch()
 -- ======================================================================
 local function populateLeaf( src, leafSubRec, objectList )
   local meth = "populateLeaf()";
-  local rc = 0;
   GP=E and trace("[ENTER]<%s:%s>ObjList(%s)",MOD,meth,tostring(objectList));
 
   local propMap    = leafSubRec[SUBREC_PROP_BIN]
@@ -2849,8 +2848,8 @@ local function populateLeaf( src, leafSubRec, objectList )
   -- are in "early update" mode. Close will happen at the end of the Lua call.
   ldt_common.updateSubRec( src, leafSubRec );
 
-  GP=E and trace("[EXIT]<%s:%s> rc(%s)", MOD, meth, tostring(rc) );
-  return rc;
+  GP=E and trace("[EXIT]<%s:%s> rc(0)", MOD, meth);
+  return 0;
 end -- populateLeaf()
 
 -- ======================================================================
@@ -4961,12 +4960,8 @@ local function localWrite(topRec, ldtBinName, newValue, createSpec, update, src)
 
   -- Close ALL of the subrecs that might have been opened (just the read-only
   -- ones).  All of the dirty ones will stay open.
-  rc = ldt_common.closeAllSubRecs( src );
-  if( rc < 0 ) then
-    warn("[ERROR]<%s:%s> Problems in closeAllSubRecs() SRC(%s)",
-      MOD, meth, tostring( src ));
-    error( ldte.ERR_SUBREC_CLOSE );
-  end
+  -- This will Always return zero.
+  ldt_common.closeAllSubRecs( src );
 
   -- All done, store the record
   -- Update the Top Record with the new Tree Contents.
@@ -4976,13 +4971,13 @@ local function localWrite(topRec, ldtBinName, newValue, createSpec, update, src)
   -- so all we need to do is perform the update (no create needed).
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
+  if ( rc and rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
 
-  GP=E and trace("[EXIT]:<%s:%s> rc(%d)", MOD, meth, rc );
-  return rc;
+  GP=E and trace("[EXIT]:<%s:%s> rc(0)", MOD, meth);
+  return 0;
 end -- function localWrite()
 
 -- ======================================================================
@@ -5792,7 +5787,7 @@ function llist.destroy( topRec, ldtBinName, src)
       MOD, meth, ldtBinName );
   end
 
-  topRec[ldtBinName] = nil;
+  topRec[ldtBinName] = nil; -- Remove the entry.
 
   -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
   -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
@@ -5805,7 +5800,7 @@ function llist.destroy( topRec, ldtBinName, src)
   local ldtCount = recPropMap[RPM.LdtCount];
   if( ldtCount <= 1 ) then
     -- Remove this bin
-    topRec[REC_LDT_CTRL_BIN] = nil;
+    topRec[REC_LDT_CTRL_BIN] = nil; -- Remove the entry.
   else
     recPropMap[RPM.LdtCount] = ldtCount - 1;
     topRec[REC_LDT_CTRL_BIN] = recPropMap;

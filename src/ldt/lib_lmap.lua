@@ -848,8 +848,8 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM_Magic]      = MAGIC; -- Special Validation
   propMap[PM_BinName]    = ldtBinName; -- Defines the LDT Bin
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
-  propMap[PM_EsrDigest]  = nil; -- not set yet.
-  propMap[PM_SelfDigest] = nil; 
+  propMap[PM_EsrDigest]  = 0; -- not set yet.
+  propMap[PM_SelfDigest] = record.digest( topRec );
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
   propMap[PM_CreateTime] = aerospike:get_current_time();
   -- warn("WARNING:: Please Fix GET CURRENT TIME");
@@ -857,18 +857,18 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   
 -- Specific LMAP Parms: Held in LMap
   ldtMap[M_StoreMode]  = SM_LIST; -- SM_LIST or SM_BINARY:
-  ldtMap[M_StoreLimit]  = nil; -- No storage Limit
+  ldtMap[M_StoreLimit]  = 0; -- No storage Limit at start
 
   -- LMAP Data Record Chunk Settings: Passed into "Chunk Create"
   ldtMap[M_LdrEntryCountMax] = 100;  -- Max # of Data Chunk items (List Mode)
-  ldtMap[M_LdrByteEntrySize] =  0;  -- Byte size of a fixed size Byte Entry
+  ldtMap[M_LdrByteEntrySize] =   0;  -- Byte size of a fixed size Byte Entry
   ldtMap[M_LdrByteCountMax]  =   0; -- Max # of Data Chunk Bytes (binary mode)
 
-  ldtMap[M_Transform]        = nil; -- applies only to complex lmap
-  ldtMap[M_UnTransform]      = nil; -- applies only to complex lmap
+  -- ldtMap[M_Transform];    -- Set later, if/when needed
+  -- ldtMap[M_UnTransform];  -- Set later, if/when needed
   ldtMap[M_StoreState]       = SS_COMPACT; -- Start out in "single list" mode
   ldtMap[M_HashType]         = HS_STATIC; -- HS_STATIC or HS_DYNAMIC.
-  ldtMap[M_BinaryStoreSize]  = nil; 
+  -- ldtMap[M_BinaryStoreSize]; -- Set if/when we use binary mode.
   ldtMap[M_KeyType]          = KT_ATOMIC; -- assume "atomic" values for now.
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
   ldtMap[M_HashDirSize]      = DEFAULT_HASH_MODULO; -- Hash Dir Size
@@ -1898,10 +1898,9 @@ local function hashCellConvert( src, topRec, ldtCtrl, cellAnchor )
   cellAnchor[C_CellState] = C_STATE_DIGEST;
   cellAnchor[C_CellDigest] = subRecDigest;
 
-  -- With the latest Lua fix we can now safely remove a map entry just
-  -- by assigning a NIL value to the key.
-  cellAnchor[C_CellNameList] = nil;
-  cellAnchor[C_CellValueList] = nil;
+  -- Remove the Name/Value lists from the Cell Anchor.
+  map.remove(cellAnchor, C_CellNameList);
+  map.remove(cellAnchor, C_CellValueList);
 
   ldt_common.updateSubRec( src, subRec );
 
@@ -1979,10 +1978,9 @@ hashCellConvertInsert(src, topRec, ldtCtrl, cellAnchor, newName, newValue)
   cellAnchor[C_CellState] = C_STATE_DIGEST;
   cellAnchor[C_CellDigest] = subRecDigest;
 
-  -- With the latest Lua fix we can now safely remove a map entry just
-  -- by assigning a NIL value to the key.
-  cellAnchor[C_CellNameList] = nil;
-  cellAnchor[C_CellValueList] = nil;
+  -- Remove the Name/Value lists from the Cell Anchor.
+  map.remove(cellAnchor, C_CellNameList);
+  map.remove(cellAnchor, C_CellValueList);
 
   ldt_common.updateSubRec( src, subRec );
 
@@ -2542,9 +2540,9 @@ local function convertCompactToHashDir( src, topRec, ldtCtrl )
     fastInsert( src, topRec, ldtCtrl, nameList[i], valueList[i]);
   end
 
-  -- We no longer need the Compact Lists.
-  ldtMap[M_CompactNameList] = nil; 
-  ldtMap[M_CompactValueList] = nil; 
+  -- We no longer need the Compact Lists.  Remove the entries.
+  map.remove(ldtMap, M_CompactNameList);
+  map.remove(ldtMap, M_CompactValueList);
 
   GP=E and trace("[EXIT]: <%s:%s> rc(0)", MOD, meth);
   return 0;
@@ -3248,9 +3246,7 @@ function lmap.destroy( topRec, ldtBinName, src )
 
   local ldtCount = recPropMap[RPM_LdtCount];
   if( ldtCount <= 1 ) then
-    -- Remove this bin
-    GP=F and trace("[DEBUG]<%s:%s> Remove LDT CTRL BIN", MOD, meth );
-    topRec[REC_LDT_CTRL_BIN] = nil;
+    topRec[REC_LDT_CTRL_BIN] = nil; -- Remove the bin
   else
     GP=F and trace("[DEBUG]<%s:%s> LDT CTRL BIN: Decr LDT cnt", MOD, meth );
     recPropMap[RPM_LdtCount] = ldtCount - 1;
@@ -3260,7 +3256,7 @@ function lmap.destroy( topRec, ldtBinName, src )
   
   -- Mark the enitre control-info structure nil 
   GP=F and trace("[DEBUG]<%s:%s> NULL out LDT Bin(%s)", MOD, meth, ldtBinName);
-  topRec[ldtBinName] = nil;
+  topRec[ldtBinName] = nil; -- Remove the bin
 
   rc = aerospike:update( topRec );
   if ( rc ~= 0 ) then

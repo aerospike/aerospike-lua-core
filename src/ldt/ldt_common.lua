@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_09_10.A";
+local MOD="ldt_common_2014_09_23.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -211,7 +211,7 @@ local DM_BUSY  = 'B';
 -- us to look up subRecs and get the open reference, rather than bothering
 -- the lower level infrastructure.  There's also a limit to the number
 -- of open subRecs.
-local G_OPEN_SR_LIMIT = 20;
+local G_OPEN_SR_LIMIT = 2000;
 
 -- When the user wants to override the default settings, or register some
 -- functions, the user module with the "adjust_settings" function will be

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_09_04.A"; 
+local MOD="lib_lset_2014_09_24.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -882,14 +882,14 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   local ldtCtrl = list();
 
   -- General LDT Parms(Same for all LDTs): Held in the Property Map
-  propMap[PM_ItemCount] = 0; -- A count of all items in the stack
+  propMap[PM_ItemCount]  = 0; -- A count of all items in the stack
   propMap[PM_SubRecCount] = 0; -- A count of all Sub-Records in the LDT
   propMap[PM_Version]    = G_LDT_VERSION ; -- Current version of the code
   propMap[PM_LdtType]    = LDT_TYPE; -- Validate the ldt type
   propMap[PM_Magic]      = MAGIC; -- Special Validation
   propMap[PM_BinName]    = ldtBinName; -- Defines the LDT Bin
   propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
-  propMap[PM_EsrDigest]  = nil; -- not set yet.
+  propMap[PM_EsrDigest]  = 0; -- not set yet.
   propMap[PM_CreateTime] = aerospike:get_current_time();
 
   -- Specific LSET Parms: Held in ldtMap
@@ -901,8 +901,8 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   ldtMap[M_LdrByteEntrySize]=   0;  -- Byte size of a fixed size Byte Entry
   ldtMap[M_LdrByteCountMax] =   0; -- Max # of Data Chunk Bytes (binary mode)
 
-  ldtMap[M_Transform]        = nil; -- applies only to complex objects
-  ldtMap[M_UnTransform]      = nil; -- applies only to complex objects
+  -- ldtMap[M_Transform]; -- Set Later, if/when needed for complex Objs
+  -- ldtMap[M_UnTransform]; -- Set Later, if/when needed for complex Objs
   ldtMap[M_StoreState]       = SS_COMPACT; -- SM_LIST or SM_BINARY:
 
   -- ===================================================
@@ -914,7 +914,8 @@ local function initializeLdtCtrl(topRec, ldtBinName )
   ldtMap[M_SetTypeStore]     = ST_SUBRECORD; -- Default: Use Subrecords
 
   ldtMap[M_HashType]         = HT_STATIC; -- Static or Dynamic
-  ldtMap[M_BinaryStoreSize]  = nil; 
+  -- ldtMap[M_BinaryStoreSize] -- Set Later, if/when needed for Binary
+
   -- Complex will work for both atomic/complex.
   ldtMap[M_KeyType]          = KT_COMPLEX; -- Most things will be complex
   ldtMap[M_TotalCount]       = 0; -- Count of both valid and deleted elements
@@ -2352,9 +2353,8 @@ local function hashCellConvert( src, topRec, ldtCtrl, cellAnchor )
   cellAnchor[C_CellState] = C_STATE_DIGEST;
   cellAnchor[C_CellDigest] = subRecDigest;
 
-  -- With the latest Lua fix we can now safely remove a map entry just
-  -- by assigning a NIL value to the Map Entry.
-  cellAnchor[C_CellValueList] = nil;
+  -- Remove the map entry now that we're done with it.
+  map.remove(cellAnchor, C_CellValueList);
 
   ldt_common.updateSubRec( src, subRec );
 
@@ -2718,7 +2718,7 @@ local function subRecConvert( src, topRec, ldtCtrl )
   fastInsertList( src, topRec, ldtCtrl, listCopy );
   
   -- We no longer need the Compact Lists.
-  ldtMap[M_CompactList] = nil;
+  map.remove(ldtMap, M_CompactList);
 
   GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- subRecConvert()
@@ -3575,12 +3575,12 @@ local function topRecDestroy( topRec, ldtCtrl )
     -- Remove this bin -- assuming it is not already nil.  Setting a 
     -- non-existent bin to nil seems to piss off the lower layers. 
     if( topRec[binName] ~= nil ) then
-        topRec[binName] = nil;
+        topRec[binName] = nil; -- Remove the bin from the record.
     end
   end -- end for distrib list for-loop 
 
   -- Mark the enitre control-info structure nil.
-  topRec[ldtBinName] = nil;
+  topRec[ldtBinName] = nil; -- Remove the LDT bin from the record.
 
 end -- topRecDestroy()
 
@@ -3638,7 +3638,7 @@ local function subRecDestroy( src, topRec, ldtCtrl )
     MOD, meth, binName );
   end
 
-  topRec[binName] = nil;
+  topRec[binName] = nil; -- remove the bin from the record.
   return 0;
 
 end -- subRecDestroy()
