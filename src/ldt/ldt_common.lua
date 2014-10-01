@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_09_23.A";
+local MOD="ldt_common_2014_10_01.C";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -51,7 +51,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- the updates to the end -- at the close of Lua.
 -- Currently this must be turned ON in order to bypass a bug in the sub-Rec
 -- support code.
-local DO_EARLY_SUBREC_UPDATES=true;
+local DO_EARLY_SUBREC_UPDATES = true;
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -212,6 +212,14 @@ local DM_BUSY  = 'B';
 -- the lower level infrastructure.  There's also a limit to the number
 -- of open subRecs.
 local G_OPEN_SR_LIMIT = 2000;
+
+-- In order to keep the Sub-Rec Pool somewhat well-behaved, we will clean
+-- (remove the clean, non-busy, read-only sub-recs) the pool periodically.
+-- We'll start at 100, but if we clean and do NOT release any
+-- sub-recs, then we must adjust our threshold higher so that we don't
+-- thrash.  We'll keep bumping up the clean threshold until we hit the
+-- real SR Limit.
+local G_OPEN_SR_CLEAN_THRESHOLD = 100;
 
 -- When the user wants to override the default settings, or register some
 -- functions, the user module with the "adjust_settings" function will be
@@ -780,6 +788,7 @@ function ldt_common.createSubRecContext()
   local dirtyMap = map();
 
   recMap.ItemCount = 0;
+  recMap.CleanThreshold = G_OPEN_SR_CLEAN_THRESHOLD;
   list.append( srcCtrl, recMap ); -- recMap
   list.append( srcCtrl, dirtyMap ); -- dirtyMap
 
@@ -797,8 +806,6 @@ local function cleanSRC( srcCtrl )
   local meth = "cleanSRC()";
   GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
-
-
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
 
@@ -814,8 +821,10 @@ local function cleanSRC( srcCtrl )
     if name and value then
       GP=F and trace("[DEBUG]: <%s:%s>: Processing Pair: Name(%s) Val(%s)",
         MOD, meth, tostring( name ), tostring( value ));
-      if( name == "ItemCount" ) then
+      if ( name == "ItemCount" ) then
         GP=F and trace("[DEBUG]<%s:%s>:Processing(%d) Items", MOD, meth, value);
+      elseif ( name == "CleanThreshold" ) then
+        GP=F and trace("[DEBUG]<%s:%s>:Clean Threshold(%d) ", MOD, meth, value);
       else
         if ( type(name) == "string" ) then
           digestString = name;
@@ -823,7 +832,6 @@ local function cleanSRC( srcCtrl )
           -- We'll assume it's a digest, since it shouldn't be anything else.
           GP=F and trace("[DEBUG]<%s:%s>: Processing Digest(%s)", MOD, meth,
             digestString );
-          
 
           -- If this guy is CLEAN (not dirty) then we can close it and free up
           -- a slot for a NEW Sub-Rec to come in.
@@ -1026,6 +1034,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
   local itemCount = recMap.ItemCount;
+  local cleanThreshold = recMap.CleanThreshold;
   local rc = 0;
 
   -- Access the TopRec Control Maps
@@ -1054,13 +1063,24 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
   GD=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
-  if( itemCount >= G_OPEN_SR_LIMIT ) then
+  if( itemCount >= cleanThreshold ) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
-    -- Not sure if I need to do this, but just in case.
-    -- Reaccess the srcCtrl structure from the top.
     GD=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
 
-    if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
+    -- Reset the local var after clean
+    itemCount = recMap.ItemCount;
+
+    -- If we were unable to release any pages with clean, then UP our
+    -- clean threshold until we hit the real limit.
+    if( itemCount >= cleanThreshold and cleanThreshold < G_OPEN_SR_LIMIT )
+    then
+      cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
+      -- A quick check and adjustment, just in case our math was wrong.
+      if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
+        cleanThreshold = G_OPEN_SR_LIMIT;
+      end
+      recMap.CleanThreshold = cleanThreshold;
+    else
       warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d)", MOD, meth,
         recMap.ItemCount, G_OPEN_SR_LIMIT );
       error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
@@ -1165,6 +1185,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
   local itemCount = recMap.ItemCount;
+  local cleanThreshold = recMap.CleanThreshold;
 
   local rc = 0;
 
@@ -1177,26 +1198,47 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
   local subRec = recMap[digestString];
   if( subRec == nil ) then
-    GD=DEBUG and
-      trace("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)", MOD, meth,
-        tostring(digestString), tostring( recMap ));
+    GD=DEBUG and trace("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)",
+      MOD, meth, tostring(digestString), tostring( recMap ));
 
-    if( itemCount >= G_OPEN_SR_LIMIT ) then
+    -- Check our counts -- if we have a lot of open sub-recs, then try to
+    -- clean out the "non-dirty" ones before we open more. If that fails, then
+    -- we'll bump up our "clean threshold" until we hit the max.
+    -- If we hit the max and we STILL need more, then return with ERROR.
+    -- Notice that "createESR" doesn't need to check the
+    -- counts because by definition it's the FIRST SUB-REC.
+    GD=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
+    if( itemCount >= cleanThreshold ) then
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
-      if( recMap.ItemCount >= G_OPEN_SR_LIMIT ) then
-        warn("[ERROR]<%s:%s> SRC Count(%d) Exceeded Limit(%d): After clean",
-            MOD, meth, itemCount, G_OPEN_SR_LIMIT );
+      GD=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)",
+        MOD, meth, tostring(srcCtrl));
+
+      -- Reset the local var after clean (clean() changed it).
+      itemCount = recMap.ItemCount;
+
+      -- If we were unable to release any pages with clean, then UP our
+      -- clean threshold until we hit the real limit.
+      if(itemCount >= cleanThreshold and cleanThreshold < G_OPEN_SR_LIMIT)
+      then
+        cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
+        -- A quick check and adjustment, just in case our math was wrong.
+        if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
+          cleanThreshold = G_OPEN_SR_LIMIT;
+        end
+        recMap.CleanThreshold = cleanThreshold;
+      else
+        warn("[ERROR]<%s:%s> SRC Count(%d) CT(%d) Exceeded Limit(%d)",
+          MOD, meth, itemCount, cleanThreshold, G_OPEN_SR_LIMIT );
         error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
       end
     end
 
     -- Recalc ItemCount after the (possible) clean.
     itemCount = recMap.ItemCount;
-  -- WE DO NOT NEED TO  BUMP ITEM COUNT HERE -- THAT IS DONE WHEN WE ADD
-  -- THIS TO THE CONTEXT.
---     recMap.ItemCount = itemCount + 1;
+    -- NOTE: WE DO NOT NEED TO  BUMP ITEM COUNT HERE.  That's done later.
+    --     recMap.ItemCount = itemCount + 1;
     GP=F and trace("[OPEN SUBREC]<%s:%s>SRC.ItemCount(%d) TR(%s) DigStr(%s)",
-      MOD, meth, recMap.ItemCount, tostring(topRec), tostring(digestString));
+      MOD, meth, itemCount, tostring(topRec), tostring(digestString));
     subRec = aerospike:open_subrec( topRec, digestString );
     GP=F and trace("[OPEN SUBREC RESULTS]<%s:%s>(%s)", 
       MOD,meth,tostring(subRec));
@@ -1434,6 +1476,8 @@ function ldt_common.closeAllSubRecs( srcCtrl )
         MOD, meth, tostring( name ), tostring( value ));
       if( name == "ItemCount" ) then
         GP=F and trace("[DEBUG]<%s:%s>:Processing(%d) Items", MOD, meth, value);
+      elseif ( name == "CleanThreshold" ) then
+        GP=F and trace("[DEBUG]<%s:%s>:Clean Threshold(%d) ", MOD, meth, value);
       else
         digestString = name;
         rec = value;
@@ -1576,6 +1620,7 @@ function ldt_common.validateBinName( ldtBinName )
     warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
     error( ldte.ERR_BIN_NAME_TOO_LONG );
   end
+
   GP=E and trace("[EXIT]:<%s:%s> Ok", MOD, meth );
 end -- ldt_common.validateBinName
 
@@ -2404,6 +2449,57 @@ function ldt_common.setLdtRecordType( topRec )
   GP=E and trace("[EXIT]<%s:%s> rc(%d)", MOD, meth, rc );
   return rc;
 end -- setLdtRecordType()
+
+-- ========================================================================
+-- ldt_common.removeEsr(): Remove the ESR.
+-- ========================================================================
+-- Remove the Existence Sub-Record (ESR).  This is done as part of 
+-- LDT Remove, or just resetting back to a Compact List where we are
+-- giving up all Sub-Records.
+--
+-- Parms:
+-- (1) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (2) topRec: the user-level record holding the LDT Bin
+-- (3) propMap: Location of the ESR
+-- (4) ldtBinName: LDT Bin (mostly for tracing/debugging)
+-- Result:
+--   res = 0: all is well
+--   res = -1: Some sort of error
+-- ========================================================================
+function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
+  local meth = "removeEsr()";
+  GP=E and trace("[ENTER]: <%s:%s> ", MOD, meth );
+  local rc = 0; -- start off optimistic
+
+  -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
+  -- compact list, then the ESR will be ZERO.
+  local esrDigest = propMap[PM_EsrDigest];
+  if( esrDigest ~= nil and esrDigest ~= 0 ) then
+    local esrDigestString = tostring(esrDigest);
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",
+      MOD, meth, esrDigestString );
+    local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
+    if( esrRec ~= nil ) then
+      rc = ldt_common.removeSubRec( src, esrDigestString );
+      if( rc == nil or rc == 0 ) then
+        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
+        propMap[PM_EsrDigest] = 0;
+      else
+        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",
+          MOD, meth, rc, ldtBinName);
+        error( ldte.ERR_SUBREC_DELETE );
+      end
+    else
+      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
+    end
+  else
+    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    MOD, meth, ldtBinName );
+  end
+
+  GP=E and trace("[EXIT]: <%s:%s> ", MOD, meth );
+
+end -- removeEsr()
 
 -- ========================================================================
 -- ldt_common.destroy(): Remove the LDT entirely from the record.

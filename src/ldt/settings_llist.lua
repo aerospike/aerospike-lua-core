@@ -171,20 +171,22 @@ local package = {};
   -- we will be keeping our lists small so that we don't overflow the
   -- B+ Tree Leaf pages.
   -- However, we STILL assume that the KEY value is not much over 100 bytes.
+  -- These numbers are based on a ONE MEGABYTE Sub-Rec size assumption.
   --
   -- Package = "ListJumboObject"
   -- ======================================================================
     function package.ListJumboObject( ldtMap )
     
     -- General Parameters
-    ldtMap[T.M_Transform] = nil;
-    ldtMap[T.M_UnTransform] = nil;
+    -- ldtMap[T.M_Transform];   -- Set Later if/when needed
+    -- ldtMap[T.M_UnTransform]; -- Set Later if/when needed
     ldtMap[T.R_StoreState] = SS_COMPACT; -- start in "compact mode"
     ldtMap[T.M_StoreMode] = SM_LIST; -- Use List Mode
-    ldtMap[T.R_BinaryStoreSize] = nil; -- Don't waste room if we're not using it
-    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Atomic Keys
+    -- ldtMap[T.R_BinaryStoreSize]; -- Set only when in Binary Mode
+    -- ldtMap[T.R_BinaryStoreSize]; -- Set only when in Binary Node
+    ldtMap[T.M_KeyType] = KT_COMPLEX; -- Complex object ("key" field or Func)
     ldtMap[T.R_Threshold] = DEFAULT_LARGE_THRESHOLD; -- Convert Compact to tree
-    ldtMap[T.M_KeyFunction] = nil; -- Assume Key Field in Map.
+    -- ldtMap[T.M_KeyFunction]; -- Set Later if/when needed
 
     -- Top Node Tree Root Directory
     ldtMap[T.R_RootListMax] = 100; -- Length of Key List (page list is KL + 1)
@@ -197,7 +199,7 @@ local package = {};
     ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
 
     -- LLIST Tree Leaves (Data Pages)
-    ldtMap[T.R_LeafListMax] = 8;  -- Max # of items
+    ldtMap[T.R_LeafListMax] = 5;  -- Max # of items
     ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
     return 0;
@@ -206,9 +208,9 @@ local package = {};
 
   -- ======================================================================
   -- This is the configuration for Large Ordered Lists that hold Large
-  -- Objects, which are assumed to be about 10 kilobytes.  With large objects,
-  -- we will be keeping our lists small so that we don't overflow the
-  -- B+ Tree Leaf pages.
+  -- Objects, which are assumed to be in the range of 1 to 10 kilobytes. 
+  -- With large objects, we will be keeping our lists small so that we
+  -- don't overflow the B+ Tree Leaf pages.
   --
   -- Package = "ListLargeObject"
   -- ======================================================================
@@ -308,12 +310,11 @@ local package = {};
     -- LLIST Inner Node Settings.  Note that these are keys, so we will 
     -- actually assume relatively small keys, even though the objs themselves
     -- are large.  Keep inner nodes as if they are 20 to 50 byte keys.
-    ldtMap[T.R_NodeListMax] = 200;  -- Max # of items (key+digest)
+    ldtMap[T.R_NodeListMax] = 500;  -- Max # of items (key+digest)
     ldtMap[T.R_NodeByteCountMax] = 0; -- Max # of BYTES
 
     -- LLIST Tree Leaves (Data Pages)
-    -- TODO: Raise this value to 500 when we switch to Binary Search.
-    ldtMap[T.R_LeafListMax] = 200;  -- Max # of items
+    ldtMap[T.R_LeafListMax] = 500;  -- Max # of items
     ldtMap[T.R_LeafByteCountMax] = 0; -- Max # of BYTES per data page
 
     return 0;
