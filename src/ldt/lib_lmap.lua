@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_09_23.A"; 
+local MOD="lib_lmap_2014_09_23.B"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -884,7 +884,6 @@ local function initializeLdtCtrl( topRec, ldtBinName )
 
   -- We allow or do NOT allow overwrites of values for a given name.
   ldtMap[M_OverWrite] = AS_TRUE; -- Start out flexible.
-
 
   -- Just like we have a COMPACT LIST for the entire Hash Table, we also
   -- have small lists that we'll keep in each Hash Cell -- to keep us from
@@ -3202,71 +3201,10 @@ function lmap.destroy( topRec, ldtBinName, src )
     src = ldt_common.createSubRecContext();
   end
 
-  -- Extract the property map and Ldt control map from the Ldt bin list.
-  local propMap = ldtCtrl[1]; 
-  local ldtMap = ldtCtrl[2]; 
+  ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl );
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
-  
-  GP=F and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
-    tostring( propMap ), ldtSummaryString( ldtCtrl ));
-
-  -- Get the ESR and delete it -- if it exists.  If we are in COMPACT MODE,
-  -- then the ESR will be ZERO.
-  local esrDigest = propMap[PM_EsrDigest];
-  if( esrDigest ~= nil and esrDigest ~= 0 ) then
-    GP=F and trace("[DEBUG]<%s:%s> ESR Digest exists", MOD, meth );
-    local esrDigestString = tostring(esrDigest);
-    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
-    local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
-    if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
-      if( rc == nil or rc == 0 ) then
-        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
-      else
-        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",MOD,meth,rc,ldtBinName);
-        error( ldte.ERR_SUBREC_DELETE );
-      end
-    else
-      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
-    end
-  else
-    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
-      MOD, meth, ldtBinName );
-  end
-  
-  -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
-  -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
-  local recPropMap = topRec[REC_LDT_CTRL_BIN];
-  if( recPropMap == nil or recPropMap[RPM_Magic] ~= MAGIC ) then
-    warn("[INTERNAL ERROR]<%s:%s> Prop Map for LDT Bin invalid, Contents %s",
-      MOD, meth, tostring(recPropMap) );
-    error( ldte.ERR_BIN_DAMAGED );
-  end
-
-  local ldtCount = recPropMap[RPM_LdtCount];
-  if( ldtCount <= 1 ) then
-    topRec[REC_LDT_CTRL_BIN] = nil; -- Remove the bin
-  else
-    GP=F and trace("[DEBUG]<%s:%s> LDT CTRL BIN: Decr LDT cnt", MOD, meth );
-    recPropMap[RPM_LdtCount] = ldtCount - 1;
-    topRec[REC_LDT_CTRL_BIN] = recPropMap;
-    record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-  end
-  
-  -- Mark the enitre control-info structure nil 
-  GP=F and trace("[DEBUG]<%s:%s> NULL out LDT Bin(%s)", MOD, meth, ldtBinName);
-  topRec[ldtBinName] = nil; -- Remove the bin
-
-  rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_TOPREC_UPDATE );
-  end 
-
-  GP=E and trace("[EXIT]: <%s:%s> : Done.  RC(%s)", MOD, meth, tostring(rc));
-
-  return rc;
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 end -- function lmap.destroy()
 
 -- ========================================================================

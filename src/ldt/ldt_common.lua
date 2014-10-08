@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_10_01.C";
+local MOD="ldt_common_2014_10_03.C";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -79,7 +79,7 @@ local DO_EARLY_SUBREC_UPDATES = true;
 -- ldt_common.updateSubRec( srcCtrl, subRec )
 -- ldt_common.markSubRecDirty( srcCtrl, digestString )
 -- ldt_common.closeAllSubRecs( srcCtrl )
--- ldt_common.removeSubRec( srcCtrl, digestString )
+-- ldt_common.removeSubRec( srcCtrl, topRec, digestString )
 --
 -- UTILITY FUNCTIONS (dump, summarize, etc)
 -- ldt_common.propMapSummary( resultMap, propMap )
@@ -1505,8 +1505,8 @@ end -- closeAllSubRecs()
 -- ======================================================================
 function ldt_common.removeSubRec( srcCtrl, topRec, digestString )
   local meth = "removeSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s) DigestStr(%s)", MOD, meth,
-    tostring(srcCtrl), tostring(digestString));
+  GP=E and trace("[ENTER]<%s:%s> SRC(%s) TopRec(%s) DigestStr(%s)", MOD, meth,
+    tostring(srcCtrl), tostring(topRec), tostring(digestString));
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
@@ -2480,7 +2480,7 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
       MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         propMap[PM_EsrDigest] = 0;
@@ -2508,29 +2508,23 @@ end -- removeEsr()
 -- control structure of the bin.  If this is the LAST LDT in the record,
 -- then ALSO remove the HIDDEN LDT CONTROL BIN.
 --
+-- The caller (the parent) has already validated the bin, type and codeVer,
+-- so that is not checked here.
+--
 -- Parms:
 -- (1) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (2) topRec: the user-level record holding the LDT Bin
 -- (3) ldtBinName: The name of the LDT Bin
 -- (4) ldtType: 
--- (5) codeVer: The LDT Code Version (must match the data version)
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
--- NOTE: This could eventually be moved to COMMON, and be "ldt_destroy()",
--- since it will work the same way for all LDTs.
--- Remove the ESR, Null out the topRec bin.
--- ========================================================================
-function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
+function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
   GP=B and trace("\n\n >>>>>>>>> API[ COMMON DESTROY ] <<<<<<<<<< \n");
   local meth = "localLdtDestroy()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
   local rc = 0; -- start off optimistic
-
-  -- Validate the BinName before moving forward
-  local ldtCtrl =
-    ldt_common.validateRecBinAndMap(topRec,ldtBinName,true,ldtType,codeVer);
 
   -- Extract the property map and LDT control map from the LDT bin list.
   -- local ldtCtrl = topRec[ ldtBinName ];
@@ -2539,16 +2533,8 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
   GP=D and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
     tostring( propMap ), tostring( ldtCtrl ));
 
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
-  -- compact list, then the ESR will be ZERO.
+  -- Get the ESR and delete it -- if it exists.  If we have not yet created
+  -- any sub-records, then the ESR will be ZERO.
   local esrDigest = propMap[PM_EsrDigest];
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
@@ -2556,16 +2542,17 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
       MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else
-        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",
-          MOD, meth, rc, ldtBinName);
+        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s) ESR Digest(%s)",
+          MOD, meth, rc, ldtBinName, esrDigestString);
         error( ldte.ERR_SUBREC_DELETE );
       end
     else
-      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
+      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR(%s) Open", MOD, meth,
+        esrDigestString);
     end
   else
     info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
@@ -2587,6 +2574,10 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtType, codeVer)
   if( ldtCount <= 1 ) then
     -- Remove the LDT Control bin
     topRec[REC_LDT_CTRL_BIN] = nil;
+    -- If we are actually removing the LAST LDT, and thus making this a
+    -- regular record again, then we have to UNSET the record type from
+    -- LDT to regular.  We do that by passing in a NEGATIVE value.
+    record.set_type( topRec, -(RT_LDT) );
   else
     recPropMap[RPM_LdtCount] = ldtCount - 1;
     topRec[REC_LDT_CTRL_BIN] = recPropMap;

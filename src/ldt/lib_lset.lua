@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_09_24.A"; 
+local MOD="lib_lset_2014_10_03.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -3070,14 +3070,6 @@ local function subRecInsert( src, topRec, ldtCtrl, newValue )
   local ldtMap  = ldtCtrl[2];
   local ldtBinName = propMap[PM_BinName];
 
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to rehash the compact list into the full directory structure.
   local totalCount = ldtMap[M_TotalCount];
@@ -3581,6 +3573,8 @@ local function topRecDestroy( topRec, ldtCtrl )
 
   -- Mark the enitre control-info structure nil.
   topRec[ldtBinName] = nil; -- Remove the LDT bin from the record.
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
 
 end -- topRecDestroy()
 
@@ -3595,52 +3589,21 @@ end -- topRecDestroy()
 -- Parms:
 -- (1) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (2) topRec: the user-level record holding the LDT Bin
--- (3) ldtCtrl: The LDT Control Structure.
+-- (3) ldtBinName: The LDT Bin
+-- (4) ldtCtrl: The LDT Control Structure.
 -- Result:
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
-local function subRecDestroy( src, topRec, ldtCtrl )
+local function subRecDestroy( src, topRec, ldtBinName, ldtCtrl )
   local meth = "LSET subRecDestroy()";
 
   GP=E and trace("[ENTER]: <%s:%s> LDT CTRL(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl));
-  local rc = 0; -- start off optimistic
 
-  -- Extract the property map and lso control map from the LDT Control
-  local propMap = ldtCtrl[1];
-  local ldtMap = ldtCtrl[2];
-  local binName = propMap[PM_BinName];
-
-  GP=F and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
-    tostring( propMap ), ldtSummaryString( ldtCtrl ));
-
-  -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
-  -- compact list, then the ESR will be ZERO.
-  local esrDigest = propMap[PM_EsrDigest];
-  if( esrDigest ~= nil and esrDigest ~= 0 ) then
-    local esrDigestString = tostring(esrDigest);
-    info("[SUBREC OPEN]<%s:%s> Digest(%s)", MOD, meth, esrDigestString );
-    local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
-    if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
-      if( rc == nil or rc == 0 ) then
-        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
-      else
-        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)", MOD, meth, rc, binName);
-        error( ldte.ERR_SUBREC_DELETE );
-      end
-    else
-      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
-    end
-  else
-    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
-    MOD, meth, binName );
-  end
-
-  topRec[binName] = nil; -- remove the bin from the record.
+  ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl );
+  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
   return 0;
-
 end -- subRecDestroy()
 
 -- ======================================================================
@@ -4207,25 +4170,27 @@ function lset.destroy( topRec, ldtBinName, src )
       MOD, meth );
     error( ldte.ERR_INTERNAL );
   end
-  local ldtCount = recPropMap[RPM_LdtCount];
-  if( ldtCount <= 1 ) then
-    -- This is the last LDT -- remove the LDT Control Property Bin
-    topRec[REC_LDT_CTRL_BIN] = nil;
-  else
-    recPropMap[RPM_LdtCount] = ldtCount - 1;
-    topRec[REC_LDT_CTRL_BIN] = recPropMap;
-    record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-  end
-
-  local resultObject;
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
   then
-    -- Use the SubRec style Destroy
-    resultObject = subRecDestroy( src, topRec, ldtCtrl );
+    -- Use the SubRec style Destroy.  It does everything.
+    subRecDestroy( src, topRec, ldtBinName, ldtCtrl );
   else
     -- Use the TopRec style Destroy (this is default if the subrec style
     -- is not specifically requested).
-    resultObject = topRecDestroy( topRec, ldtCtrl );
+    topRecDestroy( topRec, ldtCtrl );
+    local ldtCount = recPropMap[RPM_LdtCount];
+    if( ldtCount <= 1 ) then
+      -- This is the last LDT -- remove the LDT Control Property Bin
+      topRec[REC_LDT_CTRL_BIN] = nil;
+      -- If we are actually removing the LAST LDT, and thus making this a
+      -- regular record again, then we have to UNSET the record type from
+      -- LDT to regular.  We do that by passing in a NEGATIVE value.
+      record.set_type( topRec, -(RT_LDT) );
+    else
+      recPropMap[RPM_LdtCount] = ldtCount - 1;
+      topRec[REC_LDT_CTRL_BIN] = recPropMap;
+      record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
+    end
   end
 
   -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,

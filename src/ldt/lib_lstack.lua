@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_09_17.A";
+local MOD="lib_lstack_2014_10_03.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -4810,8 +4810,7 @@ function lstack.destroy( topRec, ldtBinName, src )
 
   -- Validate the Bin Name before moving forward
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-  local ldtList = topRec[ ldtBinName ];
-  local propMap = ldtList[1];
+  local propMap = ldtCtrl[1];
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -4821,61 +4820,8 @@ function lstack.destroy( topRec, ldtBinName, src )
     src = ldt_common.createSubRecContext();
   end
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl );
 
-  -- Get the ESR and delete it -- if it exists.  If we have ONLY a HotList,
-  -- then the ESR will be ZERO.
-  local esrDigest = propMap[PM_EsrDigest];
-  if( esrDigest ~= nil and esrDigest ~= 0 ) then
-    local esrDigestString = tostring(esrDigest);
-    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",MOD,meth,esrDigestString);
-    local esrRec = ldt_common.openSubRec( src, topRec, esrDigestString );
-    if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
-      if( rc == nil or rc == 0 ) then
-        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
-      else
-        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s)",MOD,meth,rc,ldtBinName);
-        error( ldte.ERR_SUBREC_DELETE );
-      end
-    else
-      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
-    end
-  else
-    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
-      MOD, meth, ldtBinName );
-  end
-
-  -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
-  -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
-  local recPropMap = topRec[REC_LDT_CTRL_BIN];
-  if( recPropMap == nil or recPropMap[RPM_Magic] ~= MAGIC ) then
-    warn("[INTERNAL ERROR]<%s:%s> Prop Map for LDT Hidden Bin(%s) invalid",
-      MOD, meth, REC_LDT_CTRL_BIN );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  local ldtCount = recPropMap[RPM_LdtCount];
-  if( ldtCount <= 1 ) then
-    -- Remove this bin
-    topRec[REC_LDT_CTRL_BIN] = nil;
-  else
-    recPropMap[RPM_LdtCount] = ldtCount - 1;
-    topRec[REC_LDT_CTRL_BIN] = recPropMap;
-    -- Set this control bin as HIDDEN
-    record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
-  end
-
-  -- Null out the LDT bin and update the record.
-  topRec[ldtBinName] = nil;
-
-  -- Update the Top Record.  Not sure if this returns nil or ZERO for ok,
-  -- so just turn any NILs into zeros.
-  rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_TOPREC_UPDATE );
-  end 
   GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
   return 0;
 end -- lstack.destroy()
@@ -4931,9 +4877,8 @@ function lstack.validate( topRec, ldtBinName, src, resultMap )
 
   -- Validate the Bin Name and ldtCtrl before moving forward
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-  local ldtList = topRec[ ldtBinName ];
-  local propMap = ldtList[1];
-  local  ldtMap = ldtList[2];
+  local propMap = ldtCtrl[1];
+  local  ldtMap = ldtCtrl[2];
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
