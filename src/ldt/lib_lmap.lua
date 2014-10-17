@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_09_23.B"; 
+local MOD="lib_lmap_2014_10_17.B"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -163,7 +163,7 @@ local DEFAULT_HASH_STATE = HS_STATIC;
 -- Initial Size of of a STATIC Hash Table.   Once we start to use Linear
 -- Hashing (dynamic growth) we'll set the initial size to be small.
 -- The Hash Directory has a default starting size that can be overwritten.
-local DEFAULT_HASH_MODULO = 512;
+local DEFAULT_HASH_MODULO = 256;
 
 -- The Hash Directory has a "number of bits" (hash depth) that it uses to
 -- to calculate calculate the current hash value.
@@ -1702,6 +1702,13 @@ local function compactInsert( ldtCtrl, newName, newValue )
     error( ldte.ERR_INTERNAL );
   end
 
+  -- Prepare the value for storage (either overwrite or append).
+  local storeValue = newValue;
+  if( G_Transform ~= nil ) then
+    storeValue = G_Transform( newValue );
+  end
+
+  -- Look for the right place to put it.
   local position = searchList( nameList, newName );
   -- If we find it, then we will either OVERWRITE or generate an error.
   -- If we overwrite, then we MUST NOT INCREMENT THE COUNT.
@@ -1711,18 +1718,16 @@ local function compactInsert( ldtCtrl, newName, newValue )
                  MOD, meth, tostring(newName), tostring(newValue));
       error( ldte.ERR_UNIQUE_KEY );
     else
+      -- For the same name, we are going to write a new value at position P.
       rc = RESULT_OVERWRITE;
+      valueList[position] = storeValue;
     end
+  else
+    -- Store the name in the name list.  If we're doing transforms, do that on
+    -- the value (done above) and then store it in the valueList.
+    list.append( nameList, newName );
+    list.append( valueList, storeValue );
   end
-
-  -- Store the name in the name list.  If we're doing transforms, do that on
-  -- the value and then store it in the valueList.
-  list.append( nameList, newName );
-  local storeValue = newValue;
-  if( G_Transform ~= nil ) then
-    storeValue = G_Transform( newValue );
-  end
-  list.append( valueList, storeValue );
 
   GP=E and trace("[EXIT]<%s:%s>Name(%s) Value(%s) N List(%s) V List(%s) rc(%d)",
      MOD, meth, tostring(newName), tostring(newValue), 
