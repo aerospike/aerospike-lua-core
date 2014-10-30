@@ -163,7 +163,7 @@ local DEFAULT_HASH_STATE = HS_STATIC;
 -- Initial Size of of a STATIC Hash Table.   Once we start to use Linear
 -- Hashing (dynamic growth) we'll set the initial size to be small.
 -- The Hash Directory has a default starting size that can be overwritten.
-local DEFAULT_HASH_MODULO = 256;
+local DEFAULT_HASH_MODULO = 512;
 
 -- The Hash Directory has a "number of bits" (hash depth) that it uses to
 -- to calculate calculate the current hash value.
@@ -171,12 +171,13 @@ local DEFAULT_HASH_MODULO = 256;
 --
 -- Switch from a single list to distributed lists after this amount, i.e.
 -- convert the compact list to a hash directory of cells.
-local DEFAULT_THRESHOLD = 20;
+local DEFAULT_THRESHOLD = 10;
 --local DEFAULT_THRESHOLD = 5; (Temporary Test Value)
 
--- Max size of a Hash Cell List before we switch to a Sub-Record.
-local DEFAULT_BINLIST_THRESHOLD = 4;
--- local DEFAULT_BINLIST_THRESHOLD = 1; (Temp Test Value)
+-- Switch from a SMALL list in the cell anchor to a full Sub-Rec.
+-- We've set this to ZERO as a default, because any significant
+-- size object can cause use to exceed the TopRecord Size.
+local DEFAULT_BINLIST_THRESHOLD = 0;
 
 local MAGIC="MAGIC";     -- the magic value for Testing LDT integrity
 

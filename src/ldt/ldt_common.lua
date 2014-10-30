@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_10_03.C";
+local MOD="ldt_common_2014_10_29.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -39,12 +39,11 @@ local G_LDT_VERSION = 2;
 -- (*) "B" is used for BANNER prints
 -- (*) DEBUG is used for larger structure content dumps.
 -- ======================================================================
-local GP;      -- Global Print Instrument
+local GP;      -- Global Print/Debug Instrument
 local F=false; -- Set F (flag) to true to turn ON global print
 local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local D=false; -- Set D (Detail) to true to turn (verbose) Details Prints
-local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
@@ -52,6 +51,11 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- Currently this must be turned ON in order to bypass a bug in the sub-Rec
 -- support code.
 local DO_EARLY_SUBREC_UPDATES = true;
+
+-- We need this for being able to figure out the exact type of USERDATA
+-- objects.
+local Map = getmetatable( map() );
+local List = getmetatable( list() );
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -79,7 +83,7 @@ local DO_EARLY_SUBREC_UPDATES = true;
 -- ldt_common.updateSubRec( srcCtrl, subRec )
 -- ldt_common.markSubRecDirty( srcCtrl, digestString )
 -- ldt_common.closeAllSubRecs( srcCtrl )
--- ldt_common.removeSubRec( srcCtrl, topRec, digestString )
+-- ldt_common.removeSubRec( srcCtrl, topRec, propMap, digestString )
 --
 -- UTILITY FUNCTIONS (dump, summarize, etc)
 -- ldt_common.propMapSummary( resultMap, propMap )
@@ -87,6 +91,7 @@ local DO_EARLY_SUBREC_UPDATES = true;
 -- ldt_common.dumpList( myList )
 -- ldt_common.summarizeMap( myMap )
 -- ldt_common.dumpMap( myMap )
+-- ldt_common.dumpValue( myValue )
 --
 -- VALIDATION FUNCTIONS
 -- ldt_common.validateBinName( ldtBinName )
@@ -706,9 +711,9 @@ function ldt_common.propMapSummary( resultMap, propMap )
   resultMap.PropMagic            = propMap[PM_Magic];
   resultMap.PropCreateTime       = propMap[PM_CreateTime];
   resultMap.PropEsrDigest        = propMap[PM_EsrDigest];
-  resultMap.RecType              = propMap[PM_RecType];
-  resultMap.ParentDigest         = propMap[PM_ParentDigest];
-  resultMap.SelfDigest           = propMap[PM_SelfDigest];
+  resultMap.PropRecType          = propMap[PM_RecType];
+  resultMap.PropParentDigest     = propMap[PM_ParentDigest];
+  resultMap.PropSelfDigest       = propMap[PM_SelfDigest];
 end -- function propMapSummary()
 
 
@@ -1062,10 +1067,10 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we should try a "CLEAN" to free up some slots.  If that fails, then
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
-  GD=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
+  GP=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
   if( itemCount >= cleanThreshold ) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
-    GD=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
+    GP=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl));
 
     -- Reset the local var after clean
     itemCount = recMap.ItemCount;
@@ -1198,7 +1203,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
   local subRec = recMap[digestString];
   if( subRec == nil ) then
-    GD=DEBUG and trace("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)",
+    GP=DEBUG and trace("[Notice]<%s:%s>Did NOT find DG(%s) in the recMap(%s)",
       MOD, meth, tostring(digestString), tostring( recMap ));
 
     -- Check our counts -- if we have a lot of open sub-recs, then try to
@@ -1207,10 +1212,10 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     -- If we hit the max and we STILL need more, then return with ERROR.
     -- Notice that "createESR" doesn't need to check the
     -- counts because by definition it's the FIRST SUB-REC.
-    GD=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
+    GP=DEBUG and trace("[DEBUG]<%s:%s> SR Count(%d)", MOD, meth, itemCount);
     if( itemCount >= cleanThreshold ) then
       cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
-      GD=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)",
+      GP=DEBUG and trace("[DEBUG]<%s:%s> SRC(%s)",
         MOD, meth, tostring(srcCtrl));
 
       -- Reset the local var after clean (clean() changed it).
@@ -1503,7 +1508,7 @@ end -- closeAllSubRecs()
 -- ======================================================================
 -- Remove this SubRec from the pool and also close system
 -- ======================================================================
-function ldt_common.removeSubRec( srcCtrl, topRec, digestString )
+function ldt_common.removeSubRec( srcCtrl, topRec, propMap, digestString )
   local meth = "removeSubRec()";
   GP=E and trace("[ENTER]<%s:%s> SRC(%s) TopRec(%s) DigestStr(%s)", MOD, meth,
     tostring(srcCtrl), tostring(topRec), tostring(digestString));
@@ -1542,6 +1547,11 @@ function ldt_common.removeSubRec( srcCtrl, topRec, digestString )
 
   local rc = aerospike:remove_subrec( subRec );
   rc = rc or 0; -- set to ZERO if null.
+
+  -- We now have one less sub-rec.  Decrement the global count for
+  -- this LDT.
+  local subRecCount = propMap[PM_SubRecCount];
+  propMap[PM_SubRecCount] = subRecCount - 1;
 
   GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
   return rc; -- Mask the error for now:: TODO::@TOBY::Figure this out.
@@ -1739,8 +1749,7 @@ end -- ldt_common.validateRecBinAndMap()
 --   TRUE if the bin holds a valid LDT of the specified type
 --   FALSE if anything is wrong.
 -- ======================================================================
-function
-ldt_common.checkBin( topRec, ldtBinName, ldtType )
+function ldt_common.checkBin( topRec, ldtBinName, ldtType )
   local meth = "ldt_common.checkBin()";
   GP=E and trace("[ENTER]<%s:%s> BinName(%s) ldtType(%s)", MOD, meth,
     tostring(ldtBinName), tostring(ldtType));
@@ -1770,6 +1779,60 @@ ldt_common.checkBin( topRec, ldtBinName, ldtType )
   GP=E and trace("[EXIT]<%s:%s> result(%s)", MOD, meth, tostring(result));
   return result;
 end -- ldt_common.checkBin()
+
+-- ======================================================================
+-- validateLdtBin():
+-- ======================================================================
+-- Look into the soul of the bin and see if there is a valid instance of
+-- the specified LDT in there.  If anything is wrong, we will "error out".
+--
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName: User's Name for the LDT Bin
+-- (*) ldtType: Caller must tell us the type of LDT
+-- ======================================================================
+function ldt_common.validateLdtBin( topRec, ldtBinName, ldtType)
+  local meth = "ldt_common.validateLdtBin()";
+  GP=E and trace("[ENTER]<%s:%s> BinName(%s) ",MOD,meth,tostring(ldtBinName));
+
+  -- We assume that the caller has already checked the validity of the
+  -- LDT Bin Name, and also figured out if the Top Record needs to be
+  -- there or not.  Once that is determined, then we do the checks for
+  -- the LDT Control Structure -- to see if everything is the right type.
+  -- Check that ldtCtrl is a LIST, and the first element is a MAP, where
+  -- the Map (the Prop Map) has MAGIC.
+  local ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
+  if ( not  ldtCtrl ) then
+    debug("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
+      MOD, meth, tostring(ldtBinName) );
+    error( ldte.ERR_BIN_DOES_NOT_EXIST );
+  end
+
+  local propMap;
+  if getmetatable(ldtCtrl) == List then
+    propMap = ldtCtrl[1];
+    if getmetatable(propMap) == Map then
+      -- Extract the property map and Ldt control map from the Ldt bin list.
+      if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= ldtType then
+        warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
+          MOD, meth, tostring( ldtBinName ) );
+        error( ldte.ERR_BIN_DAMAGED );
+      end
+    else
+      warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) is lacking a Property Map",
+        MOD, meth, tostring( ldtBinName ) );
+      error( ldte.ERR_BIN_DAMAGED );
+    end
+  else
+    warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) is not a proper Control Obj",
+      MOD, meth, tostring( ldtBinName ) );
+    error( ldte.ERR_BIN_DAMAGED );
+  end
+
+  -- If we get this far, all is well.
+  GP=E and trace("[EXIT]<%s:%s> LDT VALID", MOD, meth);
+  return ldtCtrl, propMap;
+end -- ldt_common.validateLdtBin()
 
 -- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
@@ -1902,6 +1965,44 @@ function ldt_common.dumpMap( myMap, msg )
 end -- ldt_common.dumpMap()
 
 -- ======================================================================
+-- ldt_common.dumpValue( myValue )
+-- ======================================================================
+-- If the value is either a LIST or a MAP, iterate thru the pieces and
+-- print out each part, otherwise dump the whole thing.
+-- ======================================================================
+function ldt_common.dumpValue( myValue )
+  info("ENTER DUMP VALUE");
+
+  if( myValue == nil ) then
+     info("NULL VALUE");
+     return;
+  end
+
+  info("\n <<<<> DUMP VALUE : Type(%s)<>>>>", type(myValue));
+
+  -- Iterate thru the map (myMap) and print items, one per line
+  if ( getmetatable(myValue) == Map ) then
+    info("Value is a MAP:");
+    for name, value in map.pairs( myValue ) do
+      if name and value then
+        info("Name(%s) Value(%s)", tostring(name), tostring(value));
+      end
+    end -- for each pair
+
+  elseif ( getmetatable(myValue) == List ) then
+    info("Value is a LIST:");
+    for i = 1, #myValue do
+      info("I[%d]= (%s)", i, tostring(myValue[i]));
+    end
+  else
+    info("Value is OTHER:");
+    info("Value(%s)", tostring(myValue));
+  end
+  info("\n<>>>>> END OF Value DUMP <<<<>");
+
+end -- ldt_common.dumpValue()
+
+-- ======================================================================
 -- ldt_common.listUpdate()
 -- ======================================================================
 -- General List Insert function that can be used to UPDATE (overwrite
@@ -2022,8 +2123,8 @@ function ldt_common.listDelete( objectList, position )
   meth, tostring(objectList), listSize, tostring(position) );
 
   if( position < 1 or position > listSize ) then
-    warn("[DELETE ERROR]<%s:%s> Bad position(%d) for delete.",
-      MOD, meth, position );
+    warn("[DELETE ERROR]<%s:%s> Bad position(%d) for delete. ListSize(%d)",
+      MOD, meth, position, #objectList);
     error( ldte.ERR_DELETE );
   end
 
@@ -2425,6 +2526,7 @@ function ldt_common.setLdtRecordType( topRec )
     recPropMap[RPM_VInfo] = vinfo; 
     recPropMap[RPM_LdtCount] = 1; -- this is the first one.
     recPropMap[RPM_Magic] = MAGIC;
+    recPropMap[RPM_SelfDigest] = record.digest(topRec);
   else
     -- Not much to do -- increment the LDT count for this record.
     recPropMap = topRec[REC_LDT_CTRL_BIN];
@@ -2471,16 +2573,29 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
   GP=E and trace("[ENTER]: <%s:%s> ", MOD, meth );
   local rc = 0; -- start off optimistic
 
+  GP=D and trace("[DEBUG]<%s:%s> PropMap(%s)", MOD, meth, tostring(propMap));
+
   -- Get the ESR and delete it -- if it exists.  If we have ONLY an initial
   -- compact list, then the ESR will be ZERO.
   local esrDigest = propMap[PM_EsrDigest];
   if( esrDigest ~= nil and esrDigest ~= 0 ) then
     local esrDigestString = tostring(esrDigest);
-    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",
+    GP=F and trace("[SUBREC Remove]<%s:%s> Digest(%s)",
       MOD, meth, esrDigestString );
+    rc = ldt_common.removeSubRec( src, topRec, propMap, esrDigestString );
+    if( rc == nil or rc == 0 ) then
+      GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
+      propMap[PM_EsrDigest] = 0;
+    else
+      warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s) ESR(%s)",
+        MOD, meth, rc, ldtBinName, esrDigestString);
+      error( ldte.ERR_SUBREC_DELETE );
+    end
+
+    --[[
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, propMap, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
         propMap[PM_EsrDigest] = 0;
@@ -2492,6 +2607,8 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
     else
       warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR Open", MOD, meth );
     end
+    --]]
+    --
   else
     info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
     MOD, meth, ldtBinName );
@@ -2542,7 +2659,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
       MOD, meth, esrDigestString );
     local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
     if( esrRec ~= nil ) then
-      rc = ldt_common.removeSubRec( src, topRec, esrDigestString );
+      rc = ldt_common.removeSubRec( src, topRec, propMap, esrDigestString );
       if( rc == nil or rc == 0 ) then
         GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
       else

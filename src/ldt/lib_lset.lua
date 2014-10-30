@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_10_03.A"; 
+local MOD="lib_lset_2014_10_24.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -285,10 +285,12 @@ local AS_FALSE='F';
 local DEFAULT_MODULO = 512;
 
 -- Switch from a single list to distributed lists after this amount
-local DEFAULT_THRESHOLD = 20;
+local DEFAULT_THRESHOLD = 10;
 
 -- Switch from a SMALL list in the cell anchor to a full Sub-Rec.
-local DEFAULT_BINLIST_THRESHOLD = 4;
+-- We've set this to ZERO as a default, because any significant
+-- size object can cause use to exceed the TopRecord Size.
+local DEFAULT_BINLIST_THRESHOLD = 0;
 
 -- Define the default value for the "Unique Identifier" function.
 -- User can override the function name, if they so choose.
