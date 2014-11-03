@@ -30,7 +30,9 @@ local MOD="ext_lmap_2014_08_06.A";
 -- Status = put( topRec, ldtBinName, newName, newValue, userModule) 
 -- Status = put_all( topRec, ldtBinName, nameValueMap, userModule)
 -- List   = get( topRec, ldtBinName, searchName )
--- List   = scan( topRec, ldtBinName )
+-- List   = exists( topRec, ldtBinName, searchName )
+-- Map    = scan( topRec, ldtBinName )
+-- List   = name_list( topRec, ldtBinName )
 -- List   = filter( topRec, ldtBinName, userModule, filter, fargs )
 -- Object = remove( topRec, ldtBinName, searchName )
 -- Status = destroy( topRec, ldtBinName )
@@ -85,13 +87,28 @@ end -- put_all()
 
 -- ========================================================================
 -- get() -- Return a map containing the requested name/value pair.
--- scan() -- Return a map containing ALL name/value pairs.
--- ========================================================================
 -- ========================================================================
 function get( topRec, ldtBinName, searchName )
   return lmap.get(topRec, ldtBinName, searchName, nil, nil, nil, nil);
 end -- get()
 
+-- ========================================================================
+-- exists() -- Return 1 if the item exists, else return 0.
+-- ========================================================================
+function exists( topRec, ldtBinName, searchName )
+  return lmap.exists(topRec, ldtBinName, searchName);
+end -- exists()
+
+-- ========================================================================
+-- keyList() -- Return a list containing ALL name/value pairs.
+-- ========================================================================
+function scan( topRec, ldtBinName )
+  return lmap.scan(topRec, ldtBinName, nil, nil, nil, nil);
+end -- scan()
+
+-- ========================================================================
+-- scan() -- Return a map containing ALL name/value pairs.
+-- ========================================================================
 function scan( topRec, ldtBinName )
   return lmap.scan(topRec, ldtBinName, nil, nil, nil, nil);
 end -- scan()

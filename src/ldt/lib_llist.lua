@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_10_29.A";
+local MOD="lib_llist_2014_11_03.C";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -62,6 +62,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 -- (*) List   = llist.find(topRec,ldtBinName,val,userModule,filter,fargs, src)
 -- ( ) Object = llist.find_min(topRec,ldtBinName, src)
 -- ( ) Object = llist.find_max(topRec,ldtBinName, src)
+-- ( ) Number = llist.exists(topRec, ldtBinName, val, src)
 -- ( ) List   = llist.take(topRec,ldtBinName,val,userModule,filter,fargs, src)
 -- ( ) Object = llist.take_min(topRec,ldtBinName, src)
 -- ( ) Object = llist.take_max(topRec,ldtBinName, src)
@@ -1032,30 +1033,8 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
     -- This will "error out" if anything is wrong.
-    ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
+    ldtCtrl, propMap = ldt_common.validateLdtBin(topRec, ldtBinName, LDT_TYPE);
 
---  -- check that our bin is (mostly) there, that it is a LIST and that
---  -- the first element is a MAP.
---  ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
---  if getmetatable(ldtCtrl) == List then
---    propMap = ldtCtrl[1];
---    if getmetatable(propMap) == Map then
---      -- Extract the property map and Ldt control map from the Ldt bin list.
---      if propMap[PM.Magic] ~= MAGIC or propMap[PM.LdtType] ~= LDT_TYPE then
---        warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
---              MOD, meth, tostring( ldtBinName ) );
---        error( ldte.ERR_BIN_DAMAGED );
---      end
---    else
---      warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) is lacking a Property Map",
---            MOD, meth, tostring( ldtBinName ) );
---      error( ldte.ERR_BIN_DAMAGED );
---    end
---  else
---    warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) is not a proper Control Obj",
---          MOD, meth, tostring( ldtBinName ) );
---    error( ldte.ERR_BIN_DAMAGED );
---  end
     -- Ok -- all done for the Must Exist case.
   else
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
@@ -1063,13 +1042,6 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
     -- then it MUST have magic.
     if ( topRec and topRec[ldtBinName] ) then
       ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
---    ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
---    propMap = ldtCtrl[1];
---    if propMap and propMap[PM.Magic] ~= MAGIC then
---      GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
---            MOD, meth, tostring( ldtBinName ) );
---      error( ldte.ERR_BIN_DAMAGED );
---    end
     end -- if worth checking
   end -- else for must exist
 
@@ -6534,6 +6506,33 @@ function llist.find_min( topRec,ldtBinName, src)
   -- we got this far, then we are supposed to have a valid resultList.
   return resultList;
 end -- function llist.find_min() 
+
+-- =======================================================================
+-- llist.exists()
+-- =======================================================================
+-- Return 1 if the value (object/key) exists, otherwise return 0.
+--
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName:
+-- (*) value
+-- (*) src
+-- Result:
+-- (*) 1 if value exists, 0 if it does not.
+-- (*) Error:   error() function is called to jump out of Lua.
+-- =======================================================================
+function llist.exists(topRec,ldtBinName,value,src)
+  GP=B and info("\n\n >>>>>>>>>>>> API[ LLIST EXISTS ] <<<<<<<<<<< \n");
+  local meth = "llist.exists()";
+  GP=E and trace("[ENTER]<%s:%s> bin(%s) Value(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(value));
+
+  warn("[ERROR]<%s:%s> Function Under Construction", MOD, meth);
+  error(ldte.ERR_INTERNAL);
+
+  return 0;
+
+end -- llist.exists()
 
 -- =======================================================================
 -- llist.range() - Locate all items in the range of minKey to maxKey.

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_10_27.A";
+local MOD="lib_lstack_2014_11_02.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -2994,14 +2994,117 @@ local function hotListTransfer( src, topRec, ldtCtrl )
   return rc;
 end -- hotListTransfer()
 
+-- 
+-- -- ======================================================================
+-- -- validateRecBinAndMap():
+-- -- ======================================================================
+-- -- Check that the topRec, the BinName and CrtlMap are valid, otherwise
+-- -- jump out with an error() call. Notice that we look at different things
+-- -- depending on whether or not "mustExist" is true.
+-- -- Parms:
+-- -- (*) topRec:
+-- -- ======================================================================
+-- local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
+--   local meth = "validateRecBinAndMap()";
+--   GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
+--     MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
+-- 
+--   -- Start off with validating the bin name -- because we might as well
+--   -- flag that error first if the user has given us a bad name.
+--   ldt_common.validateBinName( ldtBinName );
+-- 
+--   local ldtCtrl;
+--   local propMap;
+-- 
+--   -- If "mustExist" is true, then several things must be true or we will
+--   -- throw an error.
+--   -- (*) Must have a record.
+--   -- (*) Must have a valid Bin
+--   -- (*) Must have a valid Map in the bin.
+--   --
+--   -- Otherwise, If "mustExist" is false, then basically we're just going
+--   -- to check that our bin includes MAGIC, if it is non-nil.
+--   -- TODO : Flag is true for get, config, size, delete etc 
+--   -- Those functions must be added b4 we validate this if section 
+-- 
+--   if mustExist then
+--     -- Check Top Record Existence.
+--     if( not aerospike:exists( topRec ) ) then
+--       debug("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+--       error( ldte.ERR_TOP_REC_NOT_FOUND );
+--     end
+--      
+--     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
+--     if ( not  topRec[ldtBinName] ) then
+--       debug("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
+--             MOD, meth, tostring(ldtBinName) );
+--       error( ldte.ERR_BIN_DOES_NOT_EXIST );
+--     end
+-- 
+--     -- check that our bin is (mostly) there
+--     ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
+--     propMap = ldtCtrl[1];
+-- 
+--     -- Extract the property map and Ldt control map from the Ldt bin list.
+--     if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= LDT_TYPE then
+--       GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
+--             MOD, meth, tostring( ldtBinName ) );
+--       error( ldte.ERR_BIN_DAMAGED );
+--     end
+--     -- Ok -- all done for the Must Exist case.
+--   else
+--     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
+--     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
+--     -- then it MUST have magic.
+--     if ( topRec and topRec[ldtBinName] ) then
+--       ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
+--       propMap = ldtCtrl[1];
+--       if propMap and propMap[PM_Magic] ~= MAGIC then
+--         GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
+--               MOD, meth, tostring( ldtBinName ) );
+--         error( ldte.ERR_BIN_DAMAGED );
+--       end
+--     end -- if worth checking
+--   end -- else for must exist
+-- 
+--   -- Finally -- let's check the version of our code against the version
+--   -- in the data.  If there's a mismatch, then kick out with an error.
+--   -- Although, we check this in the "must exist" case, or if there's 
+--   -- a valid propMap to look into.
+--   if ( mustExist or propMap ) then
+--     local dataVersion = propMap[PM_Version];
+--     if ( not dataVersion or type(dataVersion) ~= "number" ) then
+--       dataVersion = 0; -- Basically signals corruption
+--     end
+-- 
+--     if( G_LDT_VERSION > dataVersion ) then
+--       warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+--         MOD, meth, G_LDT_VERSION, dataVersion );
+--       warn("[Please reload data:: Automatic Data Upgrade not yet available");
+--       error( ldte.ERR_VERSION_MISMATCH );
+--     end
+--   end -- final version check
+-- 
+--   GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
+--   return ldtCtrl; -- Save the caller the effort of extracting the map.
+-- end -- validateRecBinAndMap()
+-- 
+
+-- VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+-- VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+
+
 -- ======================================================================
 -- validateRecBinAndMap():
--- ======================================================================
 -- Check that the topRec, the BinName and CrtlMap are valid, otherwise
 -- jump out with an error() call. Notice that we look at different things
 -- depending on whether or not "mustExist" is true.
 -- Parms:
--- (*) topRec:
+-- (*) topRec: the Server record that holds the Large Map Instance
+-- (*) ldtBinName: The name of the bin for the Large Map
+-- (*) mustExist: if true, complain if the ldtBin  isn't perfect.
+-- Result:
+--   If mustExist == true, and things Ok, return ldtCtrl.
 -- ======================================================================
 local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   local meth = "validateRecBinAndMap()";
@@ -3029,7 +3132,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   if mustExist then
     -- Check Top Record Existence.
     if( not aerospike:exists( topRec ) ) then
-      debug("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+      debug("[ERROR EXIT]:<%s:%s>:Missing Top Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
      
@@ -3039,30 +3142,16 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
+    -- This will "error out" if anything is wrong.
+    ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
 
-    -- check that our bin is (mostly) there
-    ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
-    propMap = ldtCtrl[1];
-
-    -- Extract the property map and Ldt control map from the Ldt bin list.
-    if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= LDT_TYPE then
-      GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
-            MOD, meth, tostring( ldtBinName ) );
-      error( ldte.ERR_BIN_DAMAGED );
-    end
     -- Ok -- all done for the Must Exist case.
   else
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
     if ( topRec and topRec[ldtBinName] ) then
-      ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
-      propMap = ldtCtrl[1];
-      if propMap and propMap[PM_Magic] ~= MAGIC then
-        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
-              MOD, meth, tostring( ldtBinName ) );
-        error( ldte.ERR_BIN_DAMAGED );
-      end
+      ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
     end -- if worth checking
   end -- else for must exist
 
@@ -3087,6 +3176,10 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
   return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
+
+
+-- AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+-- AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 -- ========================================================================
 -- buildSubRecList()

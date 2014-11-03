@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_10_17.B"; 
+local MOD="lib_lmap_2014_11_03.D"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -57,7 +57,9 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- (*) Status = lmap.put( topRec, ldtBinName, newName, newValue, userModule) 
 -- (*) Status = lmap.put_all( topRec, ldtBinName, nameValueMap, userModule)
 -- (*) Map    = lmap.get( topRec, ldtBinName, searchName )
+-- (*) Map    = lmap.exist( topRec, ldtBinName, searchName )
 -- (*) Map    = lmap.scan( topRec, ldtBinName, userModule, filter, fargs )
+-- (*) List   = lmap.nameList( topRec, ldtBinName )
 -- (*) Status = lmap.remove( topRec, ldtBinName, searchName )
 -- (*) Status = lmap.destroy( topRec, ldtBinName )
 -- (*) Number = lmap.size( topRec, ldtBinName )
@@ -221,7 +223,7 @@ local KH_DEFAULT="keyHash";         -- Key Hash used only in complex mode
 -- come back to bite me.
 -- (1) As a flag in record.set_type() -- where the index bits need to show
 --     the TYPE of record (CDIR NOT used in this context)
--- (2) As a TYPE in our own propMap[PM_RecType] field: CDIR *IS* used here.
+-- (2) As a TYPE in our own propMap[PM.RecType] field: CDIR *IS* used here.
 local RT_REG = 0; -- 0x0: Regular Record (Here only for completeneness)
 local RT_LDT = 1; -- 0x1: Top Record (contains an LDT)
 local RT_SUB = 2; -- 0x2: Regular Sub Record (LDR, CDIR, etc)
@@ -246,18 +248,20 @@ local RPM_SelfDigest           = 'D';  -- Digest of this record
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields common for all LDT's
-local PM_ItemCount             = 'I'; -- (Top): Count of all items in LDT
-local PM_Version               = 'V'; -- (Top): Code Version
-local PM_SubRecCount           = 'S'; -- (Top): # of sub-recs in the LDT
-local PM_LdtType               = 'T'; -- (Top): Type: stack, set, map, list
-local PM_BinName               = 'B'; -- (Top): LDT Bin Name
-local PM_Magic                 = 'Z'; -- (All): Special Sauce
-local PM_CreateTime			   = 'C';
-local PM_EsrDigest             = 'E'; -- (All): Digest of ESR
-local PM_RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
-local PM_LogInfo               = 'L'; -- (All): Log Info (currently unused)
-local PM_ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
-local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
+local PM = {
+  ItemCount             = 'I'; -- (Top): Count of all items in LDT
+  Version               = 'V'; -- (Top): Code Version
+  SubRecCount           = 'S'; -- (Top): # of sub-recs in the LDT
+  LdtType               = 'T'; -- (Top): Type: stack, set, map, list
+  BinName               = 'B'; -- (Top): LDT Bin Name
+  Magic                 = 'Z'; -- (All): Special Sauce
+  CreateTime			   = 'C';
+  EsrDigest             = 'E'; -- (All): Digest of ESR
+  RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
+  -- LogInfo               = 'L'; -- (All): Log Info (currently unused)
+  ParentDigest          = 'P'; -- (Subrec): Digest of TopRec
+  SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
+};
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LDT Map Field Name Mapping
@@ -605,17 +609,17 @@ end -- unTransformComplexCompare()
 local function propMapSummary( resultMap, propMap )
 
   -- Fields common for all LDT's
-  resultMap.PropItemCount        = propMap[PM_ItemCount];
-  resultMap.PropVersion          = propMap[PM_Version];
-  resultMap.PropSubRecCount      = propMap[PM_SubRecCount];
-  resultMap.PropLdtType          = propMap[PM_LdtType];
-  resultMap.PropBinName          = propMap[PM_BinName];
-  resultMap.PropMagic            = propMap[PM_Magic];
-  resultMap.PropCreateTime       = propMap[PM_CreateTime];
-  resultMap.PropEsrDigest        = propMap[PM_EsrDigest];
-  resultMap.RecType              = propMap[PM_RecType];
-  resultMap.ParentDigest         = propMap[PM_ParentDigest];
-  resultMap.SelfDigest           = propMap[PM_SelfDigest];
+  resultMap.PropItemCount        = propMap[PM.ItemCount];
+  resultMap.PropVersion          = propMap[PM.Version];
+  resultMap.PropSubRecCount      = propMap[PM.SubRecCount];
+  resultMap.PropLdtType          = propMap[PM.LdtType];
+  resultMap.PropBinName          = propMap[PM.BinName];
+  resultMap.PropMagic            = propMap[PM.Magic];
+  resultMap.PropCreateTime       = propMap[PM.CreateTime];
+  resultMap.PropEsrDigest        = propMap[PM.EsrDigest];
+  resultMap.RecType              = propMap[PM.RecType];
+  resultMap.ParentDigest         = propMap[PM.ParentDigest];
+  resultMap.SelfDigest           = propMap[PM.SelfDigest];
 end -- function propMapSummary()
   
 -- ======================================================================
@@ -672,7 +676,7 @@ local function ldtDebugDump( ldtCtrl )
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
   
-  if( propMap[PM_Magic] ~= MAGIC ) then
+  if( propMap[PM.Magic] ~= MAGIC ) then
     resultMap.ERROR =  "BROKEN MAP--No Magic";
     trace("<<<%s>>>", tostring(resultMap));
     return 0;
@@ -733,7 +737,7 @@ local function ldtSummary( ldtCtrl )
     return resultMap;
   end
   
-  if( propMap[PM_Magic] ~= MAGIC ) then
+  if( propMap[PM.Magic] ~= MAGIC ) then
     resultMap.ERROR =  "BROKEN MAP--No Magic";
     return resultMap;
   end;
@@ -842,19 +846,19 @@ local function initializeLdtCtrl( topRec, ldtBinName )
       MOD, meth, tostring(ldtBinName));
 
   -- General LDT Parms(Same for all LDTs): Held in the Property Map
-  propMap[PM_ItemCount]  = 0; -- A count of all items in the stack
-  propMap[PM_SubRecCount] = 0;
-  propMap[PM_Version]    = G_LDT_VERSION ; -- Current version of the code
-  propMap[PM_LdtType]    = LDT_TYPE; -- Validate the ldt type
-  propMap[PM_Magic]      = MAGIC; -- Special Validation
-  propMap[PM_BinName]    = ldtBinName; -- Defines the LDT Bin
-  propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
-  propMap[PM_EsrDigest]  = 0; -- not set yet.
-  propMap[PM_SelfDigest] = record.digest( topRec );
-  propMap[PM_RecType]    = RT_LDT; -- Record Type LDT Top Rec
-  propMap[PM_CreateTime] = aerospike:get_current_time();
+  propMap[PM.ItemCount]  = 0; -- A count of all items in the stack
+  propMap[PM.SubRecCount] = 0;
+  propMap[PM.Version]    = G_LDT_VERSION ; -- Current version of the code
+  propMap[PM.LdtType]    = LDT_TYPE; -- Validate the ldt type
+  propMap[PM.Magic]      = MAGIC; -- Special Validation
+  propMap[PM.BinName]    = ldtBinName; -- Defines the LDT Bin
+  propMap[PM.RecType]    = RT_LDT; -- Record Type LDT Top Rec
+  propMap[PM.EsrDigest]  = 0; -- not set yet.
+  propMap[PM.SelfDigest] = record.digest( topRec );
+  propMap[PM.RecType]    = RT_LDT; -- Record Type LDT Top Rec
+  propMap[PM.CreateTime] = aerospike:get_current_time();
   -- warn("WARNING:: Please Fix GET CURRENT TIME");
-  -- propMap[PM_CreateTime] = 0;
+  -- propMap[PM.CreateTime] = 0;
   
 -- Specific LMAP Parms: Held in LMap
   ldtMap[M_StoreMode]  = SM_LIST; -- SM_LIST or SM_BINARY:
@@ -931,7 +935,7 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   -- Reset the Prop and LDT Maps to settings appropriate for the REGULAR
   -- storage mode (i.e. using sub-records).
   -- All the other params must already be set by default. 
-  local ldtBinName = propMap[PM_BinName];
+  local ldtBinName = propMap[PM.BinName];
  
   GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type(%s)",
       MOD, meth, tostring(ldtBinName), tostring(ldtMap[M_KeyType]));
@@ -953,7 +957,7 @@ local function initializeLMapRegular( topRec, ldtCtrl )
   ldtMap[M_HashDirectory]        = newDirList;
   
   -- We are starting with a clean Hash Dir, so no Sub-Recs yet.
-  propMap[PM_SubRecCount] = 0;
+  propMap[PM.SubRecCount] = 0;
       
   -- NOTE: We may not have to do this assignment here, since it will be
   -- done by our caller.  We can probably bypass this extra bit of work.
@@ -986,18 +990,140 @@ local function validateBinName( ldtBinName )
   end
 end -- validateBinName
 
+
+-- 
+-- -- ======================================================================
+-- -- validateRecBinAndMap():
+-- -- ======================================================================
+-- -- Check that the topRec, the ldtBinName and ldtMap are valid, otherwise
+-- -- jump out with an error() call.
+-- --
+-- -- Parms:
+-- -- (*) topRec:
+-- -- (*) ldtBinName: User's Name for the LDT Bin
+-- -- (*) mustExist: When true, ldtCtrl must exist, otherwise error
+-- -- Return:
+-- --   ldtCtrl -- if "mustExist" is true, otherwise unknown.
+-- -- ======================================================================
+-- local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
+--   local meth = "validateRecBinAndMap()";
+--   GP=E and trace("[ENTER]:<%s:%s> BinName(%s) ME(%s)",
+--     MOD, meth, tostring( ldtBinName ), tostring( mustExist ));
+-- 
+--   -- Start off with validating the bin name -- because we might as well
+--   -- flag that error first if the user has given us a bad name.
+--   validateBinName( ldtBinName );
+-- 
+--   local ldtCtrl;
+--   local propMap;
+-- 
+--   -- If "mustExist" is true, then several things must be true or we will
+--   -- throw an error.
+--   -- (*) Must have a record.
+--   -- (*) Must have a valid Bin
+--   -- (*) Must have a valid Map in the bin.
+--   --
+--   -- Otherwise, If "mustExist" is false, then basically we're just going
+--   -- to check that our bin includes MAGIC, if it is non-nil.
+--   -- TODO : Flag is true for get, config, size, delete etc 
+--   -- Those functions must be added b4 we validate this if section 
+-- 
+--   if mustExist then
+--     -- Check Top Record Existence.  Notice that a missing record is NOT
+--     -- a serious error (no warning needed).
+--     if( not aerospike:exists( topRec ) ) then
+--       debug("[ERROR]:<%s:%s>:Missing Record. Exit", MOD, meth );
+--       error( ldte.ERR_TOP_REC_NOT_FOUND );
+--     end
+--      
+--     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
+--     -- Notice that a missing LDT Bin is NOT a serious error (no warning needed).
+--     if ( not  topRec[ldtBinName] ) then
+--       debug("[ERROR]<%s:%s> LDT BIN(%s) Does Not Exist",
+--         MOD, meth, tostring(ldtBinName));
+--       error( ldte.ERR_BIN_DOES_NOT_EXIST );
+--     end
+-- 
+--     -- check that our bin is (mostly) there
+--     ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
+--     propMap = ldtCtrl[1];
+-- 
+--     -- Extract the property map and Ldt control map from the Ldt bin list.
+--     if propMap[PM.Magic] ~= MAGIC then
+--       warn("[ERROR]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
+--             MOD, meth, tostring( ldtBinName ) );
+--       error( ldte.ERR_BIN_DAMAGED );
+--     end
+-- 
+--     -- We now know that we must validate the LDT TYPE early on, because it
+--     -- could be a common mistake to access an LDT bin with the wrong type.
+--     if propMap[PM.LdtType] ~= LDT_TYPE then
+--       warn("[ERROR]:<%s:%s>LDT Type Mismatch: BIN(%s) Data(%s) Op(%s)",
+--             MOD, meth, tostring(ldtBinName), propMap[PM.LdtType], LDT_TYPE);
+--       error( ldte.ERR_TYPE_MISMATCH );
+--     end
+--     -- Ok -- all done for the Must Exist case.
+--   else
+--     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
+--     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
+--     -- then it MUST have magic.
+--     if ( topRec and topRec[ldtBinName] ) then
+--       ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
+--       propMap = ldtCtrl[1];
+--       if propMap and propMap[PM.Magic] ~= MAGIC then
+--         warn("[ERROR]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
+--               MOD, meth, tostring( ldtBinName ) );
+--         error( ldte.ERR_BIN_DAMAGED );
+--       end
+-- 
+--       -- If the Bin is there, and it is an LDT bin, then it must be the
+--       -- correct type.  It is a common mistake to access an LDT bin with
+--       -- the wrong type.
+--       if propMap[PM.LdtType] ~= LDT_TYPE then
+--         warn("[ERROR]:<%s:%s>LDT Type Mismatch: BIN(%s) data(%s) op(%s)",
+--               MOD, meth, tostring(ldtBinName), propMap[PM.LdtType], LDT_TYPE);
+--         error( ldte.ERR_TYPE_MISMATCH );
+--       end
+--     end -- if worth checking
+--   end -- else for must exist
+-- 
+--   -- Finally -- let's check the version of our code against the version
+--   -- in the data.  If there's a mismatch, then kick out with an error.
+--   -- Although, we check this in the "must exist" case, or if there's 
+--   -- a valid propMap to look into.
+--   if ( mustExist or propMap ) then
+--     local dataVersion = propMap[PM.Version];
+--     if ( not dataVersion or type(dataVersion) ~= "number" ) then
+--       dataVersion = 0; -- Basically signals corruption
+--     end
+-- 
+--     if( G_LDT_VERSION > dataVersion ) then
+--       warn("[ERROR EXIT]<%s:%s> Code Version (%d) <> Data Version(%d)",
+--         MOD, meth, G_LDT_VERSION, dataVersion );
+--       warn("[Please reload data:: Automatic Data Upgrade not yet available");
+--       error( ldte.ERR_VERSION_MISMATCH );
+--     end
+--   end -- final version check
+-- 
+--   GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
+--   return ldtCtrl; -- Save the caller the effort of extracting the map.
+-- end -- validateRecBinAndMap()
+-- 
+
+-- VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+-- VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+
 -- ======================================================================
 -- validateRecBinAndMap():
--- ======================================================================
--- Check that the topRec, the ldtBinName and ldtMap are valid, otherwise
--- jump out with an error() call.
---
+-- Check that the topRec, the BinName and CrtlMap are valid, otherwise
+-- jump out with an error() call. Notice that we look at different things
+-- depending on whether or not "mustExist" is true.
 -- Parms:
--- (*) topRec:
--- (*) ldtBinName: User's Name for the LDT Bin
--- (*) mustExist: When true, ldtCtrl must exist, otherwise error
--- Return:
---   ldtCtrl -- if "mustExist" is true, otherwise unknown.
+-- (*) topRec: the Server record that holds the Large Map Instance
+-- (*) ldtBinName: The name of the bin for the Large Map
+-- (*) mustExist: if true, complain if the ldtBin  isn't perfect.
+-- Result:
+--   If mustExist == true, and things Ok, return ldtCtrl.
 -- ======================================================================
 local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   local meth = "validateRecBinAndMap()";
@@ -1006,7 +1132,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   -- Start off with validating the bin name -- because we might as well
   -- flag that error first if the user has given us a bad name.
-  validateBinName( ldtBinName );
+  ldt_common.validateBinName( ldtBinName );
 
   local ldtCtrl;
   local propMap;
@@ -1025,40 +1151,26 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   if mustExist then
     -- Check Top Record Existence.
     if( not aerospike:exists( topRec ) ) then
-      warn("[ERROR EXIT]:<%s:%s>:Missing Record. Exit", MOD, meth );
+      debug("[ERROR EXIT]:<%s:%s>:Missing Top Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
      
     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
     if ( not  topRec[ldtBinName] ) then
-      warn("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
+      debug("[ERROR EXIT]<%s:%s> LDT BIN (%s) DOES NOT Exists",
             MOD, meth, tostring(ldtBinName) );
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
+    -- This will "error out" if anything is wrong.
+    ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
 
-    -- check that our bin is (mostly) there
-    ldtCtrl = topRec[ldtBinName] ; -- The main LDT Control structure
-    propMap = ldtCtrl[1];
-
-    -- Extract the property map and Ldt control map from the Ldt bin list.
-    if propMap[PM_Magic] ~= MAGIC or propMap[PM_LdtType] ~= LDT_TYPE then
-      GP=E and warn("[ERROR EXIT]:<%s:%s>LDT BIN(%s) Corrupted (no magic)",
-            MOD, meth, tostring( ldtBinName ) );
-      error( ldte.ERR_BIN_DAMAGED );
-    end
     -- Ok -- all done for the Must Exist case.
   else
     -- OTHERWISE, we're just checking that nothing looks bad, but nothing
     -- is REQUIRED to be there.  Basically, if a control bin DOES exist
     -- then it MUST have magic.
     if ( topRec and topRec[ldtBinName] ) then
-      ldtCtrl = topRec[ldtBinName]; -- The main LdtMap structure
-      propMap = ldtCtrl[1];
-      if propMap and propMap[PM_Magic] ~= MAGIC then
-        GP=E and warn("[ERROR EXIT]:<%s:%s> LDT BIN(%s) Corrupted (no magic)",
-              MOD, meth, tostring( ldtBinName ) );
-        error( ldte.ERR_BIN_DAMAGED );
-      end
+      ldtCtrl, propMap = ldt_common.validateLdtBin(topRec,ldtBinName,LDT_TYPE);
     end -- if worth checking
   end -- else for must exist
 
@@ -1067,7 +1179,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   -- Although, we check this in the "must exist" case, or if there's 
   -- a valid propMap to look into.
   if ( mustExist or propMap ) then
-    local dataVersion = propMap[PM_Version];
+    local dataVersion = propMap[PM.Version];
     if ( not dataVersion or type(dataVersion) ~= "number" ) then
       dataVersion = 0; -- Basically signals corruption
     end
@@ -1083,6 +1195,10 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
   GP=E and trace("[EXIT]<%s:%s> OK", MOD, meth);
   return ldtCtrl; -- Save the caller the effort of extracting the map.
 end -- validateRecBinAndMap()
+
+
+-- AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+-- AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
 -- ======================================================================
 -- adjustLdtMap:
@@ -1452,8 +1568,8 @@ local function  ldrSubRecSummary( subRec )
   local subRecPropMap = subRec[SUBREC_PROP_BIN];
 
   resultMap.SUMMARY = "LDR SUMMARY";
-  resultMap.SelfDigest   = subRecPropMap[PM_SelfDigest];
-  resultMap.ParentDigest   = subRecPropMap[PM_ParentDigest];
+  resultMap.SelfDigest   = subRecPropMap[PM.SelfDigest];
+  resultMap.ParentDigest   = subRecPropMap[PM.ParentDigest];
   resultMap.CtrlLDRByteCnt = subRecCtrlMap[LDR_ByteEntryCount];
 
   resultMap.LDR_NameList = subRec[LDR_NLIST_BIN];
@@ -1502,14 +1618,14 @@ ldtInitPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
   GP=E and trace("[ENTER]: <%s:%s>", MOD, meth );
 
   -- Remember the ESR in the Top Record
-  topPropMap[PM_EsrDigest] = esrDigest;
+  topPropMap[PM.EsrDigest] = esrDigest;
 
   -- Initialize the PropertyMap in the new ESR
-  propMap[PM_EsrDigest]    = esrDigest;
-  propMap[PM_RecType  ]    = rtFlag;
-  propMap[PM_Magic]        = MAGIC;
-  propMap[PM_ParentDigest] = topDigest;
-  propMap[PM_SelfDigest]   = selfDigest;
+  propMap[PM.EsrDigest]    = esrDigest;
+  propMap[PM.RecType  ]    = rtFlag;
+  propMap[PM.Magic]        = MAGIC;
+  propMap[PM.ParentDigest] = topDigest;
+  propMap[PM.SelfDigest]   = selfDigest;
 
 end -- ldtInitPropMap()
 
@@ -1543,7 +1659,7 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
     -- Set up the TOP REC prop and ctrl maps
     local propMap    = ldtCtrl[1];
     local ldtMap     = ldtCtrl[2];
-    local ldtBinName = propMap[PM_BinName];
+    local ldtBinName = propMap[PM.BinName];
   
   -- Create the Aerospike Sub-Record, initialize the bins: Ctrl, List
   -- Notes: 
@@ -1581,8 +1697,8 @@ local function createLMapSubRec( src, topRec, ldtCtrl )
    
   -- Increment the Digest Count
   -- gets inceremented once per LDR entry add. 
-  local subRecCount = propMap[PM_SubRecCount];
-  propMap[PM_SubRecCount] = (subRecCount + 1);
+  local subRecCount = propMap[PM.SubRecCount];
+  propMap[PM.SubRecCount] = (subRecCount + 1);
 
   -- Mark this Sub-Rec as dirty -- so that it doesn't get reclaimed until
   -- the end of the overall Lua call.
@@ -2128,7 +2244,7 @@ local function fastInsert( src, topRec, ldtCtrl, newName, newValue )
                  
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
-  local ldtBinName =  propMap[PM_BinName];
+  local ldtBinName =  propMap[PM.BinName];
 
   local cellNumber = computeHashCell( newName, ldtMap );
   -- Remember that our Hash Dir goes from 1..N, rather than 0..(N-1)
@@ -2199,7 +2315,7 @@ local function hashDirInsert( src, topRec, ldtCtrl, newName, newValue, check)
                  
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
-  local ldtBinName =  propMap[PM_BinName];
+  local ldtBinName =  propMap[PM.BinName];
   local rc = 0; -- start out OK.
 
   -- Remember that our Hash Dir goes from 1..N, rather than 0..(N-1)
@@ -2523,7 +2639,7 @@ local function convertCompactToHashDir( src, topRec, ldtCtrl )
   -- "FAST INSERT" into the Hash Table (no searching needed).
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2];
-  local ldtBinName =  propMap[PM_BinName];
+  local ldtBinName =  propMap[PM.BinName];
 
   local nameList = ldtMap[M_CompactNameList]; 
   local valueList = ldtMap[M_CompactValueList]; 
@@ -2614,7 +2730,9 @@ end -- function localPut()
 -- (*) lmap.put(topRec, ldtBinName, newName, newValue, userModule, src) 
 -- (*) lmap.put_all(topRec, ldtBinName, nameValueMap, userModule, src)
 -- (*) lmap.get(topRec, ldtBinName, searchName, userMod, filter, fargs, src)
+-- (*) lmap.exist(topRec, ldtBinName, searchName, src)
 -- (*) lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) lmap.keyList(topRec, ldtBinName)
 -- (*) lmap.remove(topRec, ldtBinName, searchName, src)
 -- (*) lmap.destroy(topRec, ldtBinName, src)
 -- (*) lmap.size(topRec, ldtBinName)
@@ -2781,15 +2899,15 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   -- update the count.  If rc == 1, then we overwrote the value, so we
   -- DO NOT UPDATE the count.
   if ( rc == 0 ) then
-    local itemCount = propMap[PM_ItemCount];
+    local itemCount = propMap[PM.ItemCount];
     local totalCount = ldtMap[M_TotalCount];
-    propMap[PM_ItemCount] = itemCount + 1; -- number of valid items goes up
+    propMap[PM.ItemCount] = itemCount + 1; -- number of valid items goes up
     ldtMap[M_TotalCount] = totalCount + 1; -- Total number of items goes up
     GP=F and trace("[DEBUG]<%s:%s> Successful PUT: New IC(%d) TC(%d)",
          MOD, meth, itemCount + 1, totalCount + 1);
   elseif ( rc == 1 ) then
     GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
-         MOD, meth, propMap[PM_ItemCount]);
+         MOD, meth, propMap[PM.ItemCount]);
   else
     warn("[ERROR]<%s:%s> UNEXPECTED return(%s) from localPut()",
          MOD, meth, tostring(rc));
@@ -2814,7 +2932,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   -- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   if ( DEBUG == true ) then
     info("EXPENSIVE LMAP VALIDATION TURNED ON!!");
-    local startSize = propMap[PM_ItemCount];
+    local startSize = propMap[PM.ItemCount];
 
     trace("\n\n>>>>>>>>>>>>>>> VALIDATE PUT: Count Size(%d) <<<<<<<<<<<<\n",
         startSize);
@@ -2906,7 +3024,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
           MOD, meth, tostring(name), tostring(value), rc );
       elseif ( rc == 1 ) then
         GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
-             MOD, meth, propMap[PM_ItemCount]);
+             MOD, meth, propMap[PM.ItemCount]);
       else
         GP=F and trace("[ERROR]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
           MOD, meth, tostring(name), tostring(value), rc );
@@ -2920,9 +3038,9 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   -- Update the counts.  If there were any errors, the code would have
   -- jumped out of the Lua code entirely.  So, if we're here, the insert
   -- was successful.
-  local itemCount = propMap[PM_ItemCount];
+  local itemCount = propMap[PM.ItemCount];
   local totalCount = ldtMap[M_TotalCount];
-  propMap[PM_ItemCount] = itemCount + newCount; -- number of valid items goes up
+  propMap[PM.ItemCount] = itemCount + newCount; -- number of valid items goes up
   ldtMap[M_TotalCount] = totalCount + newCount; -- Total number of items goes up
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
@@ -3014,6 +3132,80 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs, src)
 
   return resultMap;
 end -- function lmap.get()
+
+
+-- ======================================================================
+-- lmap.exists() -- Return 1 if the name exists.
+-- ======================================================================
+-- Locate the name/value pair if the name exists in the map.
+-- So, similar to insert -- take the new value and locate the right bin.
+-- Then, scan the bin's list for that item (linear scan).
+-- If the item exists, return 1, otherwise return 0.
+-- Parms:
+-- (*) topRec: the Server record that holds the Large Map Instance
+-- (*) ldtBinName: The name of the bin for the Large Map
+-- (*) searchname:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- ======================================================================
+function lmap.exists(topRec, ldtBinName, searchName, src )
+  GP=B and trace("\n\n >>>>>>>>> API[ LMAP EXISTS] <<<<<<<<<< \n");
+  local meth = "lmap.exists()";
+  GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
+                 MOD, meth, tostring( searchName ) );
+                 
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+
+  -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
+  local propMap = ldtCtrl[1]; 
+  local ldtMap = ldtCtrl[2]; 
+  local resultMap = map(); -- add results to this list.
+  local rc = 0; -- start out OK.
+  
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+  
+  -- Set up the Read Functions (UnTransform, Filter)
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_FunctionArgs = nil;
+
+  -- Process these two options differently.  Either we're in COMPACT MODE,
+  -- which means have two simple lists connected to the LDT BIN, or we're
+  -- in REGULAR_MODE, which means we're going to open up a SubRecord and
+  -- read the lists in there.
+  if ldtMap[M_StoreState] == SS_COMPACT then 
+    local nameList = ldtMap[M_CompactNameList];
+    local position = searchList( nameList, searchName );
+    local resultObject = nil;
+    if( position > 0 ) then
+      local valueList = ldtMap[M_CompactValueList];
+      resultObject = validateValue( valueList[position] );
+    end
+    if( resultObject == nil ) then
+      debug("[NOT FOUND]<%s:%s> name(%s) not found",
+        MOD, meth, tostring(searchName));
+      error( ldte.ERR_NOT_FOUND );
+    end
+    resultMap[nameList[position]] = resultObject;
+  else
+    -- Search the SubRecord.
+    regularSearch( src, topRec, ldtCtrl, searchName, resultMap );
+  end
+
+  local exists = 0;
+  if resultMap and #resultMap > 0 then
+    exists = 1;
+  end
+
+  GP=E and trace("[EXIT]: <%s:%s>: Exits Returns (%d)", MOD, meth, exists);
+  return exists;
+end -- function lmap.exists()
 
 -- ========================================================================
 -- lmap.scan() -- Return a map containing ALL name/value pairs.
@@ -3148,9 +3340,9 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs, src )
   -- Update the counts.  If there were any errors, the code would have
   -- jumped out of the Lua code entirely.  So, if we're here, the delete
   -- was successful.
-  local itemCount = propMap[PM_ItemCount];
+  local itemCount = propMap[PM.ItemCount];
   local totalCount = ldtMap[M_TotalCount];
-  propMap[PM_ItemCount] = itemCount - 1; -- number of valid items goes down
+  propMap[PM.ItemCount] = itemCount - 1; -- number of valid items goes down
   ldtMap[M_TotalCount] = totalCount - 1; -- Total number of items goes up
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
@@ -3238,7 +3430,7 @@ function lmap.size( topRec, ldtBinName )
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
-  local itemCount = propMap[PM_ItemCount];
+  local itemCount = propMap[PM.ItemCount];
 
   GD=DEBUG and ldtDebugDump( ldtCtrl );
 
