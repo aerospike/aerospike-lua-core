@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_llist_2014_06_20.A"; -- the module name used for tracing
+local MOD="settings_llist_2014_11_03.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -62,6 +62,16 @@ local DEFAULT_MEDIUM_THRESHOLD = 100;  -- Objs around 1 kb
 local DEFAULT_SMALL_THRESHOLD  = 500;  -- Objs under  20kb
 
 local DEFAULT_THRESHOLD        = DEFAULT_MEDIUM_THRESHOLD;
+
+local DEFAULT_AVE_OBJ_SIZE =      100;
+local DEFAULT_MAX_OBJ_SIZE =      200;
+local DEFAULT_AVE_KEY_SIZE =       10;
+local DEFAULT_MAX_KEY_SIZE =       20;
+local DEFAULT_AVE_OBJ_CNT=       1000;
+local DEFAULT_MAX_OBJ_CNT =     10000;
+local DEFAULT_TARGET_PAGESIZE =  8000;
+local DEFAULT_FOCUS =               0;
+local DEFAULT_TEST_MODE =           0;
     
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
@@ -819,19 +829,261 @@ local exports = {}
     ldtMap[T.R_Threshold]    = value;
   end
 
+  -- ========================================================================
+  -- exports.compute_settings()
+  -- ========================================================================
+  -- This function takes in the user's settings and sets the appropriate
+  -- values in the LDT mechanism.
+  --
+  -- All parameters must be numbers.  testMode is optional, but if it
+  -- exists, it must be a number.
+  -- ldtMap        :: The main control Map of the LDT
+  -- configMap     :: A Map of Config Settings.
+  --
+  -- The values we expect to see in the configMap will be one or more of
+  -- the following values.  For any value NOT seen in the map, we will use
+  -- the published default value.
+  --
+  -- aveObjectSize :: the average object size (in bytes).
+  -- maxObjectSize :: the maximum object size (in bytes).
+  -- aveKeySize    :: the average Key size (in bytes).
+  -- maxKeySize    :: the maximum Key size (in bytes).
+  -- aveObjectCount:: the average LDT Collection Size (number of data objects).
+  -- maxObjectCount:: the maximum LDT Collection size (number of data objects).
+  -- pageSize      :: Targetted Page Size (8kb to 1mb)
+  -- focus         :: the primary focus for this LDT:
+  --               :: 0=no pref, 1=performance, 2=storage efficiency
+  -- testMode      :: The style of testing we're doing:
+  --               :: nil or zero=none,
+  --               :: 1=structure test, value type NUMBER (ignore sizes)
+  --               :: 2=structure test, value type OBJECT (use sizes)
+  -- ========================================================================
+  function exports.compute_settings(ldtMap, configMap )
+ 
+    local meth = "compute_settings()";
+    GP=E and info("[ENTER]<%s:%s> LDT Map(%s) Config Settings(%s)", MOD, meth,
+      tostring(ldtMap), tostring(configMap));
+
+    -- Get our working values out of the config map, and where there are
+    -- no values, use the assigned default values.
+    local aveObjectSize   =
+      (not configMap.AveObjectSize and configMap.AveObjectSize) or
+      DEFAULT_AVE_OBJ_SIZE;
+
+    local maxObjectSize  = 
+      (not configMap.MaxObjectSize and configMap.MaxObjectSize) or
+      DEFAULT_MAX_OBJ_SIZE;
+
+    local aveKeySize     =
+      (not configMap.AveKeySize and configMap.AveKeySize) or
+      DEFAULT_AVE_KEY_SIZE;
+
+    local maxKeySize     =
+      (not configMap.MaxKeySize and configMap.MaxKeySize) or
+      DEFAULT_MAX_KEY_SIZE;
+
+    local aveObjectCount =
+      (not configMap.AveObjectCount and configMap.AveObjectCount) or
+      DEFAULT_AVE_OBJ_CNT;
+
+    local maxObjectCount =
+      (not configMap.MaxObjectCount and configMap.MaxObjectCount) or
+      DEFAULT_MAX_OBJ_CNT;
+
+    local pageSize       =
+      (not configMap.TargetPageSize and configMap.TargetPageSize) or
+      DEFAULT_TARGET_PAGESIZE;
+
+    local focus          =
+      (not configMap.Focus and configMap.Focus) or DEFAULT_FOCUS;
+
+    local testMode       =
+      (not configMap.TestMode and configMap.TestMode) or DEFAULT_TEST_MODE;
+
+    GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
+    GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+      tostring(aveObjectSize), tostring(maxObjectSize));
+    GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+      tostring(aveKeySize), tostring(maxKeySize));
+    GP=E and info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+      tostring(aveObjectCount), tostring(maxObjectCount));
+    GP=E and info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+      tostring(pageSize), tostring(focus), tostring(testMode));
+
+    if  not ldtMap or
+        not aveObjectSize or
+        not maxObjectSize or
+        not aveObjectCount or
+        not maxObjectCount or
+        not aveKeySize or
+        not maxKeySize or
+        not pageSize or
+        not focus
+    then
+      warn("[ERROR]<%s:%s> One or more of the config setting values are NIL",
+        MOD, meth);
+      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+        tostring(aveObjectSize), tostring(maxObjectSize));
+      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+        tostring(aveKeySize), tostring(maxKeySize));
+      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+        tostring(aveObjectCount), tostring(maxObjectCount));
+      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+        tostring(pageSize), tostring(focus), tostring(testMode));
+      return -1;
+    end
+
+    if  type( aveObjectSize ) ~= "number" or
+        type( maxObjectSize ) ~= "number" or
+        type( aveKeySize ) ~= "number" or
+        type( maxKeySize ) ~= "number" or
+        type( aveObjectCount ) ~= "number" or
+        type( maxObjectCount ) ~= "number" or
+        type( pageSize ) ~= "number" or
+        type( focus ) ~= "number" or
+        type(testMode) ~= "number"
+    then
+      warn("[ERROR]<%s:%s> All parameters must be numbers.", MOD, meth);
+      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+        type(aveObjectSize), type(maxObjectSize));
+      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+        type(aveKeySize), type(maxKeySize));
+      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+        type(aveObjectCount), type(maxObjectCount));
+      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+        type(pageSize), type(focus), type(testMode));
+      return -1;
+    end
+
+    -- Let's do some number validation before we actually apply the values
+    -- given to us.  The values have to be within a reasonable range,
+    -- and the average sizes cannot be larger than the max values.
+    if  aveObjectSize <= 0 or maxObjectSize <= 0 or
+        aveKeySize <= 0 or maxKeySize <= 0 or
+        aveObjectCount <= 0 or maxObjectCount <= 0 or
+        pageSize <= 0 or
+        focus < 0 
+    then
+      warn("[ERROR]<%s:%s> Settings must be greater than zero", MOD, meth);
+      return -1;
+    end
+
+    -- Do some specific value validation.
+    -- First, Page Size must be in a valid range.
+    local pageMinimum = 4000;
+    local pageTarget = 8000;
+    local pageMaximum = 1000000;  -- 1mb ceiling
+    if pageSize < pageMinimum then
+      warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
+        MOD, meth, pageSize, pageMinimum);
+      pageSize = pageTarget;
+      warn("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
+        MOD, meth, pageTarget);
+    elseif pageSize > pageMaximum then
+      warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
+        MOD, meth, pageSize, pageMaximum);
+      pageSize = pageMaximum;
+      warn("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
+        MOD, meth, pageMaximum);
+    else
+      debug("[VALID]<%s:%s> PageSize(%d) is in range", MOD, meth, pageSize);
+    end
+
+    -- Pick some default LLIST settings.
+    local threshold = 10;
+    local rootListMax = 100;
+    local nodeListMax = 100;
+    local leafListMax = 50;
+
+    local ldtOverhead = 500; -- used in Root Node calc.
+
+    -- Check that PageSize suits the conditions.
+    -- Try for at least 10 objects in the leaves, but no more than 100.
+    -- However, for larger object sizes, we may have to
+    -- use larger than requested PageSizes.
+    local adjustedPageSize = pageSize;
+    local minLeafCount = 10;
+    local maxLeafCount = 100;
+    -- See if objects easily fit in a Leaf.
+    if ( maxObjectSize * minLeafCount ) < adjustedPageSize then
+      leafListMax = adjustedPageSize / maxObjectSize;
+      if leafListMax > maxLeafCount then 
+        leafListMax = maxLeafCount;
+      end
+      threshold = leafListMax;
+    elseif maxObjectSize * minLeafCount < pageMaximum then
+      leafListMax = minLeafCount;
+      threshold = 1;
+    else
+      leafListMax = pageMaximum / maxObjectSize;
+      threshold = 0;
+    end
+
+    -- Try for at least 100 objects in the nodes, and no more than 200.
+    -- However, for larger key sizes, we may have to
+    -- use larger than requested PageSizes.
+    local adjustedPageSize = pageSize;
+    local minNodeCount = 50;
+    local maxNodeCount = 200;
+    -- See if the Keys easily fit in a Node.
+    if ( maxKeySize * minNodeCount ) < adjustedPageSize then
+      nodeListMax = adjustedPageSize / maxKeySize;
+      if nodeListMax > maxNodeCount then 
+        nodeListMax = maxNodeCount;
+      end
+    elseif maxKeySize * minNodeCount < pageMaximum then
+      nodeListMax = minNodeCount;
+    else
+      nodeListMax = pageMaximum / maxKeySize;
+    end
+
+    -- Try for at least 20 objects in the nodes, and no more than 100.
+    -- However, for larger key sizes, we may have to
+    -- use larger than requested PageSizes.
+    local adjustedPageSize = pageSize;
+    local minRootCount = 20;
+    local maxRootCount = 100;
+    -- See if the Keys easily fit in the Root
+    if ( maxKeySize * minRootCount ) < adjustedPageSize then
+      rootListMax = adjustedPageSize / maxKeySize;
+      if rootListMax > maxRootCount then 
+        rootListMax = maxRootCount;
+      end
+    elseif maxKeySize * minRootCount < pageMaximum then
+      rootListMax = minRootCount;
+    else
+      rootListMax = pageMaximum / maxKeySize;
+    end
+
+
+    -- Apply our computed values.
+    ldtMap[T.R_Threshold] = threshold;
+    ldtMap[T.R_RootListMax] = rootListMax;
+    ldtMap[T.R_NodeListMax] = nodeListMax;
+    ldtMap[T.R_LeafListMax] = leafListMax;
+
+    GP=E and trace("[DEBUG]<%s:%s> TH(%d) RL(%d) NL(%d) LL(%d)",
+      MOD, meth, threshold, rootListMax, nodeListMax, leafListMax);
+    GP=E and trace("[EXIT]: <%s:%s>:: LdtMap(%s)",
+      MOD, meth, tostring(ldtMap) );
+
+    return 0;
+
+  end -- exports.compute_settings()
+
+-- ======================================================================
+-- ======================================================================
+
 return exports;
 
 
--- settings_llist.lua
+-- ========================================================================
+-- File: settings_llist.lua
 --
--- Use:  
+-- How to Use:  
 -- local set_llist = require('settings_llist')
 --
 -- Use the functions in this module to override default ldtMap settings.
 -- ========================================================================
+-- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
 -- ========================================================================
-
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
