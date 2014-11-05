@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_11_02.A";
+local MOD="lib_lstack_2014_11_05.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -188,6 +188,11 @@ local LDT_TYPE = "LSTACK";
 -- Special Function -- if supplied by the user in the "userModule", then
 -- we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
+
+-- In order to tell the Server what's happening with LDT (and maybe other
+-- calls), we call "set_context()" with various flags.  The server then
+-- uses this to measure LDT call behavior.
+local UDF_CONTEXT_LDT = 1;
 
 -- ++====================++
 -- || DEFAULT SETTINGS   ||
@@ -3968,7 +3973,10 @@ local lstack = {};
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function lstack.create( topRec, ldtBinName, createSpec )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK CREATE ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.create()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) createSpec(%s)",
@@ -4037,7 +4045,10 @@ end -- function lstack.create()
 -- passes in nil or any other incorrect value/type.
 -- =======================================================================
 function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.push()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) NewVal(%s) createSpec(%s)", MOD, meth,
@@ -4131,7 +4142,10 @@ end -- function lstack.push()
 -- new style user modulename.
 -- =======================================================================
 function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PUSH_ALL ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.push_all()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) valueList(%s) createSpec(%s)", MOD,
@@ -4263,7 +4277,10 @@ end -- end lstack.push_all()
 -- ======================================================================
 function
 lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.peek()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) Cnt(%s) Mod((%s) filter(%s) fargs(%s)",
@@ -4431,6 +4448,11 @@ end -- function lstack.peek()
 -- ======================================================================
 function
 lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lstack.pop()";
 
   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -4439,8 +4461,6 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   warn("[ERROR]<%s:%s> THIS FUNCTION UNDER CONSTRUCTION", MOD, meth);
   error( ldte.ERR_INTERNAL );
   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
   GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) Filter(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(count),
@@ -4595,9 +4615,12 @@ end -- function lstack.pop()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.size( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
-  local meth = "lstack.size()";
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.SIZE ] <<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lstack.size()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
@@ -4641,7 +4664,11 @@ end -- function lstack.size()
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.get_capacity( topRec, ldtBinName )
---  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.GET_CAPACITY ] <<<<<<<<<< \n");
+--  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.GET_CAPACITY ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
 
   return ldt_common.get_capacity(topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
 
@@ -4678,7 +4705,10 @@ end -- function lstack.get_capacity()
 --   res = -1: Some sort of error
 -- ========================================================================
 function lstack.set_capacity( topRec, ldtBinName, newLimit )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK SET CAPACITY ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK SET CAPACITY ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack_set_capacity()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newLimit(%s)",
@@ -4830,7 +4860,10 @@ end -- lstack.set_capacity();
 -- error if the user passes in nil or any other incorrect value/type.
 -- ========================================================================
 function lstack.config( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.CONFIG ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.CONFIG ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.config()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -4859,7 +4892,10 @@ end -- function lstack.config()
 --   False: (LSTACK does NOT exist in this bin) return 0
 -- ========================================================================
 function lstack.ldt_exists( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>>>> API[ LSTACK EXISTS ] <<<<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>>>> API[ LSTACK EXISTS ] <<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.ldt_exists()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -4894,7 +4930,10 @@ end -- function lstack.ldt_exists()
 --   res = -1: Some sort of error
 -- ========================================================================
 function lstack.destroy( topRec, ldtBinName, src )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.DESTROY ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.DESTROY ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lstack.destroy()";
   GP=E and trace("[ENTER]<%s:%s> ldtBinName(%s)",
@@ -4962,9 +5001,12 @@ end -- lstack.same()
 --   else, ERROR (<0) if something blows up
 -- ========================================================================
 function lstack.validate( topRec, ldtBinName, src, resultMap )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSTACK.VALIDATE ] <<<<<<<<<< \n");
-  local meth = "lstack.validate()";
+  GP=B and info("\n\n >>>>>>>>> API[ LSTACK.VALIDATE ] <<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lstack.validate()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 

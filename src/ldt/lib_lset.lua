@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_11_03.A"; 
+local MOD="lib_lset_2014_11_05.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -385,6 +385,11 @@ local RT_ESR = 4; -- 0x4: Existence Sub Record
 local ERR_OK            =  0; -- HEY HEY!!  Success
 local ERR_GENERAL       = -1; -- General Error
 local ERR_NOT_FOUND     = -2; -- Search Error
+
+-- In order to tell the Server what's happening with LDT (and maybe other
+-- calls), we call "set_context()" with various flags.  The server then
+-- uses this to measure LDT call behavior.
+local UDF_CONTEXT_LDT = 1;
 
 -- -----------------------------------------------------------------------
 ---- ------------------------------------------------------------------------
@@ -3749,7 +3754,11 @@ local lset = {};
 --   rc < 0: Error.
 -- ======================================================================
 function lset.create( topRec, ldtBinName, userModule )
-  GP=B and trace("\n\n >>>>>>>>> API[ LSET CREATE ] <<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>> API[ LSET CREATE ] <<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.create()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s) createSpec(%s)",
                  MOD, meth, tostring(ldtBinName), tostring(userModule) );
@@ -3806,9 +3815,12 @@ end -- lset.create()
 -- function and the lset.all_all() function.
 -- ======================================================================
 function lset.add( topRec, ldtBinName, newValue, userModule, src )
-  GP=B and trace("\n\n  >>>>>>>>>>>>> API[ LSET ADD ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET ADD ] <<<<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.add()";
-  
   GP=E and trace("[ENTER]:<%s:%s> LSetBin(%s) NewValue(%s) createSpec(%s)",
                  MOD, meth, tostring(ldtBinName), tostring( newValue ),
                  tostring( userModule ));
@@ -3888,7 +3900,11 @@ end -- lset.add()
 -- Result:
 -- ======================================================================
 function lset.add_all( topRec, ldtBinName, valueList, userModule, src )
-  GP=B and trace("\n\n  >>>>>>>>>>> API[ LSET ADD_ALL ] <<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>>> API[ LSET ADD_ALL ] <<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.add_all()";
   local rc = 0;
 
@@ -3935,7 +3951,10 @@ end -- function lset.add_all()
 -- ======================================================================
 function
 lset.get( topRec, ldtBinName, searchValue, userModule, filter, fargs, src )
-  GP=B and trace("\n\n  >>>>>>>>>>>>> API[ LSET GET ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET GET ] <<<<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "lset.get()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s) Search Value(%s)",
@@ -4007,7 +4026,11 @@ end -- function lset.get()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function lset.exists( topRec, ldtBinName, searchValue, src )
-  GP=B and trace("\n\n  >>>>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.exists()";
   GP=E and trace("[ENTER]: <%s:%s> Search Value(%s)",
                  MOD, meth, tostring( searchValue ) );
@@ -4074,9 +4097,12 @@ end -- function lset.exists()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
-  local meth = "lset.scan()";
-  GP=B and trace("\n\n  >>>>>>>>>>>>> API[ LSET SCAN ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET SCAN ] <<<<<<<<<<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lset.scan()";
   GP=E and trace("[ENTER]<%s:%s> BinName(%s) Module(%s) Filter(%s) Fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(userModule), tostring(filter),
     tostring(fargs));
@@ -4140,7 +4166,11 @@ end -- function lset.scan()
 -- ======================================================================
 function lset.remove( topRec, ldtBinName, deleteValue, userModule,
                                 filter, fargs, returnVal, src )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET REMOVE ] <<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET REMOVE ] <<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.remove()";
   GP=E and trace("[ENTER]: <%s:%s> Delete Value(%s)",
                  MOD, meth, tostring( deleteValue ) );
@@ -4232,9 +4262,12 @@ end -- function lset.remove()
 -- since we need to NULL out the bin lists.
 -- ========================================================================
 function lset.destroy( topRec, ldtBinName, src )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET DESTROY ] <<<<<<<<<<<<<<< \n");
-  local meth = "lset.destroy()";
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET DESTROY ] <<<<<<<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lset.destroy()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
   local rc = 0; -- start off optimistic
@@ -4311,7 +4344,11 @@ end -- function lset.destroy()
 --   res = -1: Some sort of error
 -- ========================================================================
 function lset.size( topRec, ldtBinName )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET SIZE ] <<<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET SIZE ] <<<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset_size()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
   MOD, meth, tostring(ldtBinName));
@@ -4343,9 +4380,12 @@ end -- function lset.size()
 --   res = -1: Some sort of error
 -- ========================================================================
 function lset.config( topRec, ldtBinName )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET CONFIG ] <<<<<<<<<<<<<<<< \n");
-  local meth = "lset.config()";
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET CONFIG ] <<<<<<<<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lset.config()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
       MOD, meth, tostring(ldtBinName));
 
@@ -4373,9 +4413,12 @@ end -- function lset.config()
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function lset.get_capacity( topRec, ldtBinName )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET GET_CAPACITY ] <<<<<<<<<< \n");
-  local meth = "lset.get_capacity()";
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET GET_CAPACITY ] <<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lset.get_capacity()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
@@ -4408,9 +4451,12 @@ end -- function lset.get_capacity()
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function lset.set_capacity( topRec, ldtBinName, capacity )
-  GP=B and trace("\n\n  >>>>>>>>>> > API [ LSET SET_CAPACITY ] <<<<<<<<<< \n");
-  local meth = "lset.lset_capacity()";
+  GP=B and info("\n\n  >>>>>>>>>> > API [ LSET SET_CAPACITY ] <<<<<<<<<< \n");
 
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "lset.lset_capacity()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
 
@@ -4457,7 +4503,11 @@ end -- function lset.lset_capacity()
 --   False: (lset does NOT exist in this bin) return 0
 -- ========================================================================
 function lset.ldt_exists( topRec, ldtBinName )
-  GP=B and trace("\n\n >>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<< \n");
+  GP=B and info("\n\n >>>>>>>>>>> API[ LSET EXISTS ] <<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "lset.ldt_exists()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
     MOD, meth, tostring(ldtBinName));
@@ -4488,7 +4538,11 @@ end -- function lset.ldt_exists()
 -- Return a LIST of lists -- with Each List marked with it's Hash Name.
 -- ========================================================================
 function lset.dump( topRec, ldtBinName, src )
-  GP=B and trace("\n\n  >>>>>>>> API[ DUMP ] <<<<<<<<<<<<<<<<<< \n");
+  GP=B and info("\n\n  >>>>>>>> API[ DUMP ] <<<<<<<<<<<<<<<<<< \n");
+
+  -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
   local meth = "dump()";
   GP=E and trace("[ENTER]<%s:%s> LDT BIN(%s)",MOD, meth, tostring(ldtBinName));
 
