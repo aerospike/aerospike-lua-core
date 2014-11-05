@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_llist_2014_08_06.A";
+local MOD="ext_llist_2014_11_04.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
@@ -33,6 +33,7 @@ local MOD="ext_llist_2014_08_06.A";
 -- (*) List   = scan( topRec, ldtBinName )
 -- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
 -- (*) Status = remove( topRec, ldtBinName, searchValue ) 
+-- (*) Status = remove_all( topRec, ldtBinName, valueList ) 
 -- (*) Status = destroy( topRec, ldtBinName )
 -- (*) Number = size( topRec, ldtBinName )
 -- (*) Map    = get_config( topRec, ldtBinName )
@@ -180,6 +181,7 @@ function filter( topRec, ldtBinName, key, userModule, filter, fargs )
   return llist.find( topRec, ldtBinName, key, userModule, filter, fargs, nil);
 end
 
+
 -- ======================================================================
 -- remove(): Remove all items corresponding to the specified key.
 -- ======================================================================
@@ -192,6 +194,20 @@ end
 -- ======================================================================
 function remove( topRec, ldtBinName, key )
   return llist.remove( topRec, ldtBinName, key, nil);
+end
+
+-- ======================================================================
+-- remove_all(): Remove all items corresponding to the Value List.
+-- ======================================================================
+-- Remove (Delete) the item(s) that correspond to "key".
+--
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName
+-- (3) valueList: Could be values, could be keys
+-- ======================================================================
+function remove_all( topRec, ldtBinName, valueList )
+  return llist.remove_all( topRec, ldtBinName, valueList, nil);
 end
 
 -- ========================================================================
