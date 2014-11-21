@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_llist_2014_11_04.A";
+local MOD="ext_llist_2014_11_20.A";
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LLIST Main Functions >>
@@ -32,8 +32,10 @@ local MOD="ext_llist_2014_11_04.A";
 -- (*) List   = find( topRec, bin, value, module, filter, fargs )
 -- (*) List   = scan( topRec, ldtBinName )
 -- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
+-- (*) List   = range(topRec,ldtBinName,minKey,maxKey,userModule,filter,fargs)
 -- (*) Status = remove( topRec, ldtBinName, searchValue ) 
 -- (*) Status = remove_all( topRec, ldtBinName, valueList ) 
+-- (*) Status = remove_range(topRec,ldtBinName,minKey,maxKey)
 -- (*) Status = destroy( topRec, ldtBinName )
 -- (*) Number = size( topRec, ldtBinName )
 -- (*) Map    = get_config( topRec, ldtBinName )
@@ -41,6 +43,11 @@ local MOD="ext_llist_2014_11_04.A";
 -- (*) Status = get_capacity( topRec, ldtBinName )
 -- (*) Number = ldt_exists( topRec, ldtBinName )
 -- (*) Number = ldt_validate( topRec, ldtBinName )
+-- ======================================================================
+-- Experimental Functions
+-- ======================================================================
+-- (*) Number    = write_bytes( topRec, ldtBinName, inputArray, offset )
+-- (*) ByteArray = read_bytes( topRec, ldtBinName, offset )
 -- ======================================================================
 -- Deprecated Functions
 -- (*) function create( topRec, ldtBinName, createSpec )
@@ -208,6 +215,21 @@ end
 -- ======================================================================
 function remove_all( topRec, ldtBinName, valueList )
   return llist.remove_all( topRec, ldtBinName, valueList, nil);
+end
+
+-- (*) Status = remove_range(topRec,ldtBinName,minKey,maxKey)
+-- ======================================================================
+-- remove_range(): Remove all items in the given range
+-- ======================================================================
+--
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName
+-- (3) minKey
+-- (4) maxKey
+-- ======================================================================
+function remove_range( topRec, ldtBinName, minKey, maxKey )
+  return llist.remove_range( topRec, ldtBinName, minKey, maxKey, nil);
 end
 
 -- ========================================================================
@@ -383,6 +405,54 @@ bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
   info("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
   return rc;
 end -- bulk_number_load()
+
+-- ========================================================================
+-- <<< NEW (Experimental) FUNCTIONS >>>====================================
+-- ========================================================================
+-- (1) write_bytes( topRec, ldtBinName, inputArray, offset )
+-- (2) read_bytes( topRec, ldtBinName, offset )
+-- ========================================================================
+
+-- ======================================================================
+-- write_bytes()
+-- ======================================================================
+-- Take the inputArray and chop it into pieces that can be stored in
+-- a LLIST.
+--
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) inputArray: The input data
+-- (4) offset: Not used yet, but eventually will be the point at which
+--             we start writing (or appending).  For now, assumed to be
+--             zero, which means WRITE NEW every time.
+-- Result:
+--   Success: Return number of bytes written
+--   Failure: Return error.
+-- ======================================================================
+function write_bytes( topRec, ldtBinName, inputArray, offset )
+  return llist.write_bytes( topRec, ldtBinName, inputArray, offset, nil );
+end
+
+-- ======================================================================
+-- read_bytes()
+-- ======================================================================
+-- Read the binary pieces out of the LLIST and return them as a byte
+-- array to the user.
+--
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) offset: Not used yet, but eventually will be the point at which
+--             we start writing (or appending).  For now, assumed to be
+--             zero, which means WRITE NEW every time.
+-- Result:
+--   Success: Return the full byte array.
+--   Failure: Return error.
+-- ======================================================================
+function read_bytes( topRec, ldtBinName, offset )
+  return llist.read_bytes( topRec, ldtBinName, offset, nil );
+end
 
 -- ========================================================================
 --   _      _     _____ _____ _____ 

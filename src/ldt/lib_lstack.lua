@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_11_05.A";
+local MOD="lib_lstack_2014_11_17.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -136,6 +136,12 @@ local lstackPackage = require('ldt/settings_lstack');
 -- module, namely the subrec routines and some list management routines.
 -- We will likely move some other functions in there as they become common.
 local ldt_common = require('ldt/ldt_common');
+
+-- These values should be "built-in" for our Lua, but it is either missing
+-- or inconsistent, so we define it here.  We use this when we check to see
+-- if a value is a LIST or a MAP.
+local Map = getmetatable( map() );
+local List = getmetatable( list() );
 
 -- ++==================++
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
@@ -368,12 +374,7 @@ local PM_SelfDigest            = 'D'; -- (Subrec): Digest of THIS Record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT Data Record (LDR) Control Map Fields (Recall that each Map ALSO has
 -- the PM (general property map) fields.
--- local LDR_StoreMode            = 'M'; !! Use Top LDT Entry
--- local LDR_ListEntryMax         = 'L'; !! Use top LDT entry
--- local LDR_ByteEntrySize        = 'e'; !! Use Top LDT Entry
 local LDR_ByteEntryCount       = 'C'; -- Current Count of bytes used
--- local LDR_ByteCountMax         = 'X'; !! Use Top LDT Entry
--- local LDR_LogInfo              = 'I'; !! Not currently used
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Cold Directory Control Map::In addition to the General Property Map
 local CDM_NextDirRec           = 'N';-- Ptr to next Cold Dir Page
@@ -3600,6 +3601,7 @@ local function localPush( topRec, ldtCtrl, newStoreValue, src )
     MOD, meth, tostring(newStoreValue), ldtSummaryString(ldtCtrl));
     
   local ldtMap = ldtCtrl[2];
+  local rc = 0;
 
   -- This function is pretty easy.  We always start with the HotList, and
   -- then move on from there if necessary.
@@ -3614,9 +3616,19 @@ local function localPush( topRec, ldtCtrl, newStoreValue, src )
   --     room, then make room -- transfer half the list out to the warm list.
   --     That may, in turn, have to make room by moving some items to the
   --     cold list. 
-  -- NOTE: Ok to use ldtMap and not ldtCtrl here.
-  if specialHotCapacityInsert( ldtMap, newStoreValue ) == false then
-    if list.size( ldtMap[M_HotEntryList] ) >= ldtMap[M_HotListMax] then
+  -- NOTE: New for the 2014 Christmas season, our new configurator sometimes
+  --       calls for a ZERO LENGTH Hot List, when objects are big.  So, we
+  --       need to be ready to insert directly into the warm list.
+  local hotListMax = ldtMap[M_HotListMax];
+  if hotListMax == nil or hotListMax == 0 then
+    -- We don't have a hot list, so nothing to check and nothing to transfer.
+    -- Just proceed directly to the warm list.
+    rc = warmListInsert( src, topRec, ldtCtrl, newStoreValue );
+
+
+    -- NOTE: Ok to use ldtMap and not the usual ldtCtrl here.
+  elseif specialHotCapacityInsert( ldtMap, newStoreValue ) == false then
+    if list.size( ldtMap[M_HotEntryList] ) >= hotListMax then
       GP=F and trace("[DEBUG]:<%s:%s>: CALLING TRANSFER HOT LIST!!",MOD, meth );
       hotListTransfer( src, topRec, ldtCtrl );
     end
@@ -3758,7 +3770,7 @@ end -- processModule()
 -- in this bin.
 -- ALSO:: Caller write out the LDT bin after this function returns.
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, userModule ) 
+local function setupLdtBin( topRec, ldtBinName, createSpec ) 
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -3770,16 +3782,16 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- is handled in initializeLdtCtrl()
 
   -- If the user has passed in settings that override the defaults
-  -- (the userModule), then process that now.
-  if( userModule ~= nil )then
-    local createSpecType = type(userModule);
-    if( createSpecType == "string" ) then
-      processModule( ldtCtrl, userModule );
-    elseif( createSpecType == "userdata" ) then
-      ldt_common.adjustLdtMap( ldtCtrl, userModule, lstackPackage);
+  -- (the createSpec), then process that now.
+  if ( createSpec ~= nil ) then
+    local createSpecType = type(createSpec);
+    if ( createSpecType == "string" ) then
+      processModule( ldtCtrl, createSpec );
+    elseif ( getmetatable(createSpec) == Map ) then
+      ldt_common.adjustLdtMap( ldtCtrl, createSpec, lstackPackage );
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( userModule ));
+        MOD, meth, tostring( createSpec ));
     end
   end
 
@@ -3966,7 +3978,8 @@ local lstack = {};
 -- Parms (inside argList)
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
--- (3) createSpec: The Name of a configuration UDF for setting confif values.
+-- (3) createSpec: The UDF CreateModule Name, or config map, for
+--                 setting confif values.
 --
 -- Result:
 --   rc = 0: ok
@@ -4035,7 +4048,8 @@ end -- function lstack.create()
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
 -- (3) newValue: The value to be inserted (pushed on the stack)
--- (4) createSpec: The map of create parameters or UDF create function.
+-- (4) createSpec: The UDF CreateModule Name, or config map, for
+--                 setting confif values on First Value Insert.
 -- (5) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 --   rc = 0: ok

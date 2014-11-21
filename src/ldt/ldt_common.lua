@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_11_03.C";
+local MOD="ldt_common_2014_11_17.F";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -97,6 +97,8 @@ local List = getmetatable( list() );
 -- ldt_common.validateBinName( ldtBinName )
 -- ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVer)
 -- ldt_common.checkBin(topRec,ldtBinName,ldtType)
+-- ldt_common.validateLdtBin( topRec, ldtBinName, ldtType)
+-- ldt_common.validateConfigParms( ldtMap, configMap )
 --
 -- LIST FUNCTIONS
 -- ldt_common.listAppendList( baseList, additionalList )
@@ -216,7 +218,7 @@ local DM_BUSY  = 'B';
 -- us to look up subRecs and get the open reference, rather than bothering
 -- the lower level infrastructure.  There's also a limit to the number
 -- of open subRecs.
-local G_OPEN_SR_LIMIT = 2000;
+local G_OPEN_SR_LIMIT = 4000;
 
 -- In order to keep the Sub-Rec Pool somewhat well-behaved, we will clean
 -- (remove the clean, non-busy, read-only sub-recs) the pool periodically.
@@ -319,10 +321,12 @@ local SUBREC_PROP_BIN   = "SR_PROP_BIN";
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Record Level Property Map (RPM) Fields: One RPM per record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-local RPM_LdtCount             = 'C';  -- Number of LDTs in this rec
-local RPM_VInfo                = 'V';  -- Partition Version Info
-local RPM_Magic                = 'Z';  -- Special Sauce
-local RPM_SelfDigest           = 'D';  -- Digest of this record
+local RPM = {
+  LdtCount             = 'C';  -- Number of LDTs in this rec
+  VInfo                = 'V';  -- Partition Version Info
+  Magic                = 'Z';  -- Special Sauce
+  SelfDigest           = 'D';  -- Digest of this record
+};
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -344,13 +348,16 @@ local PM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT Map Fields Common to ALL LDTs (managed by the LDT COMMON routines)
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-local M_UserModule          = 'P';-- User's Lua file for overrides
-local M_KeyFunction         = 'F';-- Function to compute Key from Object
-local M_KeyType             = 'k'; -- Key Type: Atomic or Complex
-local M_StoreMode           = 'M';-- SM_LIST or SM_BINARY (applies to all nodes)
-local M_StoreLimit          = 'L';-- Storage Capacity Limit
-local M_Transform           = 't';-- Transform Object (from User to bin store)
-local M_UnTransform         = 'u';-- Reverse transform (from storage to user)
+local LC = {
+  -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
+  UserModule             = 'P'; -- User's Lua file for overrides
+  KeyFunction            = 'F'; -- User Supplied Key Extract Function
+  KeyType                = 'k'; -- Type of Key (Always atomic for LMAP)
+  StoreMode              = 'M'; -- SM_LIST or SM_BINARY
+  StoreLimit             = 'L'; -- Max Items: Used for Eviction (eventually)
+  Transform              = 't'; -- Transform object to storage format
+  UnTransform            = 'u'; -- UnTransform from storage to Lua format
+};
 
 -- KeyType (KT) values
 local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
@@ -449,8 +456,8 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
   -- Look in the Create Module first, then check the Function Table.
   -- The Name of the key function is stored in the ldtMap -- get that name
   -- and then look for where it is located.
-  local createModule = ldtMap[M_UserModule];
-  local keyFunctionName = ldtMap[M_KeyFunction];
+  local createModule = ldtMap[LC.UserModule];
+  local keyFunctionName = ldtMap[LC.KeyFunction];
   local keyFunctionPtr = nil;
   if( keyFunctionName ~= nil ) then
     if( type(keyFunctionName) ~= "string" or keyFunctionName == "" ) then
@@ -483,7 +490,7 @@ function ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
         error( ldte.ERR_KEY_FUN_NOT_FOUND );
       end
     end
-  elseif( required and ldtMap[M_KeyType] == KT_COMPLEX ) then
+  elseif( required and ldtMap[LC.KeyType] == KT_COMPLEX ) then
     info("[WARNING]<%s:%s>Key Function is Required for LDT Complex Object",
       MOD, meth );
     error( ldte.ERR_KEY_FUN_NOT_FOUND );
@@ -522,7 +529,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
 
   -- Do the Filter First. If not nil, then process.  Complain if things
   -- go badly.
-  local createModule = ldtMap[M_UserModule];
+  local createModule = ldtMap[LC.UserModule];
   local L_Filter = nil;
   local userModuleRef;   -- Hold the imported user module table
   local createModuleRef; -- Hold the imported create module table
@@ -598,7 +605,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   end -- if filter not nil
 
   -- That wraps up the Filter handling.  Now do  the UnTransform Function.
-  local untrans = ldtMap[M_UnTransform];
+  local untrans = ldtMap[LC.UnTransform];
   local L_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
@@ -653,9 +660,9 @@ function ldt_common.setWriteFunctions( ldtMap )
 
   -- Look in the create module first, then the UdfFunctionTable to find
   -- the transform function (if there is one).
-  local createModule = ldtMap[M_UserModule];
+  local createModule = ldtMap[LC.UserModule];
   local createModuleRef; -- Hold the imported module table
-  local trans = ldtMap[M_Transform];
+  local trans = ldtMap[LC.Transform];
   local L_Transform;
   if( trans ~= nil ) then
     if( type(trans) ~= "string" or trans == "" ) then
@@ -1033,7 +1040,7 @@ end -- createAndInitESR()
 -- ======================================================================
 function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   local meth = "createSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth );
+  GP=E and info("[ENTER]<%s:%s> ", MOD, meth );
 
   -- We have a global limit on the number of subRecs that we can have
   -- open at a time.  If we're at (or above) the limit, then we must
@@ -1150,7 +1157,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- This will mark the SubRec as dirty.
   local rc = ldt_common.addSubRecToContext( srcCtrl, newSubRec, true);
 
-  GP=E and trace("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
+  GP=E and info("[EXIT]<%s:%s> with a new SubRec: Dig(%s)", MOD, meth,
     subRecDigestString );
   return newSubRec;
 end --  createSubRec()
@@ -1173,7 +1180,7 @@ end --  createSubRec()
 -- ======================================================================
 function ldt_common.openSubRec( srcCtrl, topRec, digestString )
   local meth = "openSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
+  GP=E and info("[ENTER]<%s:%s> TopRec(%s) DigestStr(%s) SRC(%s)",
     MOD, meth, tostring(topRec), tostring(digestString), tostring(srcCtrl));
 
   -- Do some checks while we're in DEBUG mode.
@@ -1262,7 +1269,7 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     GP=F and trace("[FOUND REC]<%s:%s>Rec DG(%s)", MOD, meth, digestString);
   end
 
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
+  GP=E and info("[EXIT]<%s:%s>Rec(%s) Dig(%s)",
     MOD, meth, tostring(subRec), digestString );
   return subRec;
 end -- openSubRec()
@@ -1363,7 +1370,7 @@ end -- closeSubRec()
 -- ======================================================================
 function ldt_common.markUnBusy( srcCtrl, digestString )
   local meth = "markUnBusy()";
-  GP=E and trace("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
+  GP=E and info("[ENTER]<%s:%s> DigestStr(%s) SRC(%s)",
     MOD, meth, tostring(digestString), tostring(srcCtrl));
 
   local recMap = srcCtrl[1];
@@ -1384,7 +1391,7 @@ function ldt_common.markUnBusy( srcCtrl, digestString )
     cleaned = 1;
   end
 
-  GP=E and trace("[EXIT]<%s:%s> Digest(%s) Cleaned(%d)",
+  GP=E and info("[EXIT]<%s:%s> Digest(%s) Cleaned(%d)",
     MOD, meth, tostring(digestString), cleaned);
   return 0;
 end -- markUnBusy()
@@ -1396,7 +1403,7 @@ end -- markUnBusy()
 -- ======================================================================
 function ldt_common.updateSubRec( srcCtrl, subRec )
   local meth = "updateSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> SRC(%s) subRec(%s)",
+  GP=E and info("[ENTER]<%s:%s> SRC(%s) subRec(%s)",
     MOD, meth, tostring(srcCtrl), tostring(subRec));
 
   local recMap = srcCtrl[1];
@@ -1433,7 +1440,7 @@ function ldt_common.updateSubRec( srcCtrl, subRec )
 
   dirtyMap[digestString] = DM_DIRTY;
 
-  GP=E and trace("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
+  GP=E and info("[EXIT]<%s:%s>Rec(%s) Dig(%s) rc(%s)",
     MOD, meth, tostring(subRec), digestString, tostring(rc));
   return rc;
 end -- updateSubRec()
@@ -1443,7 +1450,7 @@ end -- updateSubRec()
 -- ======================================================================
 function ldt_common.markSubRecDirty( srcCtrl, digestString )
   local meth = "markSubRecDirty()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
+  GP=E and info("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
   -- Pull up the dirtyMap, find the entry for this digestString and
   -- mark it dirty.  We don't even care what the existing value used to be.
@@ -1452,7 +1459,7 @@ function ldt_common.markSubRecDirty( srcCtrl, digestString )
 
   dirtyMap[digestString] = DM_DIRTY;
   
-  GP=E and trace("[EXIT]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl) );
+  GP=E and info("[EXIT]<%s:%s> SRC(%s)", MOD, meth, tostring(srcCtrl) );
   return 0;
 end -- markSubRecDirty()
 
@@ -1464,7 +1471,7 @@ end -- markSubRecDirty()
 -- ======================================================================
 function ldt_common.closeAllSubRecs( srcCtrl )
   local meth = "closeAllSubRecs()";
-  GP=E and trace("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
+  GP=E and info("[ENTER]<%s:%s> src(%s)", MOD, meth, tostring(srcCtrl));
 
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
@@ -1501,7 +1508,7 @@ function ldt_common.closeAllSubRecs( srcCtrl )
     end -- for name/value NOT NIL
   end -- for all fields in SRC
 
-  GP=E and trace("[EXIT]: <%s:%s> : OK", MOD, meth);
+  GP=E and info("[EXIT]: <%s:%s> : OK", MOD, meth);
   return 0; -- Any errors would have jumped out with error().
 end -- closeAllSubRecs()
 
@@ -1512,7 +1519,7 @@ end -- closeAllSubRecs()
 -- ======================================================================
 function ldt_common.removeSubRec( srcCtrl, topRec, propMap, digestString )
   local meth = "removeSubRec()";
-  GP=E and trace("[ENTER]<%s:%s> SRC(%s) TopRec(%s) DigestStr(%s)", MOD, meth,
+  GP=E and info("[ENTER]<%s:%s> SRC(%s) TopRec(%s) DigestStr(%s)", MOD, meth,
     tostring(srcCtrl), tostring(topRec), tostring(digestString));
 
   local recMap = srcCtrl[1];
@@ -1555,7 +1562,7 @@ function ldt_common.removeSubRec( srcCtrl, topRec, propMap, digestString )
   local subRecCount = propMap[PM.SubRecCount];
   propMap[PM.SubRecCount] = subRecCount - 1;
 
-  GP=E and trace("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
+  GP=E and info("[EXIT]: <%s:%s> : RC(%s)", MOD, meth, tostring(rc) );
   return rc; -- Mask the error for now:: TODO::@TOBY::Figure this out.
 end -- removeSubRec()
 
@@ -1861,6 +1868,257 @@ function ldt_common.validateLdtBin( topRec, ldtBinName, ldtType)
   GP=E and trace("[EXIT]<%s:%s> LDT VALID", MOD, meth);
   return ldtCtrl, propMap;
 end -- ldt_common.validateLdtBin()
+
+-- Default Values that we use if the user does not supply them.
+local DEFAULT_AVE_OBJ_SIZE     =     100;
+local DEFAULT_MAX_OBJ_SIZE     =     200;
+local DEFAULT_AVE_KEY_SIZE     =      12;
+local DEFAULT_MAX_KEY_SIZE     =      22;
+local DEFAULT_AVE_OBJ_CNT      =    1000;
+local DEFAULT_MAX_OBJ_CNT      =   10000;
+local DEFAULT_MINIMUM_PAGESIZE =    4000;
+local DEFAULT_TARGET_PAGESIZE  =   16000;
+local DEFAULT_WRITE_BLOCK_SIZE = 1000000;
+local DEFAULT_RECORD_OVERHEAD  =     500;
+local DEFAULT_FOCUS            =       0;
+local DEFAULT_TEST_MODE        =       0;
+
+-- ========================================================================
+-- ldt_common.validateConfigParms()
+-- ========================================================================
+-- The user had supplied us with a set of configuration parameters, but
+-- we have to validate the values -- both the TYPE and the acceptable
+-- ranges.  This function will be called by all of the "apply_setting()"
+-- functions (which invoke the compute_configuration() functions).
+--
+-- Here are the rules:
+-- All parameters must be numbers.  testMode is optional, but if it
+-- exists, it must be a number.
+-- ldtMap        :: The main control Map of the LDT
+-- configMap     :: A Map of Config Settings.
+--
+-- The values we expect to see in the configMap will be one or more of
+-- the following values.  For any value NOT seen in the map, we will use
+-- the published default value.
+--
+-- aveObjectSize :: the average object size (in bytes).
+-- maxObjectSize :: the maximum object size (in bytes).
+-- aveKeySize    :: the average Key size (in bytes).
+-- maxKeySize    :: the maximum Key size (in bytes).
+-- aveObjectCount:: the average LDT Collection Size (number of data objects).
+-- maxObjectCount:: the maximum LDT Collection size (number of data objects).
+-- writeBlockSize:: The namespace Write Block Size (in bytes)
+-- pageSize      :: Targetted Page Size (8kb to 1mb)
+-- focus         :: the primary focus for this LDT:
+--               :: 0=no pref, 1=performance, 2=storage efficiency
+-- testMode      :: The style of testing we're doing:
+--               :: nil or zero=none,
+--               :: 1=structure test, value type NUMBER (ignore sizes)
+--               :: 2=structure test, value type OBJECT (use sizes)
+-- ========================================================================
+-- If anything is wrong, we generate a warning and leave the ldtMap
+-- unchanged.  We don't error out, but instead return a -1 error code.
+-- ========================================================================
+function ldt_common.validateConfigParms( ldtMap, configMap )
+  local meth = "ldt_common.validateConfigParms()";
+  GP=E and info("[ENTER]<%s:%s> LDT Map(%s) Config Settings(%s)", MOD, meth,
+    tostring(ldtMap), tostring(configMap));
+
+  -- Get our working values out of the config map, and where there are
+  -- no values, use the assigned default values.
+  local aveObjectSize   =
+    (configMap.AveObjectSize ~= nil and configMap.AveObjectSize) or
+    DEFAULT_AVE_OBJ_SIZE;
+
+  local maxObjectSize  = 
+    (configMap.MaxObjectSize ~= nil and configMap.MaxObjectSize) or
+    DEFAULT_MAX_OBJ_SIZE;
+
+  local aveKeySize     =
+    (configMap.AveKeySize ~= nil and configMap.AveKeySize) or
+    DEFAULT_AVE_KEY_SIZE;
+
+  local maxKeySize     =
+    (configMap.MaxKeySize ~= nil and configMap.MaxKeySize) or
+    DEFAULT_MAX_KEY_SIZE;
+
+  local aveObjectCount =
+    (configMap.AveObjectCount ~= nil and configMap.AveObjectCount) or
+    DEFAULT_AVE_OBJ_CNT;
+
+  local maxObjectCount =
+    (configMap.MaxObjectCount ~= nil and configMap.MaxObjectCount) or
+    DEFAULT_MAX_OBJ_CNT;
+
+  local pageSize       =
+    (configMap.TargetPageSize ~= nil and configMap.TargetPageSize) or
+    DEFAULT_TARGET_PAGESIZE;
+
+  local writeBlockSize       =
+    (configMap.WriteBlockSize ~= nil and configMap.WriteBlockSize) or
+    DEFAULT_WRITE_BLOCK_SIZE;
+
+  local recordOverHead       =
+    (configMap.RecordOverHead ~= nil and configMap.RecordOverHead) or
+    DEFAULT_RECORD_OVERHEAD;
+
+  local focus               =
+    (configMap.Focus ~= nil and configMap.Focus) or DEFAULT_FOCUS;
+
+  local testMode       =
+    (configMap.TestMode ~= nil and configMap.TestMode) or DEFAULT_TEST_MODE;
+
+  GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
+  GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+    tostring(aveObjectSize), tostring(maxObjectSize));
+  GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+    tostring(aveKeySize), tostring(maxKeySize));
+  GP=E and info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+    tostring(aveObjectCount), tostring(maxObjectCount));
+  GP=E and info("[DEBUG]<%s:%s>WriteBlockSize(%s) RecordOH(%s)", MOD, meth,
+    tostring(writeBlockSize), tostring(recordOverHead));
+  GP=E and info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+    tostring(pageSize), tostring(focus), tostring(testMode));
+
+  if  ldtMap          == nil or
+      aveObjectSize   == nil or
+      maxObjectSize   == nil or
+      aveObjectCount  == nil or
+      maxObjectCount  == nil or
+      aveKeySize      == nil or
+      maxKeySize      == nil or
+      writeBlockSize  == nil or
+      recordOverHead  == nil or
+      pageSize        == nil or
+      focus           == nil 
+  then
+    warn("[ERROR]<%s:%s> One or more of the config setting values are NIL",
+      MOD, meth);
+    info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+      tostring(aveObjectSize), tostring(maxObjectSize));
+    info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+      tostring(aveKeySize), tostring(maxKeySize));
+    info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+      tostring(aveObjectCount), tostring(maxObjectCount));
+    info("[DEBUG]<%s:%s>WriteBlockSize(%s) RecordOH(%s)", MOD, meth,
+      tostring(writeBlockSize), tostring(recordOverHead));
+    info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+      tostring(pageSize), tostring(focus), tostring(testMode));
+    return -1;
+  end
+
+  if  type( aveObjectSize )  ~= "number" or
+      type( maxObjectSize )  ~= "number" or
+      type( aveKeySize )     ~= "number" or
+      type( maxKeySize )     ~= "number" or
+      type( aveObjectCount ) ~= "number" or
+      type( maxObjectCount ) ~= "number" or
+      type( writeBlockSize ) ~= "number" or
+      type( recordOverHead ) ~= "number" or
+      type( pageSize )       ~= "number" or
+      type( focus )          ~= "number" or
+      type(testMode)         ~= "number"
+  then
+    warn("[ERROR]<%s:%s> All parameters must be numbers.", MOD, meth);
+    info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+      type(aveObjectSize), type(maxObjectSize));
+    info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+      type(aveKeySize), type(maxKeySize));
+    info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+      type(aveObjectCount), type(maxObjectCount));
+    info("[DEBUG]<%s:%s>WriteBlockSize(%s) RecordOverHead(%s)", MOD, meth,
+      type(writeBlockSize), type(recordOverHead));
+    info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+      type(pageSize), type(focus), type(testMode));
+    return -1;
+  end
+
+  -- Let's do some number validation before we actually apply the values
+  -- given to us.  The values have to be within a reasonable range,
+  -- and the average sizes cannot be larger than the max values.
+  if  aveObjectSize <= 0 or maxObjectSize <= 0 or
+      aveKeySize <= 0 or maxKeySize <= 0 or
+      aveObjectCount <= 0 or maxObjectCount <= 0 or
+      writeBlockSize <= 0 or
+      recordOverHead < 0 or
+      pageSize <= 0 or
+      focus < 0 
+  then
+    warn("[ERROR]<%s:%s> Settings must be greater than zero", MOD, meth);
+    info("[INFO] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
+      aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
+    info("[INFO] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d) RecOH(%d)",
+      aveObjectCount, maxObjectCount, writeBlockSize, recordOverHead);
+    info("[INFO] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
+    return -1;
+  end
+
+  GP=F and info("[DUMP] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
+    aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
+  GP=F and info("[DUMP] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d) RecOH(%d)",
+    aveObjectCount, maxObjectCount, writeBlockSize, recordOverHead);
+  GP=F and info("[DUMP] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
+  
+  -- Do some specific value validation.
+  -- First, Page Size must be in a valid range.
+  -- Next, Page Size must be able to hold at least ONE object.
+  -- Ideally, we'd like to be able to hold at least 2, if not 4 objects.
+  local pageMinimum = DEFAULT_MINIMUM_PAGESIZE;
+  local pageTarget = DEFAULT_TARGET_PAGESIZE;
+  local pageMaximum =  writeBlockSize;  -- 128k to 1mb ceiling
+  if pageSize < pageMinimum then
+    warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
+      MOD, meth, pageSize, pageMinimum);
+    pageSize = pageTarget;
+    warn("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
+      MOD, meth, pageTarget);
+  elseif pageSize > pageMaximum then
+    warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
+      MOD, meth, pageSize, pageMaximum);
+    pageSize = pageMaximum;
+    warn("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
+      MOD, meth, pageMaximum);
+  elseif maxObjectSize > writeBlockSize then
+    warn("[ERROR]<%s:%s> Max Object Size(%d) Exceeds WriteBlockSize(%d)",
+      MOD, meth, maxObjectSize, writeBlockSize);
+    return -1;
+  elseif maxObjectSize > pageSize then
+    warn("[ADJUST]<%s:%s> Max Object Size(%d) Exceeds Target PageSize(%d)",
+      MOD, meth, maxObjectSize, pageSize);
+    if  maxObjectSize < pageTarget then
+      pageSize = pageTarget;
+    elseif ( maxObjectSize * 4 )  < writeBlockSize then
+      pageSize = maxObjectSize * 4;
+    else
+      pageSize = writeBlockSize;
+    end
+
+  else
+    debug("[VALID]<%s:%s> PageSize(%d) Approved", MOD, meth, pageSize);
+  end
+
+  -- At the end, write all of the values back.  Some things we may have
+  -- recomputed, others we may have just set default values.
+
+  configMap.AveObjectSize   = aveObjectSize;
+  configMap.MaxObjectSize   = maxObjectSize;
+  configMap.AveKeySize      = aveKeySize;
+  configMap.MaxKeySize      = maxKeySize;
+  configMap.AveObjectCount  = aveObjectCount;
+  configMap.MaxObjectCount  = maxObjectCount;
+  configMap.TargetPageSize  = pageSize;
+  configMap.WriteBlockSize  = writeBlockSize;
+  configMap.RecordOverHead  = recordOverHead;
+  configMap.Focus           = focus;
+  configMap.TestMode        = testMode;
+
+GP=E and trace("[EXIT]: <%s:%s>:: LdtMap(%s) PageSize(%d)",
+    MOD, meth, tostring(ldtMap), pageSize);
+
+  return 0;
+
+end -- ldt_common.validateConfigParms()
+
 
 -- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
@@ -2472,15 +2730,15 @@ end -- ldt_common.validateList()
 -- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
 -- (*) argListMap: Map of LDT Settings 
 -- (*) ldtSpecificPackage: The LDT-Specific package of settings
--- Return: The updated LsoList
+-- Return: The updated ldtMap
 -- ======================================================================
 function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
   local meth = "adjustLdtMap()";
   local propMap = ldtCtrl[1];
   local ldtMap = ldtCtrl[2];
 
-  GP=E and trace("[ENTER]<%s:%s>:: LDT Ctrl(%s)::\n ArgListMap(%s)",
-    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
+  GP=E and trace("[ENTER]<%s:%s>:LDT Package(%s) LDT Ctrl(%s)",
+    MOD, meth, tostring(ldtSpecificPackage), tostring(ldtCtrl));
 
   -- Iterate thru the argListMap and adjust (override) the map settings 
   -- based on the settings passed in during the stackCreate() call.
@@ -2498,11 +2756,26 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
     -- looked up dynamically.
     -- Notice that this is the old way to change settings.  The new way is
     -- to use a "user module", which contains UDFs that control LDT settings.
-    if name and value then
+    local ldtPackage;
+    if name ~= nil and value ~= nil then
       if name == "Package" and type( value ) == "string" then
-        local ldtPackage = ldtSpecificPackage[value];
+        -- ldtPackage = ldtSpecificPackage[value];
+        ldtPackage = ldtSpecificPackage["use_package"];
         if( ldtPackage ~= nil ) then
-          ldtPackage( ldtMap );
+          ldtPackage( ldtMap, value );
+        end
+      elseif name == "Compute" and
+             type( value ) == "string" and value == "compute_settings"
+      then
+        -- We expect that "value" is he "compute_settings(ldtMap, configMap)"
+        -- case, and the argListMap is actually the configMap;
+        -- Note that this looks almost like the case above, except that
+        -- here we are passing in the input configMap (the argListMap).
+        info("[COMPUTE CONFIG]<%s:%s> Compute Config: Map(%s)",
+          MOD, meth, tostring(argListMap));
+        ldtPackage = ldtSpecificPackage[value];
+        if( ldtPackage ~= nil ) then
+          ldtPackage( ldtMap, argListMap );
         end
       end
     else
@@ -2511,10 +2784,10 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
     end -- for NON NIL name/value
   end -- for each argument
 
-  GP=E and trace("[EXIT]:<%s:%s>:LsoList after Init(%s)",
+  GP=E and trace("[EXIT]:<%s:%s>:ldtMap after Init(%s)",
     MOD,meth,tostring(ldtCtrl));
   return ldtCtrl;
-end -- adjustLdtMap
+end -- ldt_common.adjustLdtMap
 
 -- ======================================================================
 -- When we create the initial LDT Control Bin for the entire record (the
@@ -2551,15 +2824,15 @@ function ldt_common.setLdtRecordType( topRec )
     -- vinfo will be a 5 byte value, but it will be easier for us to store
     -- a FULL NUMBER (8 bytes) of value ZERO.
     local vinfo = 0;
-    recPropMap[RPM_VInfo] = vinfo; 
-    recPropMap[RPM_LdtCount] = 1; -- this is the first one.
-    recPropMap[RPM_Magic] = MAGIC;
-    recPropMap[RPM_SelfDigest] = record.digest(topRec);
+    recPropMap[RPM.VInfo] = vinfo; 
+    recPropMap[RPM.LdtCount] = 1; -- this is the first one.
+    recPropMap[RPM.Magic] = MAGIC;
+    recPropMap[RPM.SelfDigest] = record.digest(topRec);
   else
     -- Not much to do -- increment the LDT count for this record.
     recPropMap = topRec[REC_LDT_CTRL_BIN];
-    local ldtCount = recPropMap[RPM_LdtCount];
-    recPropMap[RPM_LdtCount] = ldtCount + 1;
+    local ldtCount = recPropMap[RPM.LdtCount];
+    recPropMap[RPM.LdtCount] = ldtCount + 1;
     GP=F and trace("[DEBUG]<%s:%s>Record LDT Map Exists: Bump LDT Count(%d)",
       MOD, meth, ldtCount + 1 );
   end
@@ -2710,12 +2983,13 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
   -- Get the Common LDT (Hidden) bin, and update the LDT count.  If this
   -- is the LAST LDT in the record, then remove the Hidden Bin entirely.
   local recPropMap = topRec[REC_LDT_CTRL_BIN];
-  if( recPropMap == nil or recPropMap[RPM_Magic] ~= MAGIC ) then
+  if( recPropMap == nil or recPropMap[RPM.Magic] ~= MAGIC ) then
     warn("[INTERNAL ERROR]<%s:%s> Prop Map for LDT Hidden Bin invalid",
       MOD, meth );
     error( ldte.ERR_BIN_DAMAGED );
   end
-  local ldtCount = recPropMap[RPM_LdtCount];
+  local ldtCount = recPropMap[RPM.LdtCount];
+  GP=D and trace("[DEBUG]<%s:%s> LDT Count(%d)", MOD, meth, ldtCount);
   if( ldtCount <= 1 ) then
     -- Remove the LDT Control bin
     topRec[REC_LDT_CTRL_BIN] = nil;
@@ -2724,14 +2998,15 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
     -- LDT to regular.  We do that by passing in a NEGATIVE value.
     record.set_type( topRec, -(RT_LDT) );
   else
-    recPropMap[RPM_LdtCount] = ldtCount - 1;
+    recPropMap[RPM.LdtCount] = ldtCount - 1;
     topRec[REC_LDT_CTRL_BIN] = recPropMap;
     record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
   end
   
   -- Update the Top Record.
+  GP=D and trace("[DEBUG]<%s:%s> Updating TopRec", MOD, meth);
   rc = aerospike:update( topRec );
-  if rc and rc ~= 0 then
+  if rc ~= nil and rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
@@ -2833,7 +3108,7 @@ function ldt_common.get_capacity( topRec, ldtBinName, ldtType, codeVer )
   local ldtCtrl = topRec[ ldtBinName ];
   -- Extract the property map and LDT control map from the LDT bin list.
   local ldtMap = ldtCtrl[2];
-  local capacity = ldtMap[M_StoreLimit];
+  local capacity = ldtMap[LC.StoreLimit];
   if( capacity == nil ) then
     capacity = 0;
   end
@@ -2870,7 +3145,7 @@ function ldt_common.set_capacity(topRec,ldtBinName,capacity,ldtType,codeVer)
   -- Extract the property map and LDT control map from the LDT bin list.
   local ldtMap = ldtCtrl[2];
   if( capacity ~= nil and type(capacity) == "number" and capacity >= 0 ) then
-    ldtMap[M_StoreLimit] = capacity;
+    ldtMap[LC.StoreLimit] = capacity;
   else
     warn("[ERROR]<%s:%s> Bad Capacity Value(%s)",MOD,meth,tostring(capacity));
     error( ldte.ERR_INTERNAL );

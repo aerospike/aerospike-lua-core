@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_11_05.A";
+local MOD="lib_llist_2014_11_20.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -71,6 +71,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 -- (*) List   = llist.scan(topRec, ldtBinName, userModule, filter, fargs, src)
 -- (*) Status = llist.remove(topRec, ldtBinName, searchValue  src) 
 -- (*) Status = llist.remove_all(topRec, ldtBinName, valueList  src) 
+-- (*) Status = llist.remove_range(topRec, ldtBinName, minKey, maxKey, src)
 -- (*) Status = llist.destroy(topRec, ldtBinName, src)
 -- (*) Number = llist.size(topRec, ldtBinName )
 -- (*) Map    = llist.config(topRec, ldtBinName )
@@ -161,7 +162,9 @@ local llistPackage = require('ldt/settings_llist');
 -- We will likely move some other functions in there as they become common.
 local ldt_common = require('ldt/ldt_common');
 
--- We need this for testing down below.
+-- These values should be "built-in" for our Lua, but it is either missing
+-- or inconsistent, so we define it here.  We use this when we check to see
+-- if a value is a LIST or a MAP.
 local Map = getmetatable( map() );
 local List = getmetatable( list() );
 
@@ -833,57 +836,63 @@ initializeLdtCtrl( topRec, ldtBinName )
   return ldtCtrl;
 end -- initializeLdtCtrl()
 
--- ======================================================================
--- adjustLdtMap:
--- ======================================================================
--- Using the settings supplied by the caller in the LDT Create call,
--- we adjust the values in the LdtMap:
--- Parms:
--- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
--- (*) argListMap: Map of LDT Settings 
--- Return: The updated LdtList
--- ======================================================================
-local function adjustLdtMap( ldtCtrl, argListMap )
-  local meth = "adjustLdtMap()";
-  local propMap = ldtCtrl[1];
-  local ldtMap = ldtCtrl[2];
 
-  GP=E and trace("[ENTER]: <%s:%s>:: LdtCtrl(%s)::\n ArgListMap(%s)",
-  MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
-
-  -- Iterate thru the argListMap and adjust (override) the map settings 
-  -- based on the settings passed in during the stackCreate() call.
-  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
-  MOD, meth, tostring(argListMap));
-
-  -- We now have a better test for seeing if something is a map
-  if (getmetatable(argListMap) == Map ) then
-
-    -- For the old style -- we'd iterate thru ALL arguments and change
-    -- many settings.  Now we process only packages this way.
-    for name, value in map.pairs( argListMap ) do
-      GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-
-      -- Process our "prepackaged" settings.  These now reside in the
-      -- settings file.  All of the packages are in a table, and thus are
-      -- looked up dynamically.
-      -- Notice that this is the old way to change settings.  The new way is
-      -- to use a "user module", which contains UDFs that control LDT settings.
-      if name == "Package" and type( value ) == "string" then
-        local ldtPackage = llistPackage[value];
-        if( ldtPackage ~= nil ) then
-          ldtPackage( ldtMap );
-        end
-      end
-    end -- for each argument
-  end -- if the arglist is really a Map
-
-  GP=E and trace("[EXIT]:<%s:%s>:LdtCtrl after Init(%s)",
-  MOD,meth,tostring(ldtCtrl));
-  return ldtCtrl;
-end -- adjustLdtMap
-
+-- -- ======================================================================
+-- NOTE: We no longer call this local function.  We now call the common
+-- function: ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage)
+-- -- ======================================================================
+-- -- adjustLdtMap:
+-- -- NOTE: This should not be called -- we should be using the adjustLdtMap()
+-- -- in ldt_common.
+-- -- ======================================================================
+-- -- Using the settings supplied by the caller in the LDT Create call,
+-- -- we adjust the values in the LdtMap:
+-- -- Parms:
+-- -- (*) ldtCtrl: the main LDT Bin value (propMap, ldtMap)
+-- -- (*) argListMap: Map of LDT Settings 
+-- -- Return: The updated LdtList
+-- -- ======================================================================
+-- local function adjustLdtMap( ldtCtrl, argListMap )
+--   local meth = "adjustLdtMap()";
+--   local propMap = ldtCtrl[1];
+--   local ldtMap = ldtCtrl[2];
+-- 
+--   GP=E and trace("[ENTER]: <%s:%s>:: LdtCtrl(%s)::\n ArgListMap(%s)",
+--   MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
+-- 
+--   -- Iterate thru the argListMap and adjust (override) the map settings 
+--   -- based on the settings passed in during the stackCreate() call.
+--   GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
+--   MOD, meth, tostring(argListMap));
+-- 
+--   -- We now have a better test for seeing if something is a map
+--   if (getmetatable(argListMap) == Map ) then
+-- 
+--     -- For the old style -- we'd iterate thru ALL arguments and change
+--     -- many settings.  Now we process only packages this way.
+--     for name, value in map.pairs( argListMap ) do
+--       GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
+--       MOD, meth, tostring( name ), tostring( value ));
+-- 
+--       -- Process our "prepackaged" settings.  These now reside in the
+--       -- settings file.  All of the packages are in a table, and thus are
+--       -- looked up dynamically.
+--       -- Notice that this is the old way to change settings.  The new way is
+--       -- to use a "user module", which contains UDFs that control LDT settings.
+--       if name == "Package" and type( value ) == "string" then
+--         local ldtPackage = llistPackage[value];
+--         if( ldtPackage ~= nil ) then
+--           ldtPackage( ldtMap );
+--         end
+--       end
+--     end -- for each argument
+--   end -- if the arglist is really a Map
+-- 
+--   GP=E and trace("[EXIT]:<%s:%s>:LdtCtrl after Init(%s)",
+--   MOD,meth,tostring(ldtCtrl));
+--   return ldtCtrl;
+-- end -- adjustLdtMap
+-- 
 -- ======================================================================
 -- |||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- || B+ Tree Data Page Record |||||||||||||||||||||||||||||||||||||||||||
@@ -4064,9 +4073,10 @@ end -- buildNewTree()
 -- values LESS THAN the first value, and the right leaf for values
 -- GREATER THAN OR EQUAL to the first value.
 --
--- Notice that this code no longer gets called in normal operation, since
--- the initial tree build is done from a full compact list, rather than
--- single inserts that start with an empty tree.
+-- In general, we build our tree from the Compact List, but in those
+-- cases where the Objects being stored are too large to hold in the
+-- compact List (even for a little bit), we start directly with
+-- a tree insert.
 -- Parms:
 -- (*) src: SubRecContext
 -- (*) topRec
@@ -5729,36 +5739,41 @@ end -- setupKeyType()
 -- in this bin.
 -- ALSO:: Caller write out the LDT bin after this function returns.
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, userModule, firstValue) 
+local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue) 
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> ldtBinName(%s) UserMod(%s) FirstVal(%s)", MOD,
-    meth, tostring(ldtBinName), tostring(userModule), tostring(firstValue));
+    meth, tostring(ldtBinName), tostring(createSpec), tostring(firstValue));
 
   local ldtCtrl = initializeLdtCtrl( topRec, ldtBinName );
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
   
-  -- Set the type of this record to LDT (it might already be set)
-  record.set_type( topRec, RT.LDT ); -- LDT Type Rec
+  -- Remember that record.set_type() for the TopRec
+  -- is handled in initializeLdtCtrl()
   
   -- If the user has passed in settings that override the defaults
-  -- (the userModule), then process that now.
-  if( userModule ~= nil )then
-    local createSpecType = type(userModule);
+  -- (the createSpec), then process that now.
+  if( createSpec ~= nil )then
+    local createSpecType = type(createSpec);
     if( createSpecType == "string" ) then
-      processModule( ldtCtrl, userModule );
-    elseif( createSpecType == "userdata" ) then
-      adjustLdtMap( ldtCtrl, userModule );
+      processModule( ldtCtrl, createSpec );
+    elseif ( getmetatable(createSpec) == Map ) then
+      ldt_common.adjustLdtMap( ldtCtrl, createSpec, llistPackage);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( userModule ));
+        MOD, meth, tostring( createSpec ));
     end
   end
 
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
                  MOD, meth , tostring(ldtMap));
 
-  ldtMap[LS.CompactList] = list();
+  -- Set up our Bin according to which type of storage we're starting with.
+  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
+    ldtMap[LS.CompactList] = list();
+  else
+
+  end
 
   -- Sets the topRec control bin attribute to point to the 2 item list
   -- we created from InitializeLSetMap() : 
@@ -5920,7 +5935,7 @@ end -- treeMin();
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) newValue:
--- (*) createSpec:
+-- (*) createSpec: a UDF Module or a Config Map
 -- (*) update: When true, allow overwrite
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =======================================================================
@@ -6858,6 +6873,60 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
   return rc;
 end -- llist.remove_all()
 
+
+-- =======================================================================
+-- llist.remove_range(): Remove all items in the given range
+-- =======================================================================
+-- Perform a range query, and if any values are returned, remove each one
+-- of them individually.
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName:
+-- (*) valueList
+-- Return:
+-- Success: Count of values removed
+-- Error:   Error Code and message
+-- =======================================================================
+function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
+  GP=B and info("\n\n >>>>>>>>> API[ LLIST REMOVE_RANGE ] <<<<<<<<<<< \n");
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "remove_range()";
+  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) minKey(%s) maxKey(%s)",
+  MOD, meth, tostring(ldtBinName), tostring(minKey), tostring(maxKey));
+  
+  -- Create our subrecContext, which tracks all open SubRecords during
+  -- the call.  Then, allows us to close them all at the end.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  local valueList  = llist.range( topRec, ldtBinName, minKey, maxKey,
+                                  nil, nil, nil, src);
+  local deleteCount = 0;
+
+  local rc = 0;
+  if( valueList ~= nil and list.size(valueList) > 0 ) then
+    local listSize = list.size( valueList );
+    for i = 1, listSize, 1 do
+      rc = llist.remove( topRec, ldtBinName, valueList[i], src );
+      if( rc < 0 ) then
+        warn("[ERROR]<%s:%s> Problem Removing Item #(%d) [%s]", MOD, meth, i,
+          tostring( valueList[i] ));
+        -- error(ldte.ERR_DELETE);
+      else
+        deleteCount = deleteCount + 1;
+      end
+    end -- for each value in the list
+  else
+    debug("[ERROR]<%s:%s> Invalid Delete Value List(%s)",
+      MOD, meth, tostring(valueList));
+    error(ldte.ERR_INPUT_PARM);
+  end
+  
+  return deleteCount;
+end -- llist.remove_range()
+
 -- ========================================================================
 -- llist.destroy(): Remove the LDT entirely from the record.
 -- ========================================================================
@@ -6886,13 +6955,6 @@ function llist.destroy( topRec, ldtBinName, src)
 
   -- Validate the BinName before moving forward
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-
-  -- Extract the property map and LDT control map from the LDT bin list.
-  -- local ldtCtrl = topRec[ ldtBinName ];
-  local propMap = ldtCtrl[1];
-
-  GP=D and trace("[STATUS]<%s:%s> propMap(%s) LDT Summary(%s)", MOD, meth,
-    tostring( propMap ), ldtSummaryString( ldtCtrl ));
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -7021,6 +7083,7 @@ end -- function llist.get_capacity()
 -- ========================================================================
 function llist.set_capacity( topRec, ldtBinName, capacity )
   GP=B and info("\n\n  >>>>>>>> API[ SET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
+
   local meth = "llist.set_capacity()";
   local rc = 0;
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -7086,6 +7149,204 @@ function llist.ldt_exists( topRec, ldtBinName )
 end -- function llist.ldt_exists()
 
 -- ========================================================================
+-- <<< NEW (Experimental) FUNCTIONS >>>====================================
+-- ========================================================================
+-- (1) llist.write_bytes( topRec, ldtBinName, inputArray, offset, src )
+-- (2) llist.read_bytes( topRec, ldtBinName, offset, src )
+-- ========================================================================
+
+-- ======================================================================
+-- llist.write_bytes( topRec, ldtBinName, inputArray, offset )
+-- ======================================================================
+-- Take the input array (which may be a string, bytes, or something
+-- else) and store it as pieces in the LLIST.  Use a Map Object as the
+-- thing we're storing, where the "key" is the sequence number and the
+-- "data" is the binary byte array.
+--
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) inputArray: The input data
+-- (4) offset: Not used yet, but eventually will be the point at which
+--             we start writing (or appending).  For now, assumed to be
+--             zero, which means WRITE NEW every time.
+-- (5) src: Sub-Rec context
+--
+-- Result:
+--   Success: Return number of bytes written
+--   Failure: Return error.
+-- ======================================================================
+function llist.write_bytes( topRec, ldtBinName, inputArray, offset, src)
+  GP=B and info("\n\n  >>>>>>>> API[ WRITE BYTES ] <<<<<<<<<<<<<<<<<< \n");
+
+  local meth = "store_bytes()";
+  GP=E and info("[ENTER]<%s:%s> Bin(%s)", MOD, meth );
+
+  local Bytes = getmetatable( bytes() );
+
+  -- Depending on the input type, we process the inputArray differently.
+  local inputType;
+  if type(inputArray) == "string" then
+    GP=D and debug("Processing STRING array");
+    inputType = 1;
+  elseif getmetatable( inputArray ) == Bytes then
+    GP=D and debug("Processing BYTES array");
+    inputType = 2;
+  else
+    GP=D and debug("Processing OTHER array(%s)", type(inputArray));
+    inputType = 3;
+  end
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- Take the byte array and break it into fixed size chunks.  Put that
+  -- chunk into an array that is part of a map.  Make a list of those maps
+  -- and write that list to our LDT.
+  local rc = 0;
+  local amountLeft = #inputArray;
+  local chunkSize = 1024 * 64;  -- Use 64k chunks
+  local keySize = 8;  -- simple number key
+  local numChunks = math.ceil(amountLeft / chunkSize);
+  local targetPageSize = 1024 * 700;
+  local writeBlockSize = 1024 * 1024;
+  local maxChunkCount = 200;
+  local amountWritten = 0;
+
+  GP=D and debug("[DEBUG]<%s:%s> ByteLen(%d) CH Size(%d) Num CH(%d)", MOD,
+    meth, amountLeft, chunkSize, numChunks);
+
+  local mapChunk;
+  local bytePayload;
+  local stringIndex;
+  local configMap = map();
+  configMap["Compute"]         = "compute_settings";
+  configMap["AveObjectSize"]   = chunkSize;
+  configMap["MaxObjectSize"]   = chunkSize;
+  configMap["AveKeySize"]      = keySize;
+  configMap["MaxKeySize"]      = keySize;
+  configMap["AveObjectCount"]  = maxChunkCount;
+  configMap["MaxObjectCount"]  = maxChunkCount;
+  configMap["TargetPageSize"]  = targetPageSize;
+  configMap["WriteBlockSize"]  = writeBlockSize;
+
+  local bytePayLoad;
+  local fullStride = chunkSize;
+  for c = 0, (numChunks - 1) do
+    -- For all full size chunks, we'll stride by the full chunk and offset
+    -- thru the string array by that amount.  For either small sizes or
+    -- the last chunk, we will have a partial chunk.
+    if amountLeft < chunkSize then
+      chunkSize = amountLeft;
+    end
+
+    -- Create a new Map to hold our data
+    mapChunk = map();
+    mapChunk["key"] = c;
+    stringIndex = (c * fullStride);
+    bytePayLoad = bytes(chunkSize);
+
+    for i = 1, chunkSize do
+      bytePayLoad[i] =  string.byte(inputArray, (stringIndex + i));
+    end -- for each byte in chunk
+
+    mapChunk["data"] = bytePayLoad;
+    llist.add( topRec, ldtBinName, mapChunk, configMap, src);
+    configMap = nil; -- no need to pass in next time around.
+    amountLeft = amountLeft - chunkSize;
+
+    amountWritten = amountWritten + chunkSize;
+
+    GP=D and debug("[DEBUG]<%s:%s> StoredChunk(%d) AmtLeft(%d) ChunkSize(%d)",
+      MOD, meth, c, amountLeft, chunkSize);
+  end -- end for each Data Chunk
+
+  GP=E and info("[EXIT]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
+
+  return amountWritten;
+end -- llist.write_bytes()
+
+-- ======================================================================
+-- llist.read_bytes( topRec, ldtBinName, offset )
+-- ======================================================================
+-- From the LLIST object that is holding a list of MAPS that contain
+-- binary data, read them and return the binary data.
+--
+-- Parms:
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- (3) offset: Not used yet, but eventually will be the point at which
+--             we start writing (or appending).  For now, assumed to be
+--             zero, which means WRITE NEW every time.
+-- (4) src: Sub-Rec context
+-- Result:
+--   Success: Return number of bytes written
+--   Failure: Return error.
+-- ======================================================================
+function llist.read_bytes( topRec, ldtBinName, offset, src )
+  local meth = "read_bytes()";
+
+  GP=E and info("[ENTER]<%s:%s> Bin(%s) Offset(%d)", MOD, meth,
+    tostring(ldtBinName), offset);
+
+  -- Init our subrecContext, if necessary.  The SRC tracks all open
+  -- SubRecords during the call. Then, allows us to close them all at the end.
+  -- For the case of repeated calls from Lua, the caller must pass in
+  -- an existing SRC that lives across LDT calls.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  -- Create a byte array that is the size of the full LDT.  Then fill it
+  -- up from the pieces that we've stored in it.
+  local ldtSize = llist.size( topRec, ldtBinName );
+  GP=D and debug("[DEBUG]<%s:%s> LDT Size(%d)", MOD, meth, ldtSize);
+
+  local resultArray = bytes(ldtSize);
+
+  local ldtScanResult = llist.scan( topRec, ldtBinName, src );
+
+  -- Process our Scan Result and fill up the resultArray.
+  local mapObject;
+  local outputIndex = 0;
+  local byteData;
+  local amountRead = 0;
+
+  for i = 1, #ldtScanResult do
+    -- Each scan object is a map that contains byte data.  Copy that byte
+    -- data into our result.
+    mapObject = ldtScanResult[i];
+    -- Look inside the map object
+    GP=D and debug("[DEBUG]<%s:%s> Obj(%d) Contents(%s)",
+      MOD, meth, i, tostring(mapObject));
+
+    byteData = mapObject["data"];
+    local byteDataSize = bytes.size(byteData);
+    GP=D and debug("[DEBUG]<%s:%s> Reading Chunk(%d) Amount(%d) byteData(%s)",
+      MOD, meth, i, byteDataSize, tostring(byteData));
+    
+    for j = 1, byteDataSize do
+      resultArray[outputIndex + j] = byteData[j];
+    end -- for each byte in chunk
+    outputIndex = outputIndex + byteDataSize;
+  end -- for each scan object
+
+  amountRead = outputIndex;
+
+  GP=D and debug("[DEBUG]<%s:%s> Read a total of (%d) bytes", MOD, meth, outputIndex);
+
+  GP=E and info("[EXIT]<%s:%s> Bin(%s) Result Size(%d) Result(%s)", MOD, meth,
+    tostring(ldtBinName), #resultArray, tostring(resultArray));
+
+  return resultArray;
+end -- read_bytes()
+
+-- ========================================================================
 -- llist.dump(): Debugging/Tracing mechanism -- show the WHOLE tree.
 -- ========================================================================
 -- ========================================================================
@@ -7117,4 +7378,3 @@ return llist;
 --                                  
 -- ========================================================================
 -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
-
