@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_llist_2014_11_17.A"; -- the module name used for tracing
+local MOD="settings_llist_2014_11_24.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -880,159 +880,8 @@ local exports = {}
     GP=E and info("[ENTER]<%s:%s> LDT Map(%s) Config Settings(%s)", MOD, meth,
       tostring(ldtMap), tostring(configMap));
 
-
-    --[[
-    -- Get our working values out of the config map, and where there are
-    -- no values, use the assigned default values.
-    local aveObjectSize   =
-      (configMap.AveObjectSize ~= nil and configMap.AveObjectSize) or
-      DEFAULT_AVE_OBJ_SIZE;
-
-    local maxObjectSize  = 
-      (configMap.MaxObjectSize ~= nil and configMap.MaxObjectSize) or
-      DEFAULT_MAX_OBJ_SIZE;
-
-    local aveKeySize     =
-      (configMap.AveKeySize ~= nil and configMap.AveKeySize) or
-      DEFAULT_AVE_KEY_SIZE;
-
-    local maxKeySize     =
-      (configMap.MaxKeySize ~= nil and configMap.MaxKeySize) or
-      DEFAULT_MAX_KEY_SIZE;
-
-    local aveObjectCount =
-      (configMap.AveObjectCount ~= nil and configMap.AveObjectCount) or
-      DEFAULT_AVE_OBJ_CNT;
-
-    local maxObjectCount =
-      (configMap.MaxObjectCount ~= nil and configMap.MaxObjectCount) or
-      DEFAULT_MAX_OBJ_CNT;
-
-    local pageSize       =
-      (configMap.TargetPageSize ~= nil and configMap.TargetPageSize) or
-      DEFAULT_TARGET_PAGESIZE;
-
-    local writeBlockSize       =
-      (configMap.WriteBlockSize ~= nil and configMap.WriteBlockSize) or
-      DEFAULT_WRITE_BLOCK_SIZE;
-
-    local focus          =
-      (not configMap.Focus and configMap.Focus) or DEFAULT_FOCUS;
-
-    local testMode       =
-      (not configMap.TestMode and configMap.TestMode) or DEFAULT_TEST_MODE;
-
-    GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
-    GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-      tostring(aveObjectSize), tostring(maxObjectSize));
-    GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-      tostring(aveKeySize), tostring(maxKeySize));
-    GP=E and info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-      tostring(aveObjectCount), tostring(maxObjectCount));
-    GP=E and info("[DEBUG]<%s:%s>WriteBlockSize(%s)", MOD, meth,
-      tostring(writeBlockSize));
-    GP=E and info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-      tostring(pageSize), tostring(focus), tostring(testMode));
-
-    if  not ldtMap or
-        not aveObjectSize or
-        not maxObjectSize or
-        not aveObjectCount or
-        not maxObjectCount or
-        not aveKeySize or
-        not maxKeySize or
-        not writeBlockSize or
-        not pageSize or
-        not focus
-    then
-      warn("[ERROR]<%s:%s> One or more of the config setting values are NIL",
-        MOD, meth);
-      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-        tostring(aveObjectSize), tostring(maxObjectSize));
-      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-        tostring(aveKeySize), tostring(maxKeySize));
-      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-        tostring(aveObjectCount), tostring(maxObjectCount));
-      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-        tostring(pageSize), tostring(focus), tostring(testMode));
-      return -1;
-    end
-
-    if  type( aveObjectSize ) ~= "number" or
-        type( maxObjectSize ) ~= "number" or
-        type( aveKeySize ) ~= "number" or
-        type( maxKeySize ) ~= "number" or
-        type( aveObjectCount ) ~= "number" or
-        type( maxObjectCount ) ~= "number" or
-        type( writeBlockSize ) ~= "number" or
-        type( pageSize ) ~= "number" or
-        type( focus ) ~= "number" or
-        type(testMode) ~= "number"
-    then
-      warn("[ERROR]<%s:%s> All parameters must be numbers.", MOD, meth);
-      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-        type(aveObjectSize), type(maxObjectSize));
-      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-        type(aveKeySize), type(maxKeySize));
-      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-        type(aveObjectCount), type(maxObjectCount));
-      info("[DEBUG]<%s:%s>WriteBlockSize(%s)", MOD, meth,
-        type(writeBlockSize));
-      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-        type(pageSize), type(focus), type(testMode));
-      return -1;
-    end
-
-    -- Let's do some number validation before we actually apply the values
-    -- given to us.  The values have to be within a reasonable range,
-    -- and the average sizes cannot be larger than the max values.
-    if  aveObjectSize <= 0 or maxObjectSize <= 0 or
-        aveKeySize <= 0 or maxKeySize <= 0 or
-        aveObjectCount <= 0 or maxObjectCount <= 0 or
-        writeBlockSize <= 0 or
-        pageSize <= 0 or
-        focus < 0 
-    then
-      warn("[ERROR]<%s:%s> Settings must be greater than zero", MOD, meth);
-      info("[INFO] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
-        aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
-      info("[INFO] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d)",
-        aveObjectCount, maxObjectCount, writeBlockSize);
-      info("[INFO] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
-      return -1;
-    end
-
-    info("[DUMP] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
-      aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
-    info("[DUMP] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d)",
-      aveObjectCount, maxObjectCount, writeBlockSize);
-    info("[DUMP] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
-    
-    -- Do some specific value validation.
-    -- First, Page Size must be in a valid range.
-    local pageMinimum = 4000;
-    local pageTarget = 16000;
-    local pageMaximum =  writeBlockSize;  -- 128k to 1mb ceiling
-    if pageSize < pageMinimum then
-      warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
-        MOD, meth, pageSize, pageMinimum);
-      pageSize = pageTarget;
-      warn("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
-        MOD, meth, pageTarget);
-    elseif pageSize > pageMaximum then
-      warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
-        MOD, meth, pageSize, pageMaximum);
-      pageSize = pageMaximum;
-      warn("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
-        MOD, meth, pageMaximum);
-    else
-      debug("[VALID]<%s:%s> PageSize(%d) is in range", MOD, meth, pageSize);
-    end
-
-    --]]
-    
-   
-    -- Perform some validation of the user's Config Parameters
+    -- Perform some validation of the user's Config Parameters.
+    -- Notice that this is done only once at the initial create.
     local rc = ldt_common.validateConfigParms(ldtMap, configMap);
     if rc ~= 0 then
       warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
@@ -1060,7 +909,8 @@ local exports = {}
     local nodeListMax; -- # of Key/Digest entries we hold in a Node SubRec.
     local leafListMax; -- # of Data Objects we hold in a Leaf SubRec
 
-    local ldtOverhead = 500; -- Overhead in Bytes.  Used in Root Node calc.
+    local ldtOverHead = 500; -- Overhead in Bytes.  Used in Root Node calc.
+    recordOverHead = recordOverHead + ldtOverHead;
 
     -- Check that PageSize suits the conditions.
     -- Try for at least 10 objects in the leaves, but no more than 100.

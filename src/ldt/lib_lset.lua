@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_11_05.A"; 
+local MOD="lib_lset_2014_11_24.A"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -536,7 +536,7 @@ local C_CellState      = 'S'; -- Hold the Cell State
 local C_CellValueList  = 'V'; -- Pt to a LIST of objects
 local C_CellDigest     = 'D'; -- Pt to a single digest value
 local C_CellTree       = 'T'; -- Pt to a LIST of digests
-local C_CellItemCount  = 'C'; -- Item count, once we're in Sub-Rec Mode
+local C_CellItemCount  = 'C'; -- Cell item count, once we're in Sub-Rec Mode
 
 -- Here are the various constants used with Hash Cells
 local C_STATE_EMPTY   = 'E'; -- 
@@ -1501,12 +1501,13 @@ end -- searchList()
 -- (*) valueList
 -- (*) searchKey: The potentially simple version of the value
 -- (*) newValue
+-- (*) check: 1==Search before insert, 0==no search, just insert
 -- Return:
 -- 0: all is well
 -- Other: Error
 -- NOTE: When we allow overwrite, then when we overwrite, we'll return 1
 -- ======================================================================
-local function lsetListInsert( ldtCtrl, valueList, searchKey, newValue )
+local function lsetListInsert( ldtCtrl, valueList, searchKey, newValue, check)
   local meth = "lsetListInsert()";
   GP=E and trace("[ENTER]<%s:%s> Vlist(%s) Key(%s) Value(%s)",
     MOD, meth, tostring(valueList), tostring(searchKey), tostring(newValue));
@@ -1525,7 +1526,9 @@ local function lsetListInsert( ldtCtrl, valueList, searchKey, newValue )
   end
 
   local position = 0;
-  position = searchList( ldtMap, valueList, searchKey );
+  if check == 1 then
+    position = searchList( ldtMap, valueList, searchKey );
+  end
 
   -- If we find it, it's an error (later we might have the overwrite option)
   if( position > 0 ) then
@@ -2420,7 +2423,7 @@ hashCellSubRecInsert(src, topRec, ldtCtrl, cellAnchor, searchKey, newValue)
     error( ldte.ERR_INTERNAL );
   end
 
-  rc = lsetListInsert( ldtCtrl, valueList, searchKey, newValue );
+  rc = lsetListInsert( ldtCtrl, valueList, searchKey, newValue, 1);
 
   -- Now, we have to re-assign the lists back into the bin values.
   subRec[LDR_LIST_BIN] = valueList;
@@ -2482,16 +2485,19 @@ end --subRecCompactInsert()
 -- Note that and COMPACT LIST business has already been handled by the caller,
 -- so here we are ONLY dealing with Sub-Recs.
 -- Parms:
+-- (*) src: Sub Rec Context
 -- (*) topRec: The top DB Record:
 -- (*) ldtCtrl: The LSet control map
 -- (*) newValue: Value to be inserted
+-- (*) check: 1==Search, 0==No Search, just insert
 -- RETURN:
 --  0: ok
 -- -1: Unique Value violation
 -- ======================================================================
-local function hashDirInsert( src, topRec, ldtCtrl, newValue )
+local function hashDirInsert( src, topRec, ldtCtrl, newValue, check)
   local meth = "hashDirInsert()";
-  GP=E and trace("[ENTER]:<%s:%s>Insert(%s)", MOD, meth, tostring(newValue));
+  GP=E and trace("[ENTER]:<%s:%s>Insert(%s) check(%d)",
+    MOD, meth, tostring(newValue), check);
 
   local propMap = ldtCtrl[1];  
   local ldtMap = ldtCtrl[2];
@@ -2522,6 +2528,13 @@ local function hashDirInsert( src, topRec, ldtCtrl, newValue )
     -- Case (1): Easy :: New Hash Cell and Insert
     cellAnchor = newCellAnchor( newValue );
     hashDirectory[cellNumber] = cellAnchor;
+
+    -- If we don't allow hash Cell Lists, then convert this cell anchor
+    -- to use a SUB-RECORD.
+    if ( ldtMap[M_HashCellMaxList] == 0) then
+      hashCellConvert( src, topRec, ldtCtrl, cellAnchor )
+    end
+    
     GP=D and trace("[DEBUG]<%s:%s>  New Cell Anchor(%s)", MOD, meth,
       tostring( cellAnchor ));
 
@@ -2531,7 +2544,7 @@ local function hashDirInsert( src, topRec, ldtCtrl, newValue )
     GP=D and trace("[DEBUG]<%s:%s> Lists BEFORE: VL(%s)", MOD, meth,
       tostring(valueList));
 
-    lsetListInsert( ldtCtrl, valueList, searchKey, newValue );
+    lsetListInsert( ldtCtrl, valueList, searchKey, newValue, check );
 
     GP=D and trace("[DEBUG]<%s:%s> Lists AFTER: VL(%s)", MOD, meth,
       tostring(valueList));
@@ -2712,8 +2725,8 @@ local function subRecConvert( src, topRec, ldtCtrl )
   -- Get a copy of the compact List.  If this doesn't work as expected, then
   -- we will have to get a real "list.take()" copy.
   local compactList = ldtMap[M_CompactList];
-  local listCopy = list.take( compactList, #compactList );
-  if not listCopy then
+  -- local listCopy = list.take( compactList, #compactList );
+  if compactList == nil then
     warn("[INTERNAL ERROR]:<%s:%s> Rehash can't use Empty list", MOD, meth );
     error( ldte.ERR_INSERT );
   end
@@ -2724,7 +2737,10 @@ local function subRecConvert( src, topRec, ldtCtrl )
   
   -- Note that "Fast Insert" does not update stats -- because we know that
   -- it is a special case of converting the Compact List.
-  fastInsertList( src, topRec, ldtCtrl, listCopy );
+  -- fastInsertList( src, topRec, ldtCtrl, listCopy );
+  for i = 1, #compactList do
+    hashDirInsert( src, topRec, ldtCtrl, compactList[i], 0)
+  end
   
   -- We no longer need the Compact Lists.
   map.remove(ldtMap, M_CompactList);
@@ -3190,7 +3206,7 @@ local function subRecInsert( src, topRec, ldtCtrl, newValue )
     -- Call our local multi-purpose insert() to do the job.
     -- hashDirInsert() will jump out with its own error call if something
     -- bad happens so no return code (or checking) needed here.
-    hashDirInsert( src, topRec, ldtCtrl, newValue );
+    hashDirInsert( src, topRec, ldtCtrl, newValue, 1);
   end
 
   -- Update stats

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_11_05.A"; 
+local MOD="lib_lmap_2014_11_24.E"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -379,7 +379,7 @@ local C_CellNameList   = 'N'; -- Pt to a LIST of Name objects
 local C_CellValueList  = 'V'; -- Pt to a LIST of Value objects
 local C_CellDigest     = 'D'; -- Pt to a single digest value
 local C_CellTree       = 'T'; -- Pt to a LIST of digests (Radix Tree)
-local C_CellItemCount  = 'C'; -- Item count, once we're in Sub-Rec Mode
+local C_CellItemCount  = 'C'; -- Cell Item count, once we're in Sub-Rec Mode
 
 -- Here are the various constants used with Hash Cells
 -- Hash Cell States:
@@ -491,32 +491,6 @@ end -- resetPtrs()
 -- =========================================================================
 -- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
 -- =========================================================================
-
--- -----------------------------------------------------------------------
--- ------------------------------------------------------------------------
--- =============================
--- Begin SubRecord Function Area (MOVE THIS TO LDT_COMMON)
--- =============================
--- ======================================================================
--- SUB RECORD CONTEXT DESIGN NOTE:
--- All "outer" functions, will employ the "subrecContext" object, which
--- will hold all of the sub-records that were opened during processing. 
--- Note that some operations can potentially involve many sub-rec
--- operations -- and can also potentially revisit pages.
---
--- SubRecContext Design:
--- The key will be the DigestString, and the value will be the subRec
--- pointer.  At the end of an outer call, we will iterate thru the sub-rec
--- context and close all open sub-records.
--- Pages that are Dirty or Busy (in-use) cannot be closed.
--- ======================================================================
--- We are now using the ldt_common SubRec functions:
--- e.g. ldt_common.createSubRecContext() function
--- ======================================================================
-
--- ===========================
--- End SubRecord Function Area
--- ===========================
 
 -- =======================================================================
 -- Apply Transform Function
@@ -2220,7 +2194,7 @@ local function newCellAnchor( newName, newValue )
 end -- newCellAnchor()
 
 -- ======================================================================
--- fastInsert()
+-- fastBinListInsert()
 -- ======================================================================
 -- Perform a special "Fast" Hash Directory Insert.
 -- Since we know that this routine is doing the work of "re-inserting"
@@ -2242,51 +2216,135 @@ end -- newCellAnchor()
 -- (*) newValue
 -- Return:
 -- ======================================================================
-local function fastInsert( src, topRec, ldtCtrl, newName, newValue )
-  local meth = "fastInsert()";
-  GP=E and trace("[ENTER]<%s:%s> Name(%s) Value(%s)",
-   MOD, meth, tostring(newName), tostring(newValue));
-                 
-  local propMap = ldtCtrl[1]; 
-  local ldtMap = ldtCtrl[2]; 
-  local ldtBinName =  propMap[PM.BinName];
+--local function fastBinListInsert( src, topRec, ldtCtrl, newName, newValue )
+--  local meth = "fastBinListInsert()";
+--  GP=E and trace("[ENTER]<%s:%s> Name(%s) Value(%s)",
+--   MOD, meth, tostring(newName), tostring(newValue));
+--                 
+--  local propMap = ldtCtrl[1]; 
+--  local ldtMap = ldtCtrl[2]; 
+--  local ldtBinName =  propMap[PM.BinName];
+--
+--  local cellNumber = computeHashCell( newName, ldtMap );
+--  -- Remember that our Hash Dir goes from 1..N, rather than 0..(N-1)
+--  local hashDirectory = ldtMap[M_HashDirectory];
+--  local cellAnchor = hashDirectory[cellNumber];
+--
+--  GP=F and trace("[DEBUG]<%s:%s> CellNum(%s) CellAnchor(%s)", MOD, meth,
+--    tostring(cellNumber), tostring(cellAnchor));
+--
+--  -- We have only two cases (and an error case): 
+--  -- (1) Empty Hash Cell.  Build a new Hash Cell Anchor and insert.
+--  -- (2) List Hash Cell.  Append to it.
+--  -- (3) Sub-Rec: Error Case.  We should not see Sub-Recs here.
+--  local nameList;
+--  local valueList;
+--  if ( cellAnchorEmpty( cellAnchor ) ) then
+--    -- Easy :: hash cell list insert.
+--    cellAnchor = newCellAnchor( newName, newValue );
+--  elseif ( cellAnchor[C_CellState] == C_STATE_LIST ) then
+--    nameList  = cellAnchor[C_CellNameList];
+--    valueList = cellAnchor[C_CellValueList];
+--    list.append( nameList, newName );
+--    list.append( valueList, newValue );
+--  else
+--    warn("[INTERNAL ERROR]<%s:%s> Bad Hash Cell State(%s)", 
+--      MOD, meth, cellAnchor[C_CellState] );
+--    error( ldte.ERR_INTERNAL );
+--  end
+--
+--  -- Store the new or updated cell anchor.
+--  hashDirectory[cellNumber] = cellAnchor;
+--
+--  GP=E and trace("[EXIT]<%s:%s> FastInsert Successful: N(%s) V(%s) rc(0)",
+--    MOD, meth, tostring(newName), tostring(newValue));
+--  return 0;
+--end -- function fastBinListInsert()
+--
 
-  local cellNumber = computeHashCell( newName, ldtMap );
-  -- Remember that our Hash Dir goes from 1..N, rather than 0..(N-1)
-  local hashDirectory = ldtMap[M_HashDirectory];
-  local cellAnchor = hashDirectory[cellNumber];
-
-  GP=F and trace("[DEBUG]<%s:%s> CellNum(%s) CellAnchor(%s)", MOD, meth,
-    tostring(cellNumber), tostring(cellAnchor));
-
-  -- We have only two cases (and an error case): 
-  -- (1) Empty Hash Cell.  Build a new Hash Cell Anchor and insert.
-  -- (2) List Hash Cell.  Append to it.
-  -- (3) Sub-Rec: Error Case.  We should not see Sub-Recs here.
-  local nameList;
-  local valueList;
-  if ( cellAnchorEmpty( cellAnchor ) ) then
-    -- Easy :: hash cell list insert.
-    cellAnchor = newCellAnchor( newName, newValue );
-  elseif ( cellAnchor[C_CellState] == C_STATE_LIST ) then
-    nameList  = cellAnchor[C_CellNameList];
-    valueList = cellAnchor[C_CellValueList];
-    list.append( nameList, newName );
-    list.append( valueList, newValue );
-  else
-    warn("[INTERNAL ERROR]<%s:%s> Bad Hash Cell State(%s)", 
-      MOD, meth, cellAnchor[C_CellState] );
-    error( ldte.ERR_INTERNAL );
-  end
-
-  -- Store the new or updated cell anchor.
-  hashDirectory[cellNumber] = cellAnchor;
-
-  GP=E and trace("[EXIT]<%s:%s> FastInsert Successful: N(%s) V(%s) rc(0)",
-    MOD, meth, tostring(newName), tostring(newValue));
-  return 0;
-end -- function fastInsert()
-
+-- ======================================================================
+-- fastSubRecInsert()
+-- ======================================================================
+-- Perform a special "Fast" Hash Directory Insert.
+-- This is similar to "fastBinListInsert()" in all ways except that we
+-- are not inserting into a Hash Cell Bin List, but we are going straight
+-- to a SubRecord insert.
+--
+-- Since we know that this routine is doing the work of "re-inserting"
+-- the contents of the Compact List into a new Hash Directory, we know
+-- certain things:
+-- (1) All of the values are unique -- so we don't need to search
+-- (2) None of the stats change -- so we don't update stats.
+-- (3) This is the first introduction of sub-records.
+-- Parms:
+-- (*) src
+-- (*) topRec
+-- (*) ldtCtrl
+-- (*) newName
+-- (*) newValue
+-- Return:
+-- ======================================================================
+----
+--local function fastSubRecInsert( src, topRec, ldtCtrl, newName, newValue )
+--  local meth = "fastSubRecInsert()";
+--  GP=E and trace("[ENTER]<%s:%s> Name(%s) Value(%s)",
+--   MOD, meth, tostring(newName), tostring(newValue));
+--                 
+--  local propMap = ldtCtrl[1]; 
+--  local ldtMap = ldtCtrl[2]; 
+--  local ldtBinName =  propMap[PM.BinName];
+--
+--  local cellNumber = computeHashCell( newName, ldtMap );
+--  -- Remember that our Hash Dir array list goes from 1..N, rather than 0..(N-1)
+--  local hashDirectory = ldtMap[M_HashDirectory];
+--  local cellAnchor = hashDirectory[cellNumber];
+--
+--  GP=F and trace("[DEBUG]<%s:%s> CellNum(%s) CellAnchor(%s)", MOD, meth,
+--    tostring(cellNumber), tostring(cellAnchor));
+--
+--  -- We have only two cases (and an error case): 
+--  -- (1) Empty Hash Cell.  Build a new Hash Cell Anchor and insert.
+--  -- (2) List Hash Cell.  Append to it.
+--  -- (3) Sub-Rec: Error Case.  We should not see Sub-Recs here.
+--  local nameList;
+--  local valueList;
+--  if ( cellAnchorEmpty( cellAnchor ) ) then
+--    -- Easy :: Create a new Sub-Rec and insert.
+--    cellAnchor = newCellAnchor( newName, newValue );
+--    hashCellConvert(src, topRec, ldtCtrl, cellAnchor);
+--    hashDirectory[cellNumber] = cellAnchor;
+--
+--
+--    local nameList = list();
+--    local valueList = list();
+--
+--    list.append(nameList, newName);
+--    list.append(valueList, newValue);
+--    
+--    --
+--    --
+--    --
+--    --
+--  elseif ( cellAnchor[C_CellState] == C_STATE_LIST ) then
+--    nameList  = cellAnchor[C_CellNameList];
+--    valueList = cellAnchor[C_CellValueList];
+--    list.append( nameList, newName );
+--    list.append( valueList, newValue );
+--  elseif ( ) then
+--  else 
+--    warn("[INTERNAL ERROR]<%s:%s> Bad Hash Cell State(%s)", 
+--      MOD, meth, cellAnchor[C_CellState] );
+--    error( ldte.ERR_INTERNAL );
+--  end
+--
+--  -- Store the new or updated cell anchor.
+--  hashDirectory[cellNumber] = cellAnchor;
+--
+--  GP=E and trace("[EXIT]<%s:%s> FastInsert Successful: N(%s) V(%s) rc(0)",
+--    MOD, meth, tostring(newName), tostring(newValue));
+--  return 0;
+--end -- function fastSubRecInsert()
+--
 -- ======================================================================
 -- hashDirInsert()
 -- ======================================================================
@@ -2343,9 +2401,14 @@ local function hashDirInsert( src, topRec, ldtCtrl, newName, newValue, check)
   --     - Insert into Sub-Record.
   -- ----------------------------------------------------------------------
   if ( cellAnchorEmpty( cellAnchor ) ) then
-    -- Easy :: hash cell list insert.
+    -- Easy :: hash cell anchor insert.
     cellAnchor = newCellAnchor( newName, newValue );
     hashDirectory[cellNumber] = cellAnchor;
+    -- If we don't allow hash Cell Lists, then convert this cell anchor
+    -- to use a SUB-RECORD.
+    if ( ldtMap[M_HashCellMaxList] == 0) then
+      hashCellConvert( src, topRec, ldtCtrl, cellAnchor )
+    end
   elseif ( cellAnchor[C_CellState] == C_STATE_LIST ) then
     -- We have a list. if check==1, then we will search the list before we
     -- insert. If we find it, AND we overwrite, then we return "1" to signal
@@ -2356,7 +2419,7 @@ local function hashDirInsert( src, topRec, ldtCtrl, newName, newValue, check)
     GP=F and trace("[DEBUG]<%s:%s> Lists BEFORE: NL(%s) VL(%s)", MOD, meth,
       tostring(nameList), tostring(valueList));
 
-    rc = lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, 1);
+    rc = lmapListInsert(ldtCtrl,nameList,valueList,newName,newValue,check);
 
     GP=F and trace("[DEBUG]<%s:%s> Lists AFTER: NL(%s) VL(%s)", MOD, meth,
       tostring(nameList), tostring(valueList));
@@ -2661,9 +2724,15 @@ local function convertCompactToHashDir( src, topRec, ldtCtrl )
 
   -- Note that "Fast Insert" does not update stats -- because we know that
   -- it is a special case of converting the Compact List.
+  -- There are two flavors:
+  -- (1) We're allowed to insert values into the Bin Lists
+  -- (2) We must go straight to Sub-Recs (no bin lists allowed).
   listSize = list.size(nameList);
   for i = 1, listSize, 1 do
-    fastInsert( src, topRec, ldtCtrl, nameList[i], valueList[i]);
+    -- Switch to a regular insert -- since now we must be more flexible
+    -- and handle ZERO BinList Limits.
+    -- fastBinListInsert( src, topRec, ldtCtrl, nameList[i], valueList[i]);
+    hashDirInsert( src, topRec, ldtCtrl, nameList[i], valueList[i], 0);
   end
 
   -- We no longer need the Compact Lists.  Remove the entries.
@@ -2709,7 +2778,7 @@ local function localPut( src, topRec, ldtCtrl, newName, newValue )
 
   if ( ldtMap[M_StoreState] == SS_COMPACT ) then
     -- Do the insert into CompactList, THEN see if we should rehash the
-    -- list (using "fastInsert") into the Hash Directory.
+    -- list (using "fastBinListInsert") into the Hash Directory.
     rc = compactInsert( ldtCtrl, newName, newValue );
     -- Now, if we're over "Threshold", convert to Sub-Rec organization.
     if ( totalCount + 1 > ldtMap[M_Threshold] ) then

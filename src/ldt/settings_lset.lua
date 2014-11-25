@@ -17,7 +17,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_lset_2014_06_20.A"; -- the module name used for tracing
+local MOD="settings_lset_2014_11_24.C"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -26,8 +26,14 @@ local MOD="settings_lset_2014_06_20.A"; -- the module name used for tracing
 -- in the server).
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=false; -- Set F (flag) to true to turn ON global print
-local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local F=true; -- Set F (flag) to true to turn ON global print
+local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+
+-- ======================================================================
+-- We now need a new ldt_common function in order to validate the
+-- incoming user CONFIG values.
+-- ======================================================================
+local ldt_common = require('ldt/ldt_common');
 
 -- ======================================================================
 -- NOTE: It is VERY important that these values are kept in sync with
@@ -103,28 +109,33 @@ local UI_FUNCTION_DEFAULT = "unique_identifier";
 -- Field definitions for those fields that we'll override
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields for ALL LDTS and those unique to lset & lmap 
-local T = {
-  -- Common LDT Values
-  M_UserModule             = 'P', -- User's Lua file for overrides
-  M_KeyFunction            = 'F', -- User Supplied Key Extract Function
-  M_KeyType                = 'k', -- Key Type: Atomic or Complex
-  M_StoreMode              = 'M', -- SM_LIST or SM_BINARY
-  M_StoreLimit             = 'L', -- Used for Eviction (eventually)
-  M_Transform              = 't', -- Transform object to Binary form
-  M_UnTransform            = 'u', -- UnTransform object from Binary form
 
-  -- LSET-Specific values
-  M_LdrEntryCountMax       = 'e', -- Max size of the LDR List
-  M_LdrByteEntrySize       = 's', -- Size of a Fixed Byte Object
-  M_LdrByteCountMax        = 'b', -- Max Size of the LDR in bytes
-  M_StoreState             = 'S', -- Store State (Compact or List)
-  M_SetTypeStore           = 'T', -- Type of the Set Store (Rec/SubRec)
-  M_HashType               = 'h', -- Hash Type (static or dynamic)
-  M_BinaryStoreSize        = 'B', -- Size of Object when in Binary form
-  M_Modulo 				   = 'm', -- Modulo used for Hash Function
-  M_ThreshHold             = 'H', -- Threshold: Compact->Regular state
-  M_BinListThreshold       = 'l'  -- Threshold for converting from a
-                                  -- local binlist to sub-record.
+-- Fields Common to ALL LDTs (LC).  Managed by the LDT COMMON routines.
+local LC = {
+  UserModule             = 'P'; -- User's Lua file for overrides
+  KeyFunction            = 'F'; -- User Supplied Key Extract Function
+  KeyType                = 'k'; -- Type of Key (Always atomic for LMAP)
+  StoreMode              = 'M'; -- SM_LIST or SM_BINARY
+  StoreLimit             = 'L'; -- Used for Eviction (eventually)
+  Transform              = 't'; -- Transform object to storage format
+  UnTransform            = 'u'; -- UnTransform from storage to Lua format
+};
+
+-- Fields specific to LMAP (LS)
+local LS = {
+  LdrEntryCountMax       = 'e'; -- Max size of the LDR List
+  LdrByteEntrySize       = 's'; -- Size of a Fixed Byte Object
+  LdrByteCountMax        = 'b'; -- Max Size of the LDR in bytes
+  StoreState             = 'S'; -- Store State (Compact or List)
+  HashType               = 'h'; -- Hash Type (static or dynamic)
+  BinaryStoreSize        = 'B'; -- Size of Object when in Binary form
+  Modulo                 = 'm'; -- Modulo used for Hash Function
+  Threshold              = 'H'; -- Threshold: Compact->Regular state
+  BinListThreshold       = 'l'; -- Threshold for converting from a
+                                -- cell anchor binlist to sub-record.
+  OverWrite              = 'o'; -- Allow Overwrite of a Value for a given
+                                -- name.  If false (AS_FALSE), then we
+                                -- throw a UNIQUE error.
 };
 
 -- ++======================++
@@ -143,22 +154,22 @@ local package = {};
 -- Sub-Record Design, List Mode, Full Object Compare, limit 10,000 Objects
 -- ======================================================================
 function package.StandardList( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
+  ldtMap[LS.LdrEntryCountMax]      = 100; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.StandardList()
 
 -- ======================================================================
@@ -167,22 +178,22 @@ end -- package.StandardList()
 -- Sub-Record Design, List Mode, Full Object Compare
 -- ======================================================================
 function package.ListJumboObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_JUMBO_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_JUMBO_THRESHOLD;
-  ldtMap[T.M_LdrEntryCountMax]      = 8; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_JUMBO_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_JUMBO_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_JUMBO_THRESHOLD;
+  ldtMap[LS.LdrEntryCountMax]      = 8; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_JUMBO_BINLIST_THRESHOLD;
 end -- package.ListJumboObject()
 
 
@@ -192,22 +203,22 @@ end -- package.ListJumboObject()
 -- Sub-Record Design, List Mode, Full Object Compare
 -- ======================================================================
 function package.ListLargeObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_LARGE_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_LARGE_THRESHOLD;
-  ldtMap[T.M_LdrEntryCountMax]      = 8; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_LARGE_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_LARGE_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_LARGE_THRESHOLD;
+  ldtMap[LS.LdrEntryCountMax]      = 8; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_LARGE_BINLIST_THRESHOLD;
 end -- package.ListLargeObject()
 
 -- ======================================================================
@@ -216,22 +227,22 @@ end -- package.ListLargeObject()
 -- Sub-Record Design, List Mode, Full Object Compare
 -- ======================================================================
 function package.ListMediumObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_MEDIUM_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_MEDIUM_THRESHOLD;
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_MEDIUM_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_MEDIUM_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_MEDIUM_THRESHOLD;
+  ldtMap[LS.LdrEntryCountMax]      = 100; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_MEDIUM_BINLIST_THRESHOLD;
 end -- package.ListMediumObject()
 
 -- ======================================================================
@@ -240,44 +251,44 @@ end -- package.ListMediumObject()
 -- Sub-Record Design, List Mode, Full Object Compare
 -- ======================================================================
 function package.ListSmallObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_SMALL_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Use the FULL object
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_SMALL_THRESHOLD;
-  ldtMap[T.M_LdrEntryCountMax]      = 200; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_SMALL_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_SMALL_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Use the FULL object
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_SMALL_THRESHOLD;
+  ldtMap[LS.LdrEntryCountMax]      = 200; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_SMALL_BINLIST_THRESHOLD;
 end -- package.ListSmallObject()
 
 -- ======================================================================
 -- Package = "TestModeNumber"
 -- ======================================================================
 function package.TestModeNumber( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_TEST_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_ATOMIC; -- Atomic Keys
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- not used here
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_TEST_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_ATOMIC; -- Atomic Keys
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
+  ldtMap[LS.LdrEntryCountMax]      = 100; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- not used here
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.TestModeList()
 
 
@@ -285,44 +296,44 @@ end -- package.TestModeList()
 -- Package = "TestModeObject"
 -- ======================================================================
 function package.TestModeObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_TEST_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- either extract or tostring
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- Use the whole object
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_TEST_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- either extract or tostring
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
+  ldtMap[LS.LdrEntryCountMax]      = 100; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- Use the whole object
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.TestModeObject()
 
 -- ======================================================================
 -- Package = "TestModeObjectKey"
 -- ======================================================================
 function package.TestModeObjectKey( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_TEST_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- either extract or tostring
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 100; -- Num objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = UI_FUNCTION_DEFAULT;
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_TEST_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- either extract or tostring
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = DEFAULT_THRESHOLD; -- Rehash after this #
+  ldtMap[LS.LdrEntryCountMax]      = 100; -- Num objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  ldtMap[LC.KeyFunction]           = UI_FUNCTION_DEFAULT;
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.TestModeObjectKey()
 
 -- ======================================================================
@@ -332,22 +343,22 @@ end -- package.TestModeObjectKey()
 -- work.
 -- ======================================================================
 function package.DebugModeObject( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Atomic Keys
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = 4; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = 10; -- 10 objects per subrec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- no key function (use whole Obj)
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Atomic Keys
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = 4; -- Rehash after this #
+  ldtMap[LS.LdrEntryCountMax]      = 10; -- 10 objects per subrec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use SubRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- no key function (use whole Obj)
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.DebugModeObject()
 
 -- ======================================================================
@@ -357,22 +368,22 @@ end -- package.DebugModeObject()
 -- work.
 -- ======================================================================
 function package.DebugModeObjectTop( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_COMPLEX; -- Atomic Keys
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = 4; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = nil; -- not used in top rec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- no key function (use whole Obj)
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_COMPLEX; -- Atomic Keys
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = 4; -- Rehash after this #
+  -- ldtMap[LS.LdrEntryCountMax]      = nil; -- not used in top rec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- no key function (use whole Obj)
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.DebugModeObjectTop()
 
 -- ======================================================================
@@ -380,22 +391,22 @@ end -- package.DebugModeObjectTop()
 -- Perform the Debugging style test with a number
 -- ======================================================================
 function package.DebugModeNumberTop( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_ATOMIC; -- Atomic Keys
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = 4; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = nil; -- not used for TopRec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- no key function for Numbers
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_ATOMIC; -- Atomic Keys
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = 4; -- Rehash after this #
+  -- ldtMap[LS.LdrEntryCountMax]      = nil; -- not used for TopRec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_RECORD; -- Use TOP Record Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- no key function for Numbers
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.DebugModeNumber( ldtMap )
 
 -- ======================================================================
@@ -403,22 +414,22 @@ end -- package.DebugModeNumber( ldtMap )
 -- Perform the Debugging style test with a number
 -- ======================================================================
 function package.DebugModeNumber( ldtMap )
-  ldtMap[T.M_StoreMode]             = SM_LIST; -- Use List Mode
-  ldtMap[T.M_StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
-  ldtMap[T.M_Transform]             = nil; -- Not used in Std List
-  ldtMap[T.M_UnTransform]           = nil; -- Not used in Std List
-  ldtMap[T.M_StoreState]            = SS_COMPACT; -- start in "compact mode"
-  ldtMap[T.M_BinaryStoreSize]       = nil; -- Not used in Std List
-  ldtMap[T.M_KeyType]               = KT_ATOMIC; -- Atomic Keys
-  ldtMap[T.M_Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
-  ldtMap[T.M_ThreshHold]            = 4; -- Rehash after this #
-  ldtMap[T.M_LdrEntryCountMax]      = nil; -- not used for TopRec
-  ldtMap[T.M_LdrByteEntrySize]      = nil; -- not used here
-  ldtMap[T.M_LdrByteCountMax]       = nil; -- not used here
-  ldtMap[T.M_SetTypeStore]          = ST_SUBRECORD; -- Use TOPRecord Store
-  ldtMap[T.M_HashType]              = HT_STATIC; -- Use Static Hash Dir
-  ldtMap[T.M_KeyFunction]           = nil; -- no key function for Numbers
-  ldtMap[T.M_BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
+  ldtMap[LC.StoreMode]             = SM_LIST; -- Use List Mode
+  ldtMap[LC.StoreLimit]            = DEFAULT_DEBUG_CAPACITY;
+  -- ldtMap[LC.Transform]             = nil; -- Not used in Std List
+  -- ldtMap[LC.UnTransform]           = nil; -- Not used in Std List
+  ldtMap[LS.StoreState]            = SS_COMPACT; -- start in "compact mode"
+  -- ldtMap[LS.BinaryStoreSize]       = nil; -- Not used in Std List
+  ldtMap[LC.KeyType]               = KT_ATOMIC; -- Atomic Keys
+  ldtMap[LS.Modulo]                = DEFAULT_MODULO; -- Hash Dir Size
+  ldtMap[LS.ThreshHold]            = 4; -- Rehash after this #
+  -- ldtMap[LS.LdrEntryCountMax]      = nil; -- not used for TopRec
+  -- ldtMap[LS.LdrByteEntrySize]      = nil; -- not used here
+  -- ldtMap[LS.LdrByteCountMax]       = nil; -- not used here
+  ldtMap[LS.SetTypeStore]          = ST_SUBRECORD; -- Use TOPRecord Store
+  ldtMap[LS.HashType]              = HT_STATIC; -- Use Static Hash Dir
+  -- ldtMap[LC.KeyFunction]           = nil; -- no key function for Numbers
+  ldtMap[LS.BinListThreshold]      = DEFAULT_BINLIST_THRESHOLD;
 end -- package.DebugModeNumber( ldtMap )
 
 -- ======================================================================
@@ -447,7 +458,6 @@ local function applyPackage( ldtMap, packageName )
   return ldtMap;
 end -- applyPackage()
 
-
 -- ======================================================================
 -- This is the table that we're exporting to the User Module.
 -- Each of these functions allow the user to override the default settings.
@@ -473,71 +483,251 @@ local exports = {}
   --
   -- StoreMode must be SM_LIST or SM_BINARY
   function exports.set_store_mode( ldtMap, value )
-    ldtMap[T.M_StoreMode]        = value;
+    ldtMap[LC.StoreMode]        = value;
   end
 
   function exports.set_transform( ldtMap, value )
-    ldtMap[T.M_Transform]        = value;
+    ldtMap[LC.Transform]        = value;
   end
 
   function exports.set_untransform( ldtMap, value )
-    ldtMap[T.M_UnTransform]      = value;
+    ldtMap[LC.UnTransform]      = value;
   end
 
   function exports.set_store_limit( ldtMap, value )
-    ldtMap[T.M_StoreLimit]       = value;
+    ldtMap[LC.StoreLimit]       = value;
   end
 
   function exports.set_unique_identifier( ldtMap, value )
-    ldtMap[T.M_KeyFunction] = value;
+    ldtMap[LC.KeyFunction] = value;
   end
 
   function exports.set_ldr_entry_count_max( ldtMap, value )
-    ldtMap[T.M_LdrEntryCountMax] = value;
+    ldtMap[LS.LdrEntryCountMax] = value;
   end
 
   function exports.set_ldr_byte_entry_size( ldtMap, value )
-    ldtMap[T.M_LdrByteEntrySize] = value;
+    ldtMap[LS.LdrByteEntrySize] = value;
   end
 
   function exports.set_ldr_byte_count_max( ldtMap, value )
-    ldtMap[T.M_LdrByteCountMax]  = value;
+    ldtMap[LS.LdrByteCountMax]  = value;
   end
 
   function exports.set_store_state( ldtMap, value )
-    ldtMap[T.M_StoreState]       = value;
+    ldtMap[LS.StoreState]       = value;
   end
 
   function exports.set_store_type( ldtMap, value )
-    ldtMap[T.M_SetTypeStore]  = value;
+    ldtMap[LS.SetTypeStore]  = value;
   end
 
   function exports.set_hash_type( ldtMap, value )
-    ldtMap[T.M_HashType]      = value;
+    ldtMap[LS.HashType]      = value;
   end
 
   function exports.set_binary_store_size( ldtMap, value )
-    ldtMap[T.M_BinaryStoreSize] = value;
+    ldtMap[LS.BinaryStoreSize] = value;
   end
 
   function exports.set_key_type( ldtMap, value )
-    ldtMap[T.M_KeyType]      = value;
+    ldtMap[LC.KeyType]      = value;
   end
 
   function exports.set_hash_dir_size( ldtMap, value )
-    ldtMap[T.M_Modulo]    = value;
+    ldtMap[LS.Modulo]    = value;
   end
 
   function exports.set_compact_list_threshold( ldtMap, value )
-    ldtMap[T.M_Threshold]    = value;
+    ldtMap[LS.Threshold]    = value;
   end
 
   function exports.set_hash_cell_threshold( ldtMap, value )
-    ldtMap[T.M_BinListThreshold]    = value;
+    ldtMap[LS.BinListThreshold]    = value;
   end
 
-return exports;
+  -- ========================================================================
+  -- exports.compute_settings()
+  -- ========================================================================
+  -- This function takes in the user's settings and sets the appropriate
+  -- values in the LDT mechanism.
+  --
+  -- All parameters must be numbers.  testMode is optional, but if it
+  -- exists, it must be a number.
+  -- ldtMap        :: The main control Map of the LDT
+  -- configMap     :: A Map of Config Settings.
+  --
+  -- The values we expect to see in the configMap will be one or more of
+  -- the following values.  For any value NOT seen in the map, we will use
+  -- the published default value.
+  --
+  -- aveObjectSize :: the average object size (in bytes).
+  -- maxObjectSize :: the maximum object size (in bytes).
+  -- aveKeySize    :: the average Key size (in bytes).
+  -- maxKeySize    :: the maximum Key size (in bytes).
+  -- aveObjectCount:: the average LDT Collection Size (number of data objects).
+  -- maxObjectCount:: the maximum LDT Collection size (number of data objects).
+  -- writeBlockSize:: The namespace Write Block Size (in bytes)
+  -- pageSize      :: Targetted Page Size (8kb to 1mb)
+  -- recordOverHead:: Amount of "other" space used in this record.
+  -- focus         :: the primary focus for this LDT:
+  --               :: 0=no pref, 1=performance, 2=storage efficiency
+  -- testMode      :: The style of testing we're doing:
+  --               :: nil or zero=none,
+  --               :: 1=structure test, value type NUMBER (ignore sizes)
+  --               :: 2=structure test, value type OBJECT (use sizes)
+  -- ========================================================================
+  -- For lstack, here are the following significant settings:
+  -- (*) Hot List Size
+  -- (*) Hot List Transfer amount
+  -- (*) Warm List Size
+  -- (*) LDT Data Record (LDR) size
+  -- ========================================================================
+  function exports.compute_settings(ldtMap, configMap )
+ 
+    local meth = "compute_settings()";
+    GP=E and info("[ENTER]<%s:%s> LDT Map(%s) Config Settings(%s)", MOD, meth,
+      tostring(ldtMap), tostring(configMap));
 
+    -- Perform some validation of the user's Config Parameters
+    -- Notice that this is done only once at the initial create.
+    local rc = ldt_common.validateConfigParms(ldtMap, configMap);
+    if rc ~= 0 then
+      warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
+        MOD, meth);
+      return -1;
+    end
+
+    -- Now that all of the values have been validated, we can use them
+    -- safely without worry.  No more checking needed.
+    local aveObjectSize   = configMap.AveObjectSize;
+    local maxObjectSize   = configMap.MaxObjectSize;
+    local aveKeySize      = configMap.AveKeySize;
+    local maxKeySize      = configMap.MaxKeySize;
+    local aveObjectCount  = configMap.AveObjectCount;
+    local maxObjectCount  = configMap.MaxObjectCount;
+    local pageSize        = configMap.TargetPageSize;
+    local writeBlockSize  = configMap.WriteBlockSize;
+    local recordOverHead  = configMap.RecordOverHead;
+    local focus           = configMap.Focus;
+    local testMode        = configMap.TestMode;
+
+    GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
+    GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+      tostring(aveObjectSize), tostring(maxObjectSize));
+    GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+      tostring(aveKeySize), tostring(maxKeySize));
+
+    -- These are the values that we have to set.
+    local storeState;          -- Start Compact or Regular
+    local hashType = HT_STATIC;-- Static or Dynamic 
+    local hashDirSize;         -- Dependent on LDT Capacity and Obj Count
+    local threshold;           -- Convert to HashTable
+    local cellListThreshold;   -- Convert List to SubRec.
+    local ldrListMax;          -- # of elements to store in a data sub-rec
+
+    -- Set up our various OVER HEAD values
+    -- We know that LMAP/LSET Ctrl occupies up to 400 bytes;
+    local ldtOverHead = 400;
+    recordOverHead = recordOverHead + ldtOverHead;
+    local hashCellOverHead = 40;
+    local ldrOverHead = 200;
+
+    -- Set up our various limits or ceilings
+    local topRecByteLimit = pageSize - recordOverHead;
+    local dataRecByteLimit = pageSize - ldrOverHead;
+
+    -- Figure out the settings for our Compact List Threshold.
+    -- By default, if they can fit, we'd like to have as many as 100
+    -- elements in our Compact List.  However, for Large Objects, we'll 
+    -- have to settle for far fewer, or zero.
+    -- In general, we would hope for at least a hot list of size 4
+    -- (4 items, with a transfer size of 2) however, if we have really
+    -- large objects AND/OR we have multiple LDTs in this record, then
+    -- we cannot hog TopRecord space for the Hot List.
+    local compactListCountCeiling = 100;
+
+    -- We'd like the Compact List to fit in under the ceiling amount,
+    -- or be 1/2 of the target page size, whichever is less.
+    local pageAvailableBytes = math.floor(topRecByteLimit / 2);
+    local compactListByteCeiling = 50000;
+    local compactListTargetBytes =
+      (pageAvailableBytes < compactListByteCeiling) and
+      (pageAvailableBytes) or compactListByteCeiling;
+
+    info("[DEBUG]<%s:%s> PageAvail(%d) CompListCeiling(%d) CompListTarget(%d)",
+      MOD, meth, pageAvailableBytes, compactListCountCeiling,
+      compactListTargetBytes);
+
+    -- COMPACT LIST CALCULATION
+    -- If not even a object can fit in the Compact List,
+    -- then we need to skip the Compact List altogether and have
+    -- items be written directly to the Hash Table (the LDR pages).
+    if (maxObjectSize  > compactListTargetBytes) then
+      -- Don't bother with a Compact List.  Objects are too big.
+      threshold = 0;
+      storeState = SS_REGULAR;
+      debug("[NOTICE]<%s:%s> Max ObjectSize(%d) is too large for CompactList",
+        MOD, meth, maxObjectSize);
+    else
+      threshold = compactListTargetBytes / maxObjectSize;
+      if threshold > compactListCountCeiling then
+        threshold = compactListCountCeiling;
+      end
+      storeState = SS_COMPACT;
+    end
+
+    -- HASH DIRECTORY SIZE CALCULATION
+    -- When we're in "STATIC MODE" (which is what's used up to Version 3),
+    -- we need to set the size of the hash table according to what we need
+    -- with regard to total storage.  The theoretical storage limit for
+    -- the hash directory is:
+    -- All available space in the TopRec, divided by Cell Overhead
+    -- (MaxPageSize - recordOverHead) / hashCellOverHead
+    local hashDirMax = (pageSize - recordOverHead) / hashCellOverHead;
+    local ldrItemCapacity = math.floor(dataRecByteLimit / maxObjectSize);
+    local hashDirSize = maxObjectCount / ldrItemCapacity;
+    if hashDirSize > hashDirMax then
+      hashDirSize = hashDirMax;
+    end
+
+    -- BIN LIST THRESHOLD CALCULATION
+    -- Note:  We want to stash things in a Hash Cell Bin List only when
+    -- we know that the list of objects will not allow the overall TopRec
+    -- memory footprint to overflow the space allowed for the TopRec.
+    if maxObjectSize < hashCellOverHead then
+      cellListThreshold = math.floor(hashCellOverHead / maxObjectSize);
+    else
+      cellListThreshold = 0;
+    end
+
+    -- LDT Data Record (LDR) List Limit
+    ldrListMax = math.floor(dataRecByteLimit / aveObjectSize);
+
+    -- Apply our computed values to the LDT Map.
+    ldtMap[LS.StoreState]       = storeState;
+    ldtMap[LS.HashType]         = hashType;
+    ldtMap[LS.Modulo]           = hashDirSize;
+    ldtMap[LS.Threshold]        = threshold;
+    ldtMap[LS.BinListThreshold] = cellListThreshold;
+    ldtMap[LS.LdrEntryCountMax] = ldrListMax;
+
+    GP=E and trace("[FINAL OUT(1)]<%s:%s> CmptThrsh(%d) HDirSz(%d) SS(%s)",
+      MOD, meth, hashDirSize, threshold, storeState);
+    GP=E and trace("[FINAL OUT(2)]<%s:%s> HshType(%s) CellThr(%d) LDR(%d)",
+      MOD, meth, hashType, cellListThreshold, ldrListMax);
+
+    GP=E and trace("[EXIT]: <%s:%s>:: LdtMap(%s)",
+      MOD, meth, tostring(ldtMap) );
+
+    return 0;
+
+  end -- exports.compute_settings()
+
+-- ========================================================================
+-- Return the exports table to make the exported functions visible.
+-- ========================================================================
+return exports;
 
 -- settings_lset.lua
 --
@@ -548,8 +738,4 @@ return exports;
 
 -- ========================================================================
 -- ========================================================================
-
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
 -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --

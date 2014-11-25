@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_11_20.A";
+local MOD="lib_llist_2014_11_24.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -470,8 +470,8 @@ local LS = {
 -- K:LS.RootKeyList            k:LC.KeyType         
 -- L:                          l:LS.TreeLevel          
 -- M:LC.StoreMode              m:                
--- N:                          n:
--- O:                          o:
+-- N:SPECIAL(LBYTES)           n:SPECIAL(LBYTES)
+-- O:SPECIAL(LBYTES)           o:SPECIAL(LBYTES)
 -- P:LC.UserModule             p:
 -- Q:LS.CompactList            q:
 -- R:LS.RootListMax            r:LS.RootByteCountMax      
