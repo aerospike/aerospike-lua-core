@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_11_17.F";
+local MOD="ldt_common_2014_11_25.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -2020,15 +2020,15 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
       type(testMode)         ~= "number"
   then
     warn("[ERROR]<%s:%s> All parameters must be numbers.", MOD, meth);
-    info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
+    info("[INFO]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
       type(aveObjectSize), type(maxObjectSize));
-    info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
+    info("[INFO]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
       type(aveKeySize), type(maxKeySize));
-    info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
+    info("[INFO]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
       type(aveObjectCount), type(maxObjectCount));
-    info("[DEBUG]<%s:%s>WriteBlockSize(%s) RecordOverHead(%s)", MOD, meth,
+    info("[INFO]<%s:%s>WriteBlockSize(%s) RecordOverHead(%s)", MOD, meth,
       type(writeBlockSize), type(recordOverHead));
-    info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
+    info("[INFO]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
       type(pageSize), type(focus), type(testMode));
     return -1;
   end
@@ -2044,7 +2044,7 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
       pageSize <= 0 or
       focus < 0 
   then
-    warn("[ERROR]<%s:%s> Settings must be greater than zero", MOD, meth);
+    info("[ERROR]<%s:%s> Config Settings must be greater than zero", MOD, meth);
     info("[INFO] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
       aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
     info("[INFO] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d) RecOH(%d)",
@@ -2070,20 +2070,20 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
     warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
       MOD, meth, pageSize, pageMinimum);
     pageSize = pageTarget;
-    warn("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
+    info("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
       MOD, meth, pageTarget);
   elseif pageSize > pageMaximum then
     warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
       MOD, meth, pageSize, pageMaximum);
     pageSize = pageMaximum;
-    warn("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
+    info("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
       MOD, meth, pageMaximum);
   elseif maxObjectSize > writeBlockSize then
     warn("[ERROR]<%s:%s> Max Object Size(%d) Exceeds WriteBlockSize(%d)",
       MOD, meth, maxObjectSize, writeBlockSize);
     return -1;
   elseif maxObjectSize > pageSize then
-    warn("[ADJUST]<%s:%s> Max Object Size(%d) Exceeds Target PageSize(%d)",
+    info("[ADJUST]<%s:%s> Max Object Size(%d) Exceeds Target PageSize(%d)",
       MOD, meth, maxObjectSize, pageSize);
     if  maxObjectSize < pageTarget then
       pageSize = pageTarget;

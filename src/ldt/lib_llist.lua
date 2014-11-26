@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_11_24.A";
+local MOD="lib_llist_2014_11_25.J";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -419,7 +419,7 @@ local LC = {
 -- Fields Specific to LLIST LDTs (Ldt Specific --> LS)
 local LS = {
   -- Tree Level values
-  TotalCount          = 'T';-- A count of all "slots" used in LLIST
+  -- TotalCount          = 'T';-- A count of all "slots" used in LLIST
   LeafCount           = 'c';-- A count of all Leaf Nodes
   NodeCount           = 'C';-- A count of all Nodes (including Leaves)
   TreeLevel           = 'l';-- Tree Level (Root::Inner nodes::leaves)
@@ -476,7 +476,7 @@ local LS = {
 -- Q:LS.CompactList            q:
 -- R:LS.RootListMax            r:LS.RootByteCountMax      
 -- S:LS.StoreState             s:                        
--- T:LS.TotalCount             t:LC.Transform
+-- T:LS.TotalCount (XXX)       t:LC.Transform
 -- U:LS.KeyUnique              u:LC.UnTransform
 -- V:LS.RevThreshold           v:
 -- W:                          w:                        
@@ -768,7 +768,7 @@ initializeLdtCtrl( topRec, ldtBinName )
   -- NOTE: We expect that these settings should match the settings found in
   -- settings_llist.lua :: package.ListMediumObject().
   -- General Tree Settings
-  ldtMap[LS.TotalCount] = 0;    -- A count of all "slots" used in LLIST
+  -- ldtMap[LS.TotalCount] = 0;    -- A count of all "slots" used in LLIST
   ldtMap[LS.LeafCount] = 0;     -- A count of all Leaf Nodes
   ldtMap[LS.NodeCount] = 0;     -- A count of all Nodes (incl leaves, excl root)
   ldtMap[LC.StoreMode] = SM_LIST; -- SM_LIST or SM_BINARY (applies to Leaves))
@@ -3138,8 +3138,8 @@ leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, position)
   -- Update Counters
   local itemCount = leafCtrlMap[LF_ListEntryCount];
   leafCtrlMap[LF_ListEntryCount] = itemCount + 1;
-  local totalCount = leafCtrlMap[LF_ListEntryTotal];
-  leafCtrlMap[LF_ListEntryTotal] = totalCount + 1;
+  -- local totalCount = leafCtrlMap[LF_ListEntryTotal];
+  -- leafCtrlMap[LF_ListEntryTotal] = totalCount + 1;
 
   leafSubRec[LSR_LIST_BIN] = objectList;
   -- Call update to mark the SubRec as dirty, and to force the write if we
@@ -4077,6 +4077,19 @@ end -- buildNewTree()
 -- cases where the Objects being stored are too large to hold in the
 -- compact List (even for a little bit), we start directly with
 -- a tree insert.
+--
+-- NOTE: There's a special condition to be aware of.  When we are doing
+-- sorted inserts, like for timeseries, the left leaf will just stay
+-- empty because all subsequent values will be greater than or equal to
+-- the first value.   We may have to switch "firstTreeInsert()" to use
+-- a SINGLE LEAF, with no key, as the initial tree.  That means that
+-- a special test will be needed for "MINIMAL TREE" when doing searches
+-- or inserts.
+--
+-- NOTE: Similarly, when splitting a TIMESERIES Leaf, we should not split
+-- the leaf in the middle but should instead split it at the very right,
+-- because all subsequent values will flow into the next leaf.
+--
 -- Parms:
 -- (*) src: SubRecContext
 -- (*) topRec
@@ -4126,16 +4139,10 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue )
   list.append( rootDigestList, leftLeafDigest );
   list.append( rootDigestList, rightLeafDigest );
 
-  -- Update the counts
-  local totalCount = ldtMap[LS.TotalCount];
-  ldtMap[LS.TotalCount] = totalCount + 1;
-  local itemCount = propMap[PM.ItemCount];
-  propMap[PM.ItemCount] = itemCount + 1;
-
   ldtMap[LS.TreeLevel] = 2; -- We can do this blind, since it's special.
 
-  -- NOTE: The lists are part of the ldtMap, so they should not need
-  -- updating.
+  -- NOTE: Do NOT update the ItemCount.  The caller does that.
+  -- Also, the lists are part of the ldtMap, so they DO NOT need updating.
   -- ldtMap[LS.RootKeyList] = rootKeyList;
   -- ldtMap[LS.RootDigestList] = rootDigestList;
 
@@ -4270,93 +4277,6 @@ local function treeInsert( src, topRec, ldtCtrl, value, update )
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(value), tostring(rc));
   return insertResult;
 end -- treeInsert
-
--- ======================================================================
--- localInsert()
--- ======================================================================
--- Perform the main work of insert, used by regular llist.add() and eventually
--- llist.add_all(). 
--- Parms:
--- (*) src: subrecContext: The pool of open subrecords
--- (*) topRec: The top DB Record:
--- (*) ldtCtrl: The LDT control Structure
--- (*) newValue: Value to be inserted
--- (*) update: true means overwrite when found (i.e. update() function)
---             false means regular add() semantics.
--- ======================================================================
--- NOTE: All List Objects should be in "Storage Mode", which means that if
--- we have a Transform/Untransform pair, they should be used to Write To 
--- and Read from the Object List.  This includes the Compact List.
--- ======================================================================
-local function localInsert(src, topRec, ldtCtrl, newValue, update)
-  local meth = "localInsert()";
-  GP=E and trace("[ENTER]:<%s:%s>Insert(%s)", MOD, meth, tostring(newValue));
-  local rc = 0;
-  
-  -- Extract the property map and control map from the ldt bin list.
-  local propMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-  local ldtBinName = propMap[PM.BinName];
-  local key;
-  local update_done = false;
-
-  -- If our state is "compact", do a simple list insert, otherwise do a
-  -- real tree insert.
-  local insertResult = 0;
-  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
-    -- Do the COMPACT LIST INSERT
-    GP=D and trace("[NOTICE]<%s:%s> Using >>>  LIST INSERT  <<<", MOD, meth);
-    local objectList = ldtMap[LS.CompactList];
-    key = getKeyValue( ldtMap, newValue );
-    local resultMap = searchObjectList( ldtMap, objectList, key );
-    local position = resultMap.Position;
-    if( resultMap.Status == ERR.OK ) then
-      -- If FOUND, then if UNIQUE, it's either an ERROR, or we are doing
-      -- an Update (overwrite in place).
-      -- Otherwise, if not UNIQUE, do the insert.
-      if( resultMap.Found and ldtMap[LS.KeyUnique] == AS_TRUE ) then
-        if update then
-          ldt_common.listUpdate( objectList, newValue, position );
-          update_done = true;
-        else
-          debug("[ERROR]<%s:%s> Unique Key Violation", MOD, meth );
-          error( ldte.ERR_UNIQUE_KEY );
-        end
-      else
-        ldt_common.listInsert( objectList, newValue, position );
-        GP=F and trace("[DEBUG]<%s:%s> Insert List rc(%d)", MOD, meth, rc );
-        if( rc < 0 ) then
-          warn("[ERROR]<%s:%s> Problems with Insert: RC(%d)", MOD, meth, rc );
-          error( ldte.ERR_INTERNAL );
-        end
-      end
-    else
-      warn("[Internal ERROR]<%s:%s> Key(%s), List(%s)", MOD, meth,
-        tostring( key ), tostring( objectList ) );
-      error( ldte.ERR_INTERNAL );
-    end
-  else
-    -- Do the TREE INSERT
-    GP=D and trace("[NOTICE]<%s:%s> Using >>>  TREE INSERT  <<<", MOD, meth);
-    insertResult = treeInsert(src, topRec, ldtCtrl, newValue, update);
-    update_done = insertResult == 1;
-  end
-
-  -- update our count statistics, as long as we're not in UPDATE mode.
-  if( not update_done and insertResult >= 0 ) then -- Update Stats if success
-    local itemCount = propMap[PM.ItemCount];
-    local totalCount = ldtMap[LS.TotalCount];
-    propMap[PM.ItemCount] = itemCount + 1; -- number of valid items goes up
-    ldtMap[LS.TotalCount] = totalCount + 1; -- Total number of items goes up
-    GP=F and trace("[DEBUG]: <%s:%s> itemCount(%d)", MOD, meth, itemCount );
-  end
-  topRec[ ldtBinName ] = ldtCtrl;
-  record.set_flags(topRec, ldtBinName, BF.LDT_BIN );--Must set every time
-
-  GP=F and trace("[EXIT]: <%s:%s>Storing Record() with New Value(%s): Map(%s)",
-                 MOD, meth, tostring( newValue ), tostring( ldtMap ) );
-    -- No need to return anything
-end -- localInsert
 
 -- ======================================================================
 -- getNextLeaf( src, topRec, leafSubRec  )
@@ -4542,6 +4462,12 @@ local function convertList(src, topRec, ldtBinName, ldtCtrl )
   end
 
   ldtMap[LS.StoreState] = SS_REGULAR; -- now in "regular" (modulo) mode
+
+  -- There will be cases where the compact list is empty, but we're being
+  -- asked to convert anyway.  No problem.  Just return.
+  if #compactList == 0 then
+    return 0;
+  end
 
   -- Notice that the actual "split position" is AFTER the splitPosition
   -- value -- so if we were splitting 10, the list would split AFTER 5,
@@ -5770,8 +5696,10 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
 
   -- Set up our Bin according to which type of storage we're starting with.
   if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
+    -- Compact Mode -- set up the List.
     ldtMap[LS.CompactList] = list();
   else
+    -- Tree Mode -- set up an empty tree.
 
   end
 
@@ -5931,95 +5859,100 @@ end -- treeMin();
 -- COMPACT storage mode and a TREE storage mode.  When in COMPACT mode,
 -- the root node holds the list directly (Ordered search and insert).
 -- When in Tree mode, the root node holds the top level of the tree.
+-- ======================================================================
+-- NOTE: All List Objects should be in "Storage Mode", which means that if
+-- we have a Transform/Untransform pair, they should be used to Write To 
+-- and Read from the Object List.  This includes the Compact List.
+-- ======================================================================
 -- Parms:
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- (*) topRec:
 -- (*) ldtBinName:
+-- (*) ldtCtrl: 
 -- (*) newValue:
--- (*) createSpec: a UDF Module or a Config Map
 -- (*) update: When true, allow overwrite
--- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =======================================================================
-local function localWrite(topRec, ldtBinName, newValue, createSpec, update, src)
+local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
   local meth = "localWrite()";
-  GP=E and trace("[ENTER]<%s:%s> BIN(%s) NwVal(%s) cr8Spec(%s) Upd(%s) src(%s)",
+  GP=E and trace("[ENTER]<%s:%s> BIN(%s) NwVal(%s) Upd(%s) src(%s)",
     MOD, meth, tostring(ldtBinName), tostring( newValue ),
-    tostring(createSpec), tostring(update), tostring(src));
+    tostring(update), tostring(src));
 
-  local rc = 0;
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  -- This function does not build, save or update.  It only checks.
-  -- Check to see if LDT Structure (or anything) is already there.  If there
-  -- is an LDT BIN present, then it MUST be valid.
-  validateRecBinAndMap( topRec, ldtBinName, false );
-
-  -- If the record does not exist, or the BIN does not exist, then we must
-  -- create it and initialize the LDT map. Otherwise, use it.
-  if( topRec[ldtBinName] == nil ) then
-    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
-         MOD, meth );
-
-    -- set up our new LDT Bin
-    setupLdtBin( topRec, ldtBinName, createSpec, newValue );
-  end
-
-  local ldtCtrl = topRec[ ldtBinName ];
   local propMap = ldtCtrl[1];
   local ldtMap  = ldtCtrl[2];
-
-  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
-    ldtSummaryString(ldtCtrl));
-
-  -- We have to check to see if our KeyType is set, and if not, set it based
-  -- on the first value.  In most cases, it will already have been set by
-  -- setupLdtBin(), but if the LDT was created with create(), then we won't
-  -- see a first value until the first insert, even though the LDT is set up.
-  if ldtMap[LC.KeyType] == KT_NONE then
-    setupKeyType(ldtMap, newValue);
-  end
-
-  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  if ldtMap[LC.KeyType] == KT_COMPLEX then
-    G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
-  end
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
-  G_Transform = ldt_common.setWriteFunctions( ldtMap );
-  
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
+  local rc = 0;
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to turn our single list into a tree.
   local itemCount = propMap[PM.ItemCount];
-  --[[
-  GP=D and trace("[DEBUG]<%s:%s>Checking State for Conversion", MOD, meth );
-  GP=D and trace("[DEBUG]<%s:%s>State(%s) C val(%s) TotalCount(%d)", MOD,
-    meth, tostring(ldtMap[LS.StoreState]), tostring(SS_COMPACT), totalCount);
-    --]]
 
   -- This is an expensive operation that takes apart the value (if it is
   -- map or list) and prints out each component.  Always OFF in production.
-  GP=DEBUG and ldt_common.dumpValue(newValue);
+  -- GP=DEBUG and ldt_common.dumpValue(newValue);
 
-  -- We're going to base the conversion on TotalCount, not ItemCount, since
-  -- it's really the amount of space we're using (empty slots and full slots)
-  -- not just the full slots (which would be ItemCount).
+  -- If we're in "compact mode", but we've accumulated enough inserts (or if
+  -- Threshold is zero), then we convert our compact list, empty or
+  -- not, into a tree.
   if(( ldtMap[LS.StoreState] == SS_COMPACT ) and
      ( itemCount > ldtMap[LS.Threshold] )) 
   then
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
  
-  -- Call our local multi-purpose insert() to do the job.
-  localInsert(src, topRec, ldtCtrl, newValue, update);
+  -- Do the local insert.
+  local key;
+  local update_done = false;
 
-  --[[
-  -- This is a debug "Tree Print" 
-  GP=DEBUG and printTree( src, topRec, ldtBinName );
-  --]]
+  -- If our state is "compact", do a simple list insert, otherwise do a
+  -- real tree insert.
+  local insertResult = 0;
+  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
+    -- Do the COMPACT LIST INSERT
+    GP=D and trace("[NOTICE]<%s:%s> Using >>>  LIST INSERT  <<<", MOD, meth);
+    local objectList = ldtMap[LS.CompactList];
+    key = getKeyValue( ldtMap, newValue );
+    local resultMap = searchObjectList( ldtMap, objectList, key );
+    local position = resultMap.Position;
+    if( resultMap.Status == ERR.OK ) then
+      -- If FOUND, then if UNIQUE, it's either an ERROR, or we are doing
+      -- an Update (overwrite in place).
+      -- Otherwise, if not UNIQUE, do the insert.
+      if( resultMap.Found and ldtMap[LS.KeyUnique] == AS_TRUE ) then
+        if update then
+          ldt_common.listUpdate( objectList, newValue, position );
+          update_done = true;
+        else
+          debug("[ERROR]<%s:%s> Unique Key Violation", MOD, meth );
+          error( ldte.ERR_UNIQUE_KEY );
+        end
+      else
+        ldt_common.listInsert( objectList, newValue, position );
+        GP=F and trace("[DEBUG]<%s:%s> Insert List rc(%d)", MOD, meth, rc );
+        if( rc < 0 ) then
+          warn("[ERROR]<%s:%s> Problems with Insert: RC(%d)", MOD, meth, rc );
+          error( ldte.ERR_INTERNAL );
+        end
+      end
+    else
+      warn("[Internal ERROR]<%s:%s> Key(%s), List(%s)", MOD, meth,
+        tostring( key ), tostring( objectList ) );
+      error( ldte.ERR_INTERNAL );
+    end
+  else
+    -- Do the TREE INSERT
+    GP=D and trace("[NOTICE]<%s:%s> Using >>>  TREE INSERT  <<<", MOD, meth);
+    insertResult = treeInsert(src, topRec, ldtCtrl, newValue, update);
+    update_done = insertResult == 1;
+  end
+
+  -- update our count statistics, as long as we're not in UPDATE mode.
+  if( not update_done and insertResult >= 0 ) then -- Update Stats if success
+    local itemCount = propMap[PM.ItemCount];
+    -- local totalCount = ldtMap[LS.TotalCount];
+    propMap[PM.ItemCount] = itemCount + 1; -- number of valid items goes up
+    -- ldtMap[LS.TotalCount] = totalCount + 1; -- Total number of items goes up
+    GP=F and trace("[DEBUG]: <%s:%s> itemCount(%d)", MOD, meth, itemCount );
+  end
 
   -- Close ALL of the subrecs that might have been opened (just the read-only
   -- ones).  All of the dirty ones will stay open.
@@ -6148,8 +6081,53 @@ function llist.add( topRec, ldtBinName, newValue, createSpec, src )
     MOD, meth, tostring(ldtBinName), tostring( newValue ),
     tostring(createSpec), tostring(src));
 
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  -- This function does not build, save or update.  It only checks.
+  -- Check to see if LDT Structure (or anything) is already there.  If there
+  -- is an LDT BIN present, then it MUST be valid.
+  validateRecBinAndMap( topRec, ldtBinName, false );
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LDT map. Otherwise, use it.
+  if( topRec[ldtBinName] == nil ) then
+    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
+         MOD, meth );
+
+    -- set up our new LDT Bin
+    setupLdtBin( topRec, ldtBinName, createSpec, newValue );
+  end
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
+    ldtSummaryString(ldtCtrl));
+
+  -- We have to check to see if our KeyType is set, and if not, set it based
+  -- on the first value.  In most cases, it will already have been set by
+  -- setupLdtBin(), but if the LDT was created with create(), then we won't
+  -- see a first value until the first insert, even though the LDT is set up.
+  if ldtMap[LC.KeyType] == KT_NONE then
+    setupKeyType(ldtMap, newValue);
+  end
+
+  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
+  if ldtMap[LC.KeyType] == KT_COMPLEX then
+    G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
+  end
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  
+  -- Create our subrecContext, which tracks all open SubRecords during
+  -- the call.  Then, allows us to close them all at the end.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   -- call localWrite() with UPDATE flag turned OFF.
-  return localWrite(topRec, ldtBinName, newValue, createSpec, false, src);
+  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false);
 
 end -- function llist.add()
 
@@ -6161,6 +6139,9 @@ end -- function llist.add()
 -- (*) ldtBinName:
 -- (*) valueList
 -- (*) createSpec:
+-- Return:
+-- On Success:  The number of successful inserts.
+-- On Error: Error Code, Error Msg
 -- =======================================================================
 -- TODO: Convert this to use a COMMON local INSERT() function, not just
 -- call llist.add() and do all of its validation each time.
@@ -6171,9 +6152,58 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "insert_all()";
-  local valListSize = valueList ~= nil and #valueList or 0;
+
+  if valueList == nil or getmetatable(valueList) ~= List or #valueList == 0 then
+    info("[ERROR]<%s:%s> Input Parameter <valueList> is bad", MOD, meth);
+    info("[ERROR]<%s:%s>  valueList(%s)", MOD, meth, tostring(valueList));
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  local valListSize = #valueList;
+  local firstValue = valueList[1];
+
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueListSize(%d) createSpec(%s)",
   MOD, meth, tostring(ldtBinName), valListSize, tostring(createSpec));
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  -- This function does not build, save or update.  It only checks.
+  -- Check to see if LDT Structure (or anything) is already there.  If there
+  -- is an LDT BIN present, then it MUST be valid.
+  validateRecBinAndMap( topRec, ldtBinName, false );
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LDT map. Otherwise, use it.
+  if( topRec[ldtBinName] == nil ) then
+    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
+         MOD, meth );
+
+    -- set up our new LDT Bin
+    local firstValue = 
+    setupLdtBin( topRec, ldtBinName, createSpec, firstValue );
+  end
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
+    ldtSummaryString(ldtCtrl));
+
+  -- We have to check to see if our KeyType is set, and if not, set it based
+  -- on the first value.  In most cases, it will already have been set by
+  -- setupLdtBin(), but if the LDT was created with create(), then we won't
+  -- see a first value until the first insert, even though the LDT is set up.
+  if ldtMap[LC.KeyType] == KT_NONE then
+    setupKeyType(ldtMap, firstValue);
+  end
+
+  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
+  if ldtMap[LC.KeyType] == KT_COMPLEX then
+    G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
+  end
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
   
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
@@ -6182,23 +6212,21 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   end
 
   local rc = 0;
-  if( valueList ~= nil and list.size(valueList) > 0 ) then
-    local listSize = list.size( valueList );
-    for i = 1, listSize, 1 do
-      rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
+  local successCount = 0;
+    for i = 1, valListSize, 1 do
+--    rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
+      rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], false);
       if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
+        info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
-        error(ldte.ERR_INSERT);
+        -- Skip the errors for now -- just report them, don't die.
+        -- error(ldte.ERR_INSERT);
+      else
+        successCount = successCount + 1;
       end
     end -- for each value in the list
-  else
-    warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
-      MOD, meth, tostring(valueList));
-    error(ldte.ERR_INPUT_PARM);
-  end
   
-  return rc;
+  return successCount;
 end -- llist.add_all()
 
 -- ======================================================================
@@ -6228,8 +6256,54 @@ function llist.update( topRec, ldtBinName, newValue, createSpec, src )
     tostring(createSpec), tostring(src));
 
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  -- This function does not build, save or update.  It only checks.
+  -- Check to see if LDT Structure (or anything) is already there.  If there
+  -- is an LDT BIN present, then it MUST be valid.
+  validateRecBinAndMap( topRec, ldtBinName, false );
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LDT map. Otherwise, use it.
+  if( topRec[ldtBinName] == nil ) then
+    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
+         MOD, meth );
+
+    -- set up our new LDT Bin
+    setupLdtBin( topRec, ldtBinName, createSpec, newValue );
+  end
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
+    ldtSummaryString(ldtCtrl));
+
+  -- We have to check to see if our KeyType is set, and if not, set it based
+  -- on the first value.  In most cases, it will already have been set by
+  -- setupLdtBin(), but if the LDT was created with create(), then we won't
+  -- see a first value until the first insert, even though the LDT is set up.
+  if ldtMap[LC.KeyType] == KT_NONE then
+    setupKeyType(ldtMap, newValue);
+  end
+
+  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
+  if ldtMap[LC.KeyType] == KT_COMPLEX then
+    G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
+  end
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  
+  -- Create our subrecContext, which tracks all open SubRecords during
+  -- the call.  Then, allows us to close them all at the end.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   -- call localWrite() with UPDATE flag turned ON.
-  return localWrite(topRec, ldtBinName, newValue, createSpec, true, src);
+  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true);
 
 end -- function llist.update()
 
@@ -6241,6 +6315,9 @@ end -- function llist.update()
 -- (*) ldtBinName:
 -- (*) valueList
 -- (*) createSpec:
+-- Return:
+-- Success: Count of successful operations
+-- Error:  Error Code, Error Message
 -- =======================================================================
 function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST ADD_ALL ] <<<<<<<<<<< \n");
@@ -6250,6 +6327,63 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueList(%s) createSpec(%s)",
   MOD, meth, tostring(ldtBinName), tostring(valueList), tostring(createSpec));
   
+  if valueList == nil or getmetatable(valueList) ~= List or #valueList == 0 then
+    info("[ERROR]<%s:%s> Input Parameter <valueList> is bad", MOD, meth);
+    info("[ERROR]<%s:%s>  valueList(%s)", MOD, meth, tostring(valueList));
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  local valListSize = #valueList;
+  local firstValue = valueList[1];
+
+  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueListSize(%d) createSpec(%s)",
+  MOD, meth, tostring(ldtBinName), valListSize, tostring(createSpec));
+
+  -- Validate the topRec, the bin and the map.  If anything is weird, then
+  -- this will kick out with a long jump error() call.
+  -- This function does not build, save or update.  It only checks.
+  -- Check to see if LDT Structure (or anything) is already there.  If there
+  -- is an LDT BIN present, then it MUST be valid.
+  validateRecBinAndMap( topRec, ldtBinName, false );
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LDT map. Otherwise, use it.
+  if( topRec[ldtBinName] == nil ) then
+    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
+         MOD, meth );
+
+    -- set up our new LDT Bin
+    setupLdtBin( topRec, ldtBinName, createSpec, firstValue );
+  end
+
+  local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
+    ldtSummaryString(ldtCtrl));
+
+  -- We have to check to see if our KeyType is set, and if not, set it based
+  -- on the first value.  In most cases, it will already have been set by
+  -- setupLdtBin(), but if the LDT was created with create(), then we won't
+  -- see a first value until the first insert, even though the LDT is set up.
+  if ldtMap[LC.KeyType] == KT_NONE then
+    setupKeyType(ldtMap, firstValue);
+  end
+
+  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
+  if ldtMap[LC.KeyType] == KT_COMPLEX then
+    G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
+  end
+  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  
+  -- Create our subrecContext, which tracks all open SubRecords during
+  -- the call.  Then, allows us to close them all at the end.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
@@ -6257,14 +6391,19 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   end
 
   local rc = 0;
+  local successCount = 0;
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-      rc = llist.update( topRec, ldtBinName, valueList[i], createSpec, src );
+--    rc = llist.update( topRec, ldtBinName, valueList[i], createSpec, src );
+      rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], true);
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Updating Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
-        error(ldte.ERR_INSERT);
+        -- Don't "error out".  Just count the successes.
+        -- error(ldte.ERR_INSERT);
+      else
+        successCount = successCount + 1;
       end
     end -- for each value in the list
   else
@@ -6273,7 +6412,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
     error(ldte.ERR_INPUT_PARM);
   end
   
-  return rc;
+  return successCount;
 end -- llist.update_all()
 
 -- =======================================================================
@@ -6306,9 +6445,7 @@ function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
 
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   local rc = 0;
-  -- Define our return list
-  local resultList = list();
-  
+
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -6325,18 +6462,29 @@ function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
     error( ldte.ERR_NOT_FOUND );
   end
 
-  -- Don't invoke the read functions if value is null.
-  if (value) then
-    -- set up the Read Functions (UnTransform, Filter)
+  -- Define our return list.  If the search value is NIL, then we will
+  -- return the whole thing.  When that is the case, we want to be sure
+  -- to define our resultList IN ADVANCE to be large.
+  local resultList;
+  
+  -- Set up our resultList and populate the read functions.
+  -- If search value is null, we don't need to set up a key function, since
+  -- everything will qualify.
+  if value ~= nil then
+    -- Regular (probably small) resultList.
+    resultList = list();
     if ldtMap[LC.KeyType] == KT_COMPLEX then
       G_KeyFunction = ldt_common.setKeyFunction(ldtMap,false,G_KeyFunction); 
     end
-    G_Filter, G_UnTransform =
-        ldt_common.setReadFunctions( ldtMap, userModule, filter );
-    G_FunctionArgs = fargs;
   else
-      G_KeyFunction = ldt_common.setKeyFunction(ldtMap,false,G_KeyFunction); 
+    -- Full Size ResultList -- probably the size of the entire LDT.
+    resultList = list.new(propMap[PM.ItemCount]);
   end
+
+  -- set up the Read Functions (UnTransform, Filter)
+  G_Filter, G_UnTransform =
+      ldt_common.setReadFunctions( ldtMap, userModule, filter );
+  G_FunctionArgs = fargs;
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
@@ -6592,8 +6740,10 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
 
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   local rc = 0;
-  -- Define our return list
-  local resultList = list();
+  -- Define our return list.  Note that this is an unknown size, but
+  -- we want to handle reasonable growth.  Go with an initial size of 50
+  -- and a growth of 100.
+  local resultList = list.new(50, 100);
   
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -6795,9 +6945,9 @@ function llist.remove( topRec, ldtBinName, value, src )
   -- update our count statistics if successful
   if( rc >= 0 ) then 
     local itemCount = propMap[PM.ItemCount];
-    local totalCount = ldtMap[LS.TotalCount];
+    -- local totalCount = ldtMap[LS.TotalCount];
     propMap[PM.ItemCount] = itemCount - 1; 
-    ldtMap[LS.TotalCount] = totalCount - 1;
+    -- ldtMap[LS.TotalCount] = totalCount - 1;
     GP=F and trace("[DEBUG]: <%s:%s> itemCount(%d)", MOD, meth, itemCount );
     rc = 0;
   end
