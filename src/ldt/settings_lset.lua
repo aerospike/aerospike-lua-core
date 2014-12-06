@@ -17,7 +17,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_lset_2014_11_24.C"; -- the module name used for tracing
+local MOD="settings_lset_2014_12_05.C"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -26,8 +26,9 @@ local MOD="settings_lset_2014_11_24.C"; -- the module name used for tracing
 -- in the server).
 -- ======================================================================
 local GP;     -- Global Print Instrument
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local D=false; -- Set D (DETAIL) for greater detailed output
 
 -- ======================================================================
 -- We now need a new ldt_common function in order to validate the
@@ -684,11 +685,15 @@ local exports = {}
     -- the hash directory is:
     -- All available space in the TopRec, divided by Cell Overhead
     -- (MaxPageSize - recordOverHead) / hashCellOverHead
+    local hashDirMin = 128; -- go no smaller than this.
     local hashDirMax = (pageSize - recordOverHead) / hashCellOverHead;
     local ldrItemCapacity = math.floor(dataRecByteLimit / maxObjectSize);
     local hashDirSize = maxObjectCount / ldrItemCapacity;
     if hashDirSize > hashDirMax then
       hashDirSize = hashDirMax;
+    end
+    if hashDirSize < hashDirMin then
+      hashDirSize = hashDirMin;
     end
 
     -- BIN LIST THRESHOLD CALCULATION
@@ -712,12 +717,12 @@ local exports = {}
     ldtMap[LS.BinListThreshold] = cellListThreshold;
     ldtMap[LS.LdrEntryCountMax] = ldrListMax;
 
-    GP=E and trace("[FINAL OUT(1)]<%s:%s> CmptThrsh(%d) HDirSz(%d) SS(%s)",
+    GP=E and info("[FINAL OUT(1)]<%s:%s> CmptThrsh(%d) HDirSz(%d) SS(%s)",
       MOD, meth, hashDirSize, threshold, storeState);
-    GP=E and trace("[FINAL OUT(2)]<%s:%s> HshType(%s) CellThr(%d) LDR(%d)",
+    GP=E and info("[FINAL OUT(2)]<%s:%s> HshType(%s) CellThr(%d) LDR(%d)",
       MOD, meth, hashType, cellListThreshold, ldrListMax);
 
-    GP=E and trace("[EXIT]: <%s:%s>:: LdtMap(%s)",
+    GP=E and info("[EXIT]: <%s:%s>:: LdtMap(%s)",
       MOD, meth, tostring(ldtMap) );
 
     return 0;

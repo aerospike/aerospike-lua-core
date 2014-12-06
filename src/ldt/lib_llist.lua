@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_11_25.J";
+local MOD="lib_llist_2014_12_05.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -55,20 +55,20 @@ local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 -- Large List (LLIST) Library Functions
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
--- (*) Status = llist.add(topRec, ldtBinName, newValue, userModule, src)
--- (*) Status = llist.add_all(topRec, ldtBinName, valueList, userModule, src)
+-- (*) Status = llist.add(topRec, ldtBinName, newValue, createSpec, src)
+-- (*) Status = llist.add_all(topRec, ldtBinName, valueList, createSpec, src)
 -- (*) Status = llist.update(topRec, ldtBinName, newValue, src)
 -- (*) Status = llist.update_all(topRec, ldtBinName, valueList, src)
--- (*) List   = llist.find(topRec,ldtBinName,val,userModule,filter,fargs, src)
+-- (*) List   = llist.find(topRec,ldtBinName,val,filterModule,filter,fargs, src)
 -- ( ) Object = llist.find_min(topRec,ldtBinName, src)
 -- ( ) Object = llist.find_max(topRec,ldtBinName, src)
 -- ( ) Number = llist.exists(topRec, ldtBinName, val, src)
--- ( ) List   = llist.take(topRec,ldtBinName,val,userModule,filter,fargs, src)
+-- ( ) List   = llist.take(topRec,ldtBinName,val,filterModule,filter,fargs, src)
 -- ( ) Object = llist.take_min(topRec,ldtBinName, src)
 -- ( ) Object = llist.take_max(topRec,ldtBinName, src)
--- (*) List   = llist.range(tr,bin,loVal,hiVal, userModule,filter,fargs,src)
--- (*) List   = llist.filter(topRec,ldtBinName,userModule,filter,fargs,src)
--- (*) List   = llist.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) List   = llist.range(tr,bin,loVal,hiVal, filterModule,filter,fargs,src)
+-- (*) List   = llist.filter(topRec,ldtBinName,filterModule,filter,fargs,src)
+-- (*) List   = llist.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
 -- (*) Status = llist.remove(topRec, ldtBinName, searchValue  src) 
 -- (*) Status = llist.remove_all(topRec, ldtBinName, valueList  src) 
 -- (*) Status = llist.remove_range(topRec, ldtBinName, minKey, maxKey, src)
@@ -82,7 +82,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 -- The following functions under construction:
 -- (-) Object = llist.find_min(topRec,ldtBinName, src)
 -- (-) Object = llist.find_max(topRec,ldtBinName, src)
--- (-) List   = llist.take(topRec,ldtBinName,key,userModule,filter,fargs, src)
+-- (-) List   = llist.take(topRec,ldtBinName,key,filterModule,filter,fargs, src)
 -- (-) Object = llist.take_min(topRec,ldtBinName, src)
 -- (-) Object = llist.take_max(topRec,ldtBinName, src)
 -- ======================================================================
@@ -539,8 +539,8 @@ local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
 
--- Special Function -- if supplied by the user in the "userModule", then
--- we call that UDF to adjust the LDT configuration settings.
+-- Special Function -- if supplied by the user in the "createSpec" module,
+-- then we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
@@ -5699,8 +5699,9 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
     -- Compact Mode -- set up the List.
     ldtMap[LS.CompactList] = list();
   else
-    -- Tree Mode -- set up an empty tree.
-
+    -- Tree Mode -- set up an empty tree.  This is actually done in the
+    -- "firstTreeInsert() call.
+    GP=F and trace("[DEBUG]<%s:%s> No Compact List. Direct to Tree",MOD, meth);
   end
 
   -- Sets the topRec control bin attribute to point to the 2 item list
@@ -6426,7 +6427,7 @@ end -- llist.update_all()
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) value
--- (*) userModule
+-- (*) filterModule
 -- (*) func:
 -- (*) fargs:
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
@@ -6436,11 +6437,11 @@ end -- llist.update_all()
 -- =======================================================================
 -- The find() function can do multiple things. 
 -- =======================================================================
-function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
+function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
   GP=B and info("\n\n >>>>>>>>>>>> API[ LLIST FIND ] <<<<<<<<<<< \n");
   local meth = "llist.find()";
   GP=E and trace("[ENTER]<%s:%s> bin(%s) Value(%s) UM(%s) Fltr(%s) Fgs(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(value), tostring(userModule),
+    MOD, meth, tostring(ldtBinName), tostring(value), tostring(filterModule),
     tostring(filter), tostring(fargs));
 
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6483,7 +6484,7 @@ function llist.find(topRec,ldtBinName,value,userModule,filter,fargs, src)
 
   -- set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
-      ldt_common.setReadFunctions( ldtMap, userModule, filter );
+      ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Create our subrecContext, which tracks all open SubRecords during
@@ -6723,7 +6724,7 @@ end -- llist.exists()
 -- (*) ldtBinName: The Bin of the Top Record used for this LDT
 -- (*) minKey: The starting value of the range: Nil means neg infinity
 -- (*) maxKey: The end value of the range: Nil means infinity
--- (*) userModule: The module possibly holding the user's filter
+-- (*) filterModule: The module possibly holding the user's filter
 -- (*) filter: the optional predicate filter
 -- (*) fargs: Arguments to the filter
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
@@ -6732,7 +6733,7 @@ end -- llist.exists()
 -- Error: Error string to outside Lua caller.
 -- =======================================================================
 function
-llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
+llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
   GP=B and info("\n\n >>>>>>>>>>>> API[ LLIST RANGE ] <<<<<<<<<<< \n");
   local meth = "llist.range()";
   GP=E and trace("[ENTER]<%s:%s> bin(%s) minKey(%s) maxKey(%s)", MOD, meth,
@@ -6759,7 +6760,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,userModule,filter,fargs,src)
     G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
   end
   G_Filter, G_UnTransform =
-      ldt_common.setReadFunctions( ldtMap, userModule, filter );
+      ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Create our subrecContext, which tracks all open SubRecords during
@@ -6857,16 +6858,35 @@ end -- llist.scan()
 -- Success: the Result List.
 -- Error: error()
 -- =======================================================================
-function llist.filter( topRec, ldtBinName, userModule, filter, fargs, src )
+function llist.filter( topRec, ldtBinName, filterModule, filter, fargs, src )
   GP=B and info("\n\n  >>>>>>>>>>>> API[ FILTER ]<<<<<<<<<<< \n");
   aerospike:set_context( topRec, UDF_CONTEXT_LDT );
 
   local meth = "filter()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) module(%s) func(%s) fargs(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(userModule),
+    MOD, meth, tostring(ldtBinName), tostring(filterModule),
     tostring(filter), tostring(fargs));
 
-  return llist.find( topRec, ldtBinName, nil, userModule, filter, fargs, src );
+  return llist.find( topRec, ldtBinName, nil, filterModule, filter, fargs, src );
+end -- llist.filter()
+
+-- =======================================================================
+-- filter_key(): Filter all elements that correspond to the search key.
+-- =======================================================================
+-- Return:
+-- Success: the Result List.
+-- Error: error()
+-- =======================================================================
+function llist.filter_key( topRec, ldtBinName, key, filterModule, filter, fargs, src )
+  GP=B and info("\n\n  >>>>>>>>>>>> API[ FILTER ]<<<<<<<<<<< \n");
+  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local meth = "filter()";
+  GP=E and trace("[ENTER]<%s:%s> BIN(%s) Key(%s) module(%s) func(%s) fargs(%s)",
+    MOD, meth, tostring(ldtBinName), tostring(key), tostring(filterModule),
+    tostring(filter), tostring(fargs));
+
+  return llist.find( topRec, ldtBinName, key, filterModule, filter, fargs, src );
 end -- llist.filter()
 
 -- ======================================================================

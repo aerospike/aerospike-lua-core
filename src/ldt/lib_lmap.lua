@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_11_24.E"; 
+local MOD="lib_lmap_2014_12_05.B"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -46,7 +46,6 @@ local F=false; -- Set F (flag) to true to turn ON global print
 local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
 local B=false; -- Set B (Banners) to true to turn ON Banner Print
 local D=false; -- Set D (Detail) to get more Detailed Debug Output.
-local GD;     -- Global Debug instrument.
 local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -54,11 +53,11 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LMAP library module:
 --
--- (*) Status = lmap.put( topRec, ldtBinName, newName, newValue, userModule) 
--- (*) Status = lmap.put_all( topRec, ldtBinName, nameValueMap, userModule)
+-- (*) Status = lmap.put( topRec, ldtBinName, newName, newValue, createSpec) 
+-- (*) Status = lmap.put_all( topRec, ldtBinName, nameValueMap, createSpec)
 -- (*) Map    = lmap.get( topRec, ldtBinName, searchName )
 -- (*) Map    = lmap.exist( topRec, ldtBinName, searchName )
--- (*) Map    = lmap.scan( topRec, ldtBinName, userModule, filter, fargs )
+-- (*) Map    = lmap.scan( topRec, ldtBinName, filterModule, filter, fargs )
 -- (*) List   = lmap.nameList( topRec, ldtBinName )
 -- (*) Status = lmap.remove( topRec, ldtBinName, searchName )
 -- (*) Status = lmap.destroy( topRec, ldtBinName )
@@ -469,7 +468,7 @@ local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
 
--- Special Function -- if supplied by the user in the "userModule", then
+-- Special Function -- if supplied by the user in the "createModule", then
 -- we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
 
@@ -620,6 +619,7 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.TotalCount	         = ldtMap[M_TotalCount];		
   resultMap.HashDirSize          = ldtMap[M_HashDirSize];
   resultMap.Threshold		     = ldtMap[M_Threshold];
+  resultMap.HashCellMaxList      = ldtMap[M_HashCellMaxList];
   
   -- LDT Data Record Settings:
   resultMap.LdrEntryCountMax     = ldtMap[M_LdrEntryCountMax];
@@ -902,48 +902,28 @@ end -- initializeLdtCtrl()
 -- ======================================================================
 -- Set up the ldtCtrl map for REGULAR use (sub-records).
 -- ======================================================================
-local function initializeLMapRegular( topRec, ldtCtrl )
+local function initializeLMapRegular( ldtMap )
   local meth = "initializeLMapRegular()";
   
   GP=E and trace("[ENTER]: <%s:%s>:: Regular Mode", MOD, meth );
   
-  -- Extract the property map and LDT control map from the LDT bin list.
-  local propMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Reset the Prop and LDT Maps to settings appropriate for the REGULAR
-  -- storage mode (i.e. using sub-records).
-  -- All the other params must already be set by default. 
-  local ldtBinName = propMap[PM.BinName];
- 
-  GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type(%s)",
-      MOD, meth, tostring(ldtBinName), tostring(ldtMap[M_KeyType]));
-
   ldtMap[M_StoreState]  = SS_REGULAR; -- Now Regular, was compact.
   	  
   -- Setup and Allocate everything for the Hash Directory.
-  local newDirList = list(); -- Our new Hash Directory
   local hashDirSize = ldtMap[M_HashDirSize];
+  local newDirList = list.new(hashDirSize); -- Our new Hash Directory
 
   -- NOTE: Rather than create an EMPTY cellAnchor (which is a map), we now
   -- also allow a simple C_STATE_EMPTY value to show that the hash cell
   -- is empty.  As soon as we insert something into it, the cellAnchor will
   -- become a map with a state and a value.
-  for i = 1, (hashDirSize), 1 do
-    list.append( newDirList, C_STATE_EMPTY );
+  for i = 1, hashDirSize do
+    newDirList[i] = C_STATE_EMPTY;
   end
 
   ldtMap[M_HashDirectory]        = newDirList;
   
-  -- We are starting with a clean Hash Dir, so no Sub-Recs yet.
-  propMap[PM.SubRecCount] = 0;
-      
-  -- NOTE: We may not have to do this assignment here, since it will be
-  -- done by our caller.  We can probably bypass this extra bit of work.
-  -- TODO: Verify that removing this will not affect function.
-  topRec[ldtBinName] = ldtCtrl;
-  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
-  GP=F and trace("[DEBUG]<%s:%s> LMAP Summary after Init(%s)",
+  GP=D and trace("[DETAIL]<%s:%s> LMAP Summary after Init(%s)",
        MOD, meth, ldtMapSummaryString(ldtMap));
 
   GP=E and trace("[EXIT]:<%s:%s>:", MOD, meth );
@@ -1394,7 +1374,7 @@ local function scanLMapList(nameList, valueList, resultMap )
     end
   end -- end for each item in the list
 
-  GD=DEBUG and trace("[DEBUG]<%s:%s> ResultMap(%s)", MOD, meth,
+  GP=DEBUG and trace("[DEBUG]<%s:%s> ResultMap(%s)", MOD, meth,
     tostring(resultMap));
 
   GP=E and trace("[EXIT]<%s:%s> ResultMap Size(%d)", MOD, meth,
@@ -1408,7 +1388,7 @@ end -- scanLMapList()
 -- in this bin.
 -- ALSO:: Caller write out the LDT bin after this function returns.
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, userModule ) 
+local function setupLdtBin( topRec, ldtBinName, createSpec ) 
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -1419,20 +1399,29 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- Remember that record.set_type() for the TopRec
   -- is handled in initializeLdtCtrl()
   
+  -- Set the type of this record to LDT (it might already be set)
+  -- No Longer needed.  The Set Type is handled in initializeLdtCtrl()
+  -- record.set_type( topRec, RT_LDT ); -- LDT Type Rec
+  
   -- If the user has passed in settings that override the defaults
-  -- (the userModule), then process that now.
-  if( userModule ~= nil )then
-    local createSpecType = type(userModule);
+  -- (the createSpec), then process that now.
+  if( createSpec ~= nil )then
+    local createSpecType = type(createSpec);
     if( createSpecType == "string" ) then
-      processModule( ldtCtrl, userModule );
-    elseif( createSpecType == "userdata" ) then
-      ldt_common.adjustLdtMap( ldtCtrl, userModule, lmapPackage );
+      processModule( ldtCtrl, createSpec );
+    elseif ( getmetatable(createSpec) == Map ) then
+      ldt_common.adjustLdtMap( ldtCtrl, createSpec, lmapPackage);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( userModule ));
+        MOD, meth, tostring( createSpec ));
     end
   end
 
+  -- Set up our Bin according to the initial State: Compact List or Hash Dir.
+  if ldtMap[M_StoreState] == SS_REGULAR then
+    initializeLMapRegular( ldtMap );
+  end
+  
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
                  MOD, meth , tostring(ldtMap));
 
@@ -1722,7 +1711,7 @@ local function regularScan( src, topRec, ldtCtrl, resultMap )
   for i = 1, hashDirSize,  1 do
     cellAnchor = hashDirectory[i];
     if( not cellAnchorEmpty( cellAnchor )) then
-      GD=DEBUG and trace("[DEBUG]<%s:%s>\nHash Cell :: Index(%d) Cell(%s)",
+      GP=DEBUG and trace("[DEBUG]<%s:%s>\nHash Cell :: Index(%d) Cell(%s)",
         MOD, meth, i, tostring(cellAnchor));
 
       -- If not empty, then the cell anchor must be either in an empty
@@ -1762,7 +1751,7 @@ local function regularScan( src, topRec, ldtCtrl, resultMap )
     end
   end -- for each Hash Dir Cell
 
-  GD=DEBUG and trace("[DEBUG]<%s:%s> ResultMap(%s)", MOD, meth,
+  GP=DEBUG and trace("[DEBUG]<%s:%s> ResultMap(%s)", MOD, meth,
     tostring(resultMap));
 
   GP=E and trace("[EXIT]<%s:%s> MapSize(%d)", MOD, meth, map.size(resultMap) );
@@ -2720,7 +2709,7 @@ local function convertCompactToHashDir( src, topRec, ldtCtrl )
 
   -- Create and initialize the control-map parameters needed for the switch to 
   -- SS_REGULAR mode : add digest-list parameters 
-  initializeLMapRegular( topRec, ldtCtrl );
+  initializeLMapRegular( ldtMap );
 
   -- Note that "Fast Insert" does not update stats -- because we know that
   -- it is a special case of converting the Compact List.
@@ -2801,11 +2790,11 @@ end -- function localPut()
 -- Large Map (LMAP) Library Functions
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- ======================================================================
--- (*) lmap.put(topRec, ldtBinName, newName, newValue, userModule, src) 
--- (*) lmap.put_all(topRec, ldtBinName, nameValueMap, userModule, src)
+-- (*) lmap.put(topRec, ldtBinName, newName, newValue, createSpec, src) 
+-- (*) lmap.put_all(topRec, ldtBinName, nameValueMap, createSpec, src)
 -- (*) lmap.get(topRec, ldtBinName, searchName, userMod, filter, fargs, src)
 -- (*) lmap.exist(topRec, ldtBinName, searchName, src)
--- (*) lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
 -- (*) lmap.keyList(topRec, ldtBinName)
 -- (*) lmap.remove(topRec, ldtBinName, searchName, src)
 -- (*) lmap.destroy(topRec, ldtBinName, src)
@@ -2843,7 +2832,7 @@ local lmap = {}
 -- Parameters: 
 -- (1) topRec: the user-level record holding the LMAP Bin
 -- (2) ldtBinName: The name of the LMAP Bin
--- (3) createSpec: The userModule containing the "adjust_settings()" function
+-- (3) createSpec: The map or module containing the adjust_settings() function
 -- Result:
 --   rc = 0: ok
 --   rc < 0: Aerospike Errors
@@ -2885,7 +2874,7 @@ function lmap.create( topRec, ldtBinName, createSpec )
   -- Set up a new LDT Bin
   local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- All done, store the record
   -- With recent changes, we know that the record is now already created
@@ -2957,7 +2946,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   local ldtMap = ldtCtrl[2]; 
   local rc = 0;
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
   -- No keyFunction needed for lmap.
@@ -3075,7 +3064,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
   G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
@@ -3154,13 +3143,13 @@ end -- function lmap.put_all()
 -- (*) topRec: the Server record that holds the Large Map Instance
 -- (*) ldtBinName: The name of the bin for the Large Map
 -- (*) searchname:
--- (*) userModule:
+-- (*) filterModule:
 -- (*) filter:
 -- (*) fargs:
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function
-lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs, src)
+lmap.get(topRec, ldtBinName, searchName, filterModule, filter, fargs, src)
   GP=B and info("\n\n >>>>>>>>> API[ LMAP GET] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3190,7 +3179,7 @@ lmap.get(topRec, ldtBinName, searchName, userModule, filter, fargs, src)
   
   -- Set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter );
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Process these two options differently.  Either we're in COMPACT MODE,
@@ -3306,12 +3295,12 @@ end -- function lmap.exists()
 -- Parms:
 -- (*) topRec:
 -- (*) ldtBinName:
--- (*) userModule:
+-- (*) filterModule:
 -- (*) filter:
 -- (*) fargs:
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ========================================================================
-function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   GP=B and info("\n\n >>>>>>>>> API[ LMAP SCAN ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3319,7 +3308,7 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
 
   local meth = "lmap.scan()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) UMod(%s) Filter(%s) Fargs(%s)",
-   MOD, meth, tostring(ldtBinName), tostring(userModule), tostring(filter),
+   MOD, meth, tostring(ldtBinName), tostring(filterModule), tostring(filter),
    tostring(fargs));
                  
   -- Validate the topRec, the bin and the map.  If anything is weird, then
@@ -3332,7 +3321,7 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   local resultMap = map();
   local rc = 0; -- start out OK.
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -3344,7 +3333,7 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
 
   -- Set up the Read Functions (UnTransform, Filter)
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter );
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   if ldtMap[M_StoreState] == SS_COMPACT then 
@@ -3361,7 +3350,7 @@ function lmap.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   GP=E and trace("[EXIT]: <%s:%s>: Scan Returns Size(%d)",
                    MOD, meth, map.size(resultMap));
   	  
-  GD=DEBUG and ldt_common.dumpMap(resultMap, "LMap Scan Results:Dumped to Log");
+  GP=DEBUG and ldt_common.dumpMap(resultMap, "LMap Scan Results:Dumped to Log");
 
   return resultMap;
 end -- function lmap.scan()
@@ -3385,7 +3374,7 @@ end -- function lmap.scan()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function
-lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs, src )
+lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   GP=B and trace("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3397,8 +3386,8 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs, src )
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s)",
     MOD, meth, tostring(ldtBinName), tostring(searchName));
 
-  GP=E and trace("[DEBUG]<%s:%s> userModule(%s) filter(%s) fargs(%s)",
-    MOD, meth, tostring(userModule), tostring(filter),tostring(fargs));
+  GP=E and trace("[DEBUG]<%s:%s> filterModule(%s) filter(%s) fargs(%s)",
+    MOD, meth, tostring(filterModule), tostring(filter),tostring(fargs));
 
   local resultMap = map();  -- add results to this list.
 
@@ -3419,11 +3408,11 @@ lmap.remove( topRec, ldtBinName, searchName, userModule, filter, fargs, src )
     src = ldt_common.createSubRecContext();
   end
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read Functions (filter, Untransform)
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter);
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter);
   G_FunctionArgs = fargs;
   
   -- For the compact list, it's a simple list delete (if we find it).
@@ -3536,7 +3525,7 @@ function lmap.size( topRec, ldtBinName )
   local ldtMap = ldtCtrl[2]; 
   local itemCount = propMap[PM.ItemCount];
 
-  GD=DEBUG and ldtDebugDump( ldtCtrl );
+  GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   GP=E and trace("[EXIT]: <%s:%s> : SIZE(%d)", MOD, meth, itemCount );
   return itemCount;
@@ -3763,7 +3752,7 @@ function lmap.dump( topRec, ldtBinName, src )
       cellAnchor = hashDirectory[i];
       if ( not cellAnchorEmpty( cellAnchor ) ) then
       -- TODO: Move this code into a common "cellAnchor" Scan.
-        GD=DEBUG and trace("[DEBUG]<%s:%s> Hash Cell :: Index(%d) Cell(%s)",
+        GP=DEBUG and trace("[DEBUG]<%s:%s> Hash Cell :: Index(%d) Cell(%s)",
           MOD, meth, i, tostring(cellAnchor));
 
         -- If not empty, then the cell anchor must be either in a LIST

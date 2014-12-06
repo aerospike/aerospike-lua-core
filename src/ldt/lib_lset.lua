@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the date and iteration of the last update.
-local MOD="lib_lset_2014_11_24.A"; 
+local MOD="lib_lset_2014_12_05.B"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -54,11 +54,11 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LSET module:
 --
--- (*) Status = lset.add( topRec, ldtBinName, newValue, userModule, src)
--- (*) Status = lset.add_all( topRec, ldtBinName, valueList, userModule, src)
+-- (*) Status = lset.add( topRec, ldtBinName, newValue, createSpec, src)
+-- (*) Status = lset.add_all( topRec, ldtBinName, valueList, createSpec, src)
 -- (*) Object = lset.get( topRec, ldtBinName, searchValue, src) 
 -- (*) Number = lset.exists( topRec, ldtBinName, searchValue, src) 
--- (*) List   = lset.scan( topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) List   = lset.scan( topRec, ldtBinName, filterModule, filter, fargs, src)
 -- (*) Status = lset.remove( topRec, ldtBinName, searchValue, src) 
 -- (*) Object = lset.take( topRec, ldtBinName, searchValue, src) 
 -- (*) Status = lset.destroy( topRec, ldtBinName, src)
@@ -612,8 +612,8 @@ local G_UnTransform = nil;
 local G_FunctionArgs = nil;
 local G_KeyFunction = nil;
 
--- Special Function -- if supplied by the user in the "userModule", then
--- we call that UDF to adjust the LDT configuration settings.
+-- Special Function -- if supplied by the user in the "Create Module",
+-- then we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
@@ -748,6 +748,7 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.TotalCount			 = ldtMap[M_TotalCount];		
   resultMap.Modulo 				 = ldtMap[M_Modulo];
   resultMap.Threshold			 = ldtMap[M_Threshold];
+  resultMap.HashCellMaxList      = ldtMap[M_HashCellMaxList];
 
 end -- function ldtMapSummary
 
@@ -2653,47 +2654,27 @@ end -- function fastInsertList()
 -- ======================================================================
 -- Set up the ldtCtrl map for REGULAR use (sub-records).
 -- ======================================================================
-local function initializeLSetRegular( topRec, ldtCtrl )
+local function initializeLSetRegular( ldtMap )
   local meth = "initializeLSetRegular()";
   
   GP=E and trace("[ENTER]: <%s:%s>:: Regular Mode", MOD, meth );
   
-  -- Extract the property map and LDT control map from the LDT bin list.
-  local propMap = ldtCtrl[1];
-  local ldtMap  = ldtCtrl[2];
-
-  -- Reset the Prop and LDT Maps to settings appropriate for the REGULAR
-  -- storage mode (i.e. using sub-records).
-  -- All the other params must already be set by default. 
-  local ldtBinName = propMap[PM.BinName];
- 
-  GP=F and trace("[DEBUG]<%s:%s> Regular-Mode ldtBinName(%s) Key-type: %s",
-      MOD, meth, tostring(ldtBinName), tostring(ldtMap[M_KeyType]));
-
   ldtMap[M_StoreState]  = SS_REGULAR; -- Now Regular, was compact.
   	  
   -- Setup and Allocate everything for the Hash Directory.
-  local newDirList = list(); -- Our new Hash Directory
   local hashDirSize = ldtMap[M_Modulo];
+  local newDirList = list.new(hashDirSize); -- Our new Hash Directory
 
   -- NOTE: Rather than create an EMPTY cellAnchor (which is a map), we now
   -- also allow a simple C_STATE_EMPTY value to show that the hash cell
   -- is empty.  As soon as we insert something into it, the cellAnchor will
   -- become a map with a state and a value.
-  for i = 1, (hashDirSize), 1 do
-    list.append( newDirList, C_STATE_EMPTY );
+  for i = 1, hashDirSize do
+    newDirList[i] = C_STATE_EMPTY;
   end
 
   ldtMap[M_HashDirectory]        = newDirList;
   
-  -- We are starting with a clean Hash Dir, so no Sub-Recs yet.
-  propMap[PM.SubRecCount] = 0;
-      
-  -- NOTE: We may not have to do this assignment here, since it will be
-  -- done by our caller.  We can probably bypass this extra bit of work.
-  -- TODO: Verify that removing this will not affect function.
-  topRec[ldtBinName] = ldtCtrl;
-  record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
   GP=F and trace("[DEBUG]<%s:%s> LSET Summary after Init(%s)",
        MOD, meth, ldtMapSummaryString(ldtMap));
 
@@ -2733,7 +2714,7 @@ local function subRecConvert( src, topRec, ldtCtrl )
 
   -- Create and initialize the control-map parameters needed for the switch to 
   -- SS_REGULAR mode : add digest-list parameters 
-  initializeLSetRegular( topRec, ldtCtrl );
+  initializeLSetRegular( ldtMap );
   
   -- Note that "Fast Insert" does not update stats -- because we know that
   -- it is a special case of converting the Compact List.
@@ -3018,7 +2999,7 @@ end -- processModule()
 -- Return:
 --   The newly created ldtCtrl Map
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, userModule ) 
+local function setupLdtBin( topRec, ldtBinName, createSpec ) 
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> binName(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -3031,19 +3012,40 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- record.set_type( topRec, RT_LDT ); -- LDT Type Rec
   
   -- If the user has passed in settings that override the defaults
-  -- (the userModule), then process that now.
-  if( userModule ~= nil )then
-    local createSpecType = type(userModule);
+  -- (the createSpec), then process that now.
+  if( createSpec ~= nil )then
+    local createSpecType = type(createSpec);
     if( createSpecType == "string" ) then
-      processModule( ldtCtrl, userModule );
-    elseif( createSpecType == "userdata" ) then
-      adjustLdtMap( ldtMap, userModule );
+      processModule( ldtCtrl, createSpec );
+    elseif ( getmetatable(createSpec) == Map ) then
+      ldt_common.adjustLdtMap( ldtCtrl, createSpec, lsetPackage);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( userModule ));
+        MOD, meth, tostring( createSpec ));
     end
   end
 
+
+  -- Set up our Bin according to the initial state.  The default init
+  -- has already setup for Compact List, but if we're starting in regular
+  -- mode, we have to init the Hash Table (when in SubRec mode).
+  -- initializeLdtCtrl always sets ldtMap[M_StoreState] to SS_COMPACT.
+  -- When in TopRec mode, there is only one bin.
+  -- When in SubRec mode, there's only one hash cell.
+  if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
+  then
+    -- Setup the compact list in sub-rec mode.  This will eventually 
+    -- rehash into a full size hash directory.
+    if ldtMap[M_StoreState] == SS_REGULAR then
+      initializeLSetRegular( ldtMap );
+    end
+  else
+    -- Setup the compact list in topRec mode
+    -- This one will assign the actual record-list to topRec[binName]
+    setupNewBin( topRec, 0 );
+  end
+
+  
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
                  MOD, meth , tostring(ldtMap));
 
@@ -3053,20 +3055,6 @@ local function setupLdtBin( topRec, ldtBinName, userModule )
   -- Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
   record.set_flags( topRec, ldtBinName, BF_LDT_BIN );
-
-  -- initializeLdtCtrl always sets ldtMap[M_StoreState] to SS_COMPACT.
-  -- When in TopRec mode, there is only one bin.
-  -- When in SubRec mode, there's only one hash cell.
-  if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
-  then
-    -- Setup the compact list in sub-rec mode.  This will eventually 
-    -- rehash into a full size hash directory.
-    ldtMap[M_CompactList] = list();
-  else
-    -- Setup the compact list in topRec mode
-    -- This one will assign the actual record-list to topRec[binName]
-    setupNewBin( topRec, 0 );
-  end
 
   -- NOTE: The Caller will write out the LDT bin.
   return ldtCtrl;
@@ -3730,11 +3718,11 @@ end -- subRecDestroy()
 -- NOTE: Requirements/Restrictions (this version).
 -- (1) One Set Per Record if using "TopRecord" Mode
 -- ======================================================================
--- (*) Status = add( topRec, ldtBinName, newValue, userModule, src)
--- (*) Status = add_all( topRec, ldtBinName, valueList, userModule, src)
+-- (*) Status = add( topRec, ldtBinName, newValue, createSpec, src)
+-- (*) Status = add_all( topRec, ldtBinName, valueList, createSpec, src)
 -- (*) Object = get( topRec, ldtBinName, searchValue, src) 
 -- (*) Number  = exists( topRec, ldtBinName, searchValue, src) 
--- (*) List   = scan( topRec, ldtBinName, userModule, filter, fargs, src)
+-- (*) List   = scan( topRec, ldtBinName, filterModule, filter, fargs, src)
 -- (*) Status = remove( topRec, ldtBinName, searchValue, src) 
 -- (*) Status = destroy( topRec, ldtBinName, src)
 -- (*) Number = size( topRec, ldtBinName )
@@ -3743,7 +3731,7 @@ end -- subRecDestroy()
 -- (*) Status = get_capacity( topRec, ldtBinName )
 -- ======================================================================
 -- The following functions are deprecated:
--- (*) Status = create( topRec, ldtBinName, userModule )
+-- (*) Status = create( topRec, ldtBinName, createSpec )
 -- ======================================================================
 -- We define a table of functions that are visible to both INTERNAL UDF
 -- calls and to the EXTERNAL LDT functions.  We define this table, "lset",
@@ -3763,13 +3751,13 @@ local lset = {};
 -- Parms:
 -- (*) topRec: The Aerospike Server record on which we operate
 -- (*) ldtBinName: The name of the bin for the AS Large Set
--- (*) userModule: A map of create specifications:  Most likely including
+-- (*) createSpec: A map of create specifications:  Most likely including
 --               :: a package name with a set of config parameters.
 -- Result:
 --   rc = 0: Ok, LDT created
 --   rc < 0: Error.
 -- ======================================================================
-function lset.create( topRec, ldtBinName, userModule )
+function lset.create( topRec, ldtBinName, createSpec )
   GP=B and info("\n\n >>>>>>>>> API[ LSET CREATE ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3777,7 +3765,7 @@ function lset.create( topRec, ldtBinName, userModule )
 
   local meth = "lset.create()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s) createSpec(%s)",
-                 MOD, meth, tostring(ldtBinName), tostring(userModule) );
+                 MOD, meth, tostring(ldtBinName), tostring(createSpec) );
 
   -- First, check the validity of the Bin Name.
   -- This will throw and error and jump out of Lua if ldtBinName is bad.
@@ -3797,7 +3785,7 @@ function lset.create( topRec, ldtBinName, userModule )
   GP=F and trace("[DEBUG]: <%s:%s> : Initialize SET CTRL Map", MOD, meth );
 
   -- We need a new LDT bin -- set it up.
-  local ldtCtrl = setupLdtBin( topRec, ldtBinName, userModule );
+  local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
 
   -- For debugging, print out our main control map.
   GD=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3822,7 +3810,7 @@ end -- lset.create()
 -- (*) topRec: The Aerospike Server record on which we operate
 -- (*) ldtBinName: The name of the bin for the AS Large Set
 -- (*) newValue: The new Object to be placed into the set.
--- (*) userModule: A map of create specifications:  Most likely including
+-- (*) createSpec: A map of create specifications:  Most likely including
 --               :: a package name with a set of config parameters.
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
@@ -3830,7 +3818,7 @@ end -- lset.create()
 -- TODO: Add a common core "local insert" that can be used by both this
 -- function and the lset.all_all() function.
 -- ======================================================================
-function lset.add( topRec, ldtBinName, newValue, userModule, src )
+function lset.add( topRec, ldtBinName, newValue, createSpec, src )
   GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET ADD ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3839,7 +3827,7 @@ function lset.add( topRec, ldtBinName, newValue, userModule, src )
   local meth = "lset.add()";
   GP=E and trace("[ENTER]:<%s:%s> LSetBin(%s) NewValue(%s) createSpec(%s)",
                  MOD, meth, tostring(ldtBinName), tostring( newValue ),
-                 tostring( userModule ));
+                 tostring( createSpec ));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -3852,7 +3840,7 @@ function lset.add( topRec, ldtBinName, newValue, userModule, src )
          MOD, meth, tostring( ldtBinName ));
 
     -- We need a new LDT bin -- set it up.
-    setupLdtBin( topRec, ldtBinName, userModule );
+    setupLdtBin( topRec, ldtBinName, createSpec );
   end
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -3910,12 +3898,12 @@ end -- lset.add()
 -- (*) topRec: The Aerospike Server record on which we operate
 -- (*) ldtBinName: The name of the bin for the AS Large Set
 -- (*) valueList: The list of Objects to be placed into the set.
--- (*) userModule: A map of create specifications:  Most likely including
+-- (*) createSpec: A map of create specifications:  Most likely including
 --               :: a package name with a set of config parameters.
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Result:
 -- ======================================================================
-function lset.add_all( topRec, ldtBinName, valueList, userModule, src )
+function lset.add_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=B and info("\n\n  >>>>>>>>>>> API[ LSET ADD_ALL ] <<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3935,7 +3923,7 @@ function lset.add_all( topRec, ldtBinName, valueList, userModule, src )
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-      rc = lset.add( topRec, ldtBinName, valueList[i], userModule, src );
+      rc = lset.add( topRec, ldtBinName, valueList[i], createSpec, src );
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
@@ -3959,14 +3947,14 @@ end -- function lset.add_all()
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) searchValue:
--- (*) userModule: The Lua File that contains the filter.
+-- (*) filterModule: The Lua File that contains the filter.
 -- (*) filter: the NAME of the filter function (which we'll find in FuncTable)
 -- (*) fargs: Optional Arguments to feed to the filter
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- Return the object, or Error (NOT FOUND)
 -- ======================================================================
 function
-lset.get( topRec, ldtBinName, searchValue, userModule, filter, fargs, src )
+lset.get( topRec, ldtBinName, searchValue, filterModule, filter, fargs, src )
   GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET GET ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3997,7 +3985,7 @@ lset.get( topRec, ldtBinName, searchValue, userModule, filter, fargs, src )
   -- all LSET operations.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter );
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4107,12 +4095,12 @@ end -- function lset.exists()
 -- Parms:
 -- (*) topRec:
 -- (*) ldtBinName:
--- (*) userModule: (optional) Lua file containing user's filter function
+-- (*) filterModule: (optional) Lua file containing user's filter function
 -- (*) filter: (optional) User's Filter Function
 -- (*) fargs: (optional) filter arguments
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
+function lset.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET SCAN ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -4120,7 +4108,7 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
 
   local meth = "lset.scan()";
   GP=E and trace("[ENTER]<%s:%s> BinName(%s) Module(%s) Filter(%s) Fargs(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(userModule), tostring(filter),
+    MOD, meth, tostring(ldtBinName), tostring(filterModule), tostring(filter),
     tostring(fargs));
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
@@ -4146,7 +4134,7 @@ function lset.scan(topRec, ldtBinName, userModule, filter, fargs, src)
   -- Set up our global "UnTransform" and Filter Functions.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter );
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
   
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)
@@ -4180,7 +4168,7 @@ end -- function lset.scan()
 -- (*) returnVal: When true, return the deleted value.
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
-function lset.remove( topRec, ldtBinName, deleteValue, userModule,
+function lset.remove( topRec, ldtBinName, deleteValue, filterModule,
                                 filter, fargs, returnVal, src )
   GP=B and info("\n\n  >>>>>>>>>> > API [ LSET REMOVE ] <<<<<<<<<<<<<<<< \n");
 
@@ -4219,7 +4207,7 @@ function lset.remove( topRec, ldtBinName, deleteValue, userModule,
   -- Set up our global "UnTransform" and Filter Functions.
   G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, userModule, filter );
+    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
   
   if(ldtMap[M_SetTypeStore] ~= nil and ldtMap[M_SetTypeStore] == ST_SUBRECORD)

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lstack_2014_11_17.A";
+local MOD="lib_lstack_2014_12_03.A";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -55,12 +55,12 @@ local TEST_MODE=false; -- turn on for MINIMAL sizes (better testing)
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LSTACK module:
 --
--- (*) Status = push(topRec, ldtBinName, newValue, userModule, src)
--- (*) Status = push_all(topRec, ldtBinName, valueList, userModule, src)
+-- (*) Status = push(topRec, ldtBinName, newValue, createSpec, src)
+-- (*) Status = push_all(topRec, ldtBinName, valueList, createSpec, src)
 -- (*) List   = peek(topRec, ldtBinName, peekCount, src) 
 -- (*) List   = pop(topRec, ldtBinName, popCount, src) 
 -- (*) List   = scan(topRec, ldtBinName, src)
--- (*) List   = filter(topRec,ldtBinName,peekCount,userModule,filter,fargs,src)
+-- (*) List   = filter(topRec,ldtBinName,peekCount,filterModule,filter,fargs,src)
 -- (*) Status = destroy(topRec, ldtBinName, src)
 -- (*) Number = size(topRec, ldtBinName)
 -- (*) Map    = get_config(topRec, ldtBinName)
@@ -191,7 +191,7 @@ local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 -- LDT TYPES (only lstack is defined here)
 local LDT_TYPE = "LSTACK";
 
--- Special Function -- if supplied by the user in the "userModule", then
+-- Special Function -- if supplied by the user in the " Create Module", then
 -- we call that UDF to adjust the LDT configuration settings.
 local G_SETTINGS = "adjust_settings";
 
@@ -207,7 +207,7 @@ local UDF_CONTEXT_LDT = 1;
 --
 -- Default storage limit for a stack -- can be overridden by setting
 -- one of the packages (e.g. package.ListLargeObject) or by direct calls
--- from a userModule (using the "adjust_settings()" function).
+-- from the  Create Module (using the "adjust_settings()" function).
 local DEFAULT_CAPACITY = 0;
 local TEST_MODE_DEFAULT_CAPACITY = 10000;
 
@@ -1067,7 +1067,7 @@ end -- readEntryList()
 --   Implicit: entries are added to the resultList parameter
 --   Explicit:
 --   1:  numTaken: Number of Elements Taken.
---   2:  empty: Boolean: true if hot list was left empty (needs backfill)
+--   2:  empty: Boolean: true if entry list was left empty (needs backfill)
 -- ======================================================================
 local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
 
@@ -1139,29 +1139,30 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count, all)
   end -- for each entry in the list
 
   -- For however many we've taken, we need to remove that many from the
-  -- Hot List.  Recall that the Hot List is in reverse order, so we will
-  -- keep the unused remainder (the list front) with the "take" operator.
-  -- If we pop 6 elements from the list below, then we'll call
-  -- newList = list.take( size - pop )  
+  -- Entry List.  Recall that the Entry List is in reverse order, so we will
+  -- keep the unused remainder (the list front).  We use the new list.trim()
+  -- operator, which takes the position then removes position to the end.
+  --
+  -- If we pop 6 elements from the list below, then we'll call trim 
+  -- as follows:
   -- size = 16
   -- pop = 6
-  -- new list is 1::10
+  -- list.trim( (size - pop) + 1 )  
+  -- Release old contents starting at position 11.
   -- |<=================>|<--------->|
   --  1 2 3 4 5 6 7 8 9 0 a b c d e f
   -- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   -- |A|B|C|D|E|F|G|H|I|J|K|L|M|N|O|P]
   -- +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  local newSize = listSize - numTaken;
-  local newHotList;
-  local empty = false;
-  if( newSize > 0 ) then
-    newHotList = list.take( entryList, newSize );
-  else
-    newHotList = list();
-    empty = true;
-  end
-  -- It will be the caller's job to backfill the Hot List from the Warm List.
-  ldtMap[M_HotEntryList] = newHotList;
+  -- Note that we update the list IN-PLACE, so we DO NOT need to reassign
+  -- the list to it's source when we're done.
+  local trimPosition = (listSize - numTaken) + 1;
+  local empty = (listSize == numTaken)
+  GP=F and debug("[DEBUG]<%s:%s>About to trim list(%s) at position(%d)", MOD,
+    meth, tostring(entryList), trimPosition);
+  list.trim(entryList, trimPosition);
+  GP=F and debug("[DEBUG]<%s:%s>After to trim list(%s) at position(%d)", MOD,
+    meth, tostring(entryList), trimPosition);
 
   GP=E and trace("[EXIT]<%s:%s> NumTaken(%d) Empty(%d) resultListSummary(%s)",
     MOD, meth, numTaken, empty, ldt_common.summarizeList( resultList ));
@@ -1639,7 +1640,7 @@ end -- ldrRead()
 -- ======================================================================
 
 -- ======================================================================
--- digestListRead()
+-- digestListAccess()
 -- ======================================================================
 -- Synopsis:
 -- Parms:
@@ -1649,13 +1650,15 @@ end -- ldrRead()
 -- (*) digestList: The List of Digests (Data Record Ptrs) we will Process
 -- (*) count: Only used when "all" flag is 0.  Return this many items
 -- (*) all: When == true, read all items, regardless of "count".
+-- (*) deleteFlag: When == true, remove the items that we read.
+--
 -- Return: Return the amount read from the Digest List.
 -- ======================================================================
 local function
-digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
-  local meth = "digestListRead()";
-  GP=E and trace("[ENTER]: <%s:%s> Count(%d) all(%s)",
-    MOD, meth, count, tostring(all) );
+digestListAccess(src,topRec,resultList,ldtCtrl,digestList,count,all,delFlag)
+  local meth = "digestListAccess()";
+  GP=E and trace("[ENTER]: <%s:%s> Count(%d) all(%s) DelFlag(%s)",
+    MOD, meth, count, tostring(all), tostring(delFlag));
 
   GP=F and trace("[DEBUG]: <%s:%s> Count(%d) DigList(%s) ResList(%s)",
     MOD, meth, count, tostring( digestList), tostring( resultList ));
@@ -1725,8 +1728,49 @@ digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
   GP=E and trace("[EXIT]: <%s:%s> totalAmountRead(%d) ResultListSummary(%s) ",
   MOD, meth, totalAmountRead, ldt_common.summarizeList(resultList));
   return totalAmountRead;
+end -- digestListAccess()
+
+-- ======================================================================
+-- digestListRead()
+-- ======================================================================
+-- Synopsis:
+-- Parms:
+-- (*) topRec: User-level Record holding the LDT Bin
+-- (*) resultList: What's been accumulated so far -- add to this
+-- (*) ldtCtrl: Main LDT Control info
+-- (*) digestList: The List of Digests (Data Record Ptrs) we will Process
+-- (*) count: Only used when "all" flag is 0.  Return this many items
+-- (*) all: When == true, read all items, regardless of "count".
+-- Return: Return the amount read from the Digest List.
+-- ======================================================================
+local function
+digestListRead(src, topRec, resultList, ldtCtrl, digestList, count, all)
+
+  -- Call Access with DeleteFlag = false.
+  return digestListAccess(src, topRec, resultList, ldtCtrl, digestList,
+                          count, all, false);
 end -- digestListRead()
 
+-- ======================================================================
+-- digestListTake()
+-- ======================================================================
+-- Synopsis:
+-- Parms:
+-- (*) topRec: User-level Record holding the LDT Bin
+-- (*) resultList: What's been accumulated so far -- add to this
+-- (*) ldtCtrl: Main LDT Control info
+-- (*) digestList: The List of Digests (Data Record Ptrs) we will Process
+-- (*) count: Only used when "all" flag is 0.  Return this many items
+-- (*) all: When == true, read all items, regardless of "count".
+-- Return: Return the amount read from the Digest List.
+-- ======================================================================
+local function
+digestListTake(src, topRec, resultList, ldtCtrl, digestList, count, all)
+
+  -- Call Access with DeleteFlag = true
+  return digestListAccess(src, topRec, resultList, ldtCtrl, digestList,
+                          count, all, true);
+end -- digestListTake()
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -1788,6 +1832,11 @@ local function hotListTake( resultList, ldtCtrl, count, all)
 
   local ldtMap = ldtCtrl[2];
   local hotList = ldtMap[M_HotEntryList];
+
+  -- In some cases, as with large data elements, we have no HotList.
+  if hotList == nil or #hotList == 0 then
+    return resultList, true;
+  end
 
   local numRead, empty = takeEntryList(resultList,ldtCtrl,hotList,count,all);
 
@@ -1921,11 +1970,9 @@ local function hotListInsert( ldtCtrl, newStorageValue  )
   -- list.append( ldtMap[M_HotEntryList], newStorageValue );
   list.append( hotList, newStorageValue );
   ldtMap[M_HotEntryList] = hotList;
-  --
-  -- Update the count (overall count and hot list count)
-  local itemCount = propMap[PM_ItemCount];
-  propMap[PM_ItemCount] = (itemCount + 1);
-
+  
+  -- Update the HotList Count, but the overall Count has to be
+  -- updated upstream (in localPush() ).
   local hotCount = ldtMap[M_HotEntryListItemCount];
   ldtMap[M_HotEntryListItemCount] = (hotCount + 1);
 
@@ -2065,29 +2112,6 @@ local function warmListHasRoom( ldtMap )
   GP=E and trace("[EXIT]: <%s:%s> Decision(%d)", MOD, meth, decision );
   return decision;
 end -- warmListHasRoom()
-
--- ======================================================================
--- warmListRead()
--- ======================================================================
--- Synopsis: Pass the Warm list on to "digestListRead()" and let it do
--- all of the work.
--- Parms:
--- (*) src: Subrec Context -- Manage the Open Subrec Pool
--- (*) topRec: User-level Record holding the LDT Bin
--- (*) resultList: What's been accumulated so far -- add to this
--- (*) ldtCtrl: The main structure of the LDT Bin.
--- (*) count: Only used when "all" flag is false.  Return this many items
--- (*) all: When == 1, read all items, regardless of "count".
--- Return: Return the amount read from the Warm Dir List.
--- ======================================================================
-local function warmListRead(src, topRec, resultList, ldtCtrl, count, all)
-
-  local ldtMap  = ldtCtrl[2];
-  local digestList = ldtMap[M_WarmDigestList];
-
-  return digestListRead(src, topRec, resultList, ldtCtrl,
-                          digestList, count, all);
-end -- warmListRead()
 
 -- ======================================================================
 -- warmListGetTop()
@@ -2902,6 +2926,120 @@ local function coldListRead(src, topRec, resultList, ldtCtrl, count, all)
   return totalNumRead;
 end -- coldListRead()
 
+
+-- ======================================================================
+-- coldListTake()
+-- ======================================================================
+-- Synopsis: March down the Cold List Directory Pages (a linked list of
+-- directory pages -- that each point to lstack Data Sub-Records) and
+-- read "count" data entries.  Use the same ReadDigestList method as the
+-- warm list.
+-- Parms:
+-- (*) src: Subrec Context -- Manage the Open Subrec Pool
+-- (*) topRec: User-level Record holding the LDT Bin
+-- (*) resultList: What's been accumulated so far -- add to this
+-- (*) ldtCtrl: The main structure of the LDT Bin.
+-- (*) count: Only used when "all" flag is 0.  Return this many items
+-- (*) all: When == 1, read all items, regardless of "count".
+-- Return: Return the amount read from the Cold Dir List.
+-- ======================================================================
+local function coldListTake(src, topRec, resultList, ldtCtrl, count, all)
+  local meth = "coldListTake()";
+  GP=E and trace("[ENTER]: <%s:%s> Count(%d) All(%s) LdtSummary(%s)",
+      MOD, meth, count, tostring( all ), ldtSummaryString(ldtCtrl));
+
+  -- Extract the property map and LDT map from the LDT Control.
+  local propMap = ldtCtrl[1];
+  local ldtMap  = ldtCtrl[2];
+
+  warn("[WARNING]<%s:%s> Still Under Construction (ReadOnly)", MOD, meth);
+
+  -- If there is no Cold List, then return immediately -- nothing read.
+  if(ldtMap[M_ColdDirListHead] == nil or ldtMap[M_ColdDirListHead] == 0) then
+    return 0;
+  end
+
+  -- Process the coldDirList (a linked list) head to tail (that is "append"
+  -- order).  For each dir, read in the LDR Records (in reverse list order),
+  -- and then each page (in reverse list order), until we've read "count"
+  -- items.  If the 'all' flag is true, then read everything.
+  local coldDirRecDigest = ldtMap[M_ColdDirListHead];
+
+  -- Outer loop -- Process each Cold Directory Page.  Each Cold Dir page
+  -- holds a list of digests -- just like our WarmDigestList in the
+  -- record, so the processing of that will be the same.
+  -- Process the Linked List of Dir pages, head to tail
+  local numRead = 0;
+  local totalNumRead = 0;
+  local countRemaining =  count;
+
+  trace("[DEBUG]:<%s:%s>:Starting ColdDirPage Loop: DPDigest(%s)",
+      MOD, meth, tostring(coldDirRecDigest) );
+
+  local coldDirMap;
+  while coldDirRecDigest ~= nil and coldDirRecDigest ~= 0 do
+    trace("[DEBUG]:<%s:%s>:Top of ColdDirPage Loop: DPDigest(%s)",
+      MOD, meth, tostring(coldDirRecDigest) );
+    -- Open the Directory Page
+    local digestString = tostring( coldDirRecDigest ); -- must be a string
+    local coldDirRec = ldt_common.openSubRec( src, topRec, digestString );
+    local digestList = coldDirRec[COLD_DIR_LIST_BIN];
+    coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+
+    GP=F and trace("[DEBUG]<%s:%s>Cold Dir subrec digest(%s) Map(%s) List(%s)",
+      MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
+
+    numRead = digestListRead(src, topRec, resultList, ldtCtrl, digestList,
+                            countRemaining, all)
+    if numRead <= 0 then
+      warn("[ERROR]:<%s:%s>:Cold List Read Error: Digest(%s)",
+          MOD, meth, digestString );
+      return numRead;
+    end
+
+    totalNumRead = totalNumRead + numRead;
+    countRemaining = countRemaining - numRead;
+
+    GP=F and trace("[DEBUG]:<%s:%s>:After Read: TotalRead(%d) NumRead(%d)",
+          MOD, meth, totalNumRead, numRead );
+    GP=F and trace("[DEBUG]:<%s:%s>:CountRemain(%d) NextDir(%s)PrevDir(%s)",
+          MOD, meth, countRemaining, tostring(coldDirMap[CDM_NextDirRec]),
+          tostring(coldDirMap[CDM_PrevDirRec]));
+
+    if countRemaining <= 0 or coldDirMap[CDM_NextDirRec] == 0 then
+      GP=E and trace("[EARLY EXIT]:<%s:%s>:Cold Read: (%d) Items",
+          MOD, meth, totalNumRead );
+        -- We no longer close a dirty SubRec, but we can mark it available.
+        ldt_common.closeSubRec( src, coldDirRec, true );
+        return totalNumRead;
+    end
+
+    GP=F and trace("[DEBUG]:<%s:%s>Reading NEXT DIR:", MOD, meth );
+    
+    -- Ok, so now we've read ALL of the contents of a Directory Record
+    -- and we're still not done.  Close the old dir, open the next and
+    -- keep going.
+    coldDirMap = coldDirRec[COLD_DIR_CTRL_BIN];
+
+    GP=F and trace("[DEBUG]:<%s:%s>Looking at subrec digest(%s) Map(%s) L(%s)",
+      MOD, meth, digestString, tostring(coldDirMap),tostring(digestList));
+
+    coldDirRecDigest = coldDirMap[CDM_NextDirRec]; -- Next in Linked List.
+    GP=F and trace("[DEBUG]:<%s:%s>Getting Next Digest in Dir Chain(%s)",
+      MOD, meth, coldDirRecDigest );
+
+    ldt_common.closeSubRec( src, coldDirRec, true );
+
+  end -- while Dir Page not empty.
+
+  GP=F and trace("[DEBUG]<%s:%s>After ColdListRead:LdtMap(%s) ColdHeadMap(%s)",
+      MOD, meth, tostring( ldtMap ), tostring( coldDirMap )); 
+
+  GP=E and trace("[EXIT]:<%s:%s>totalAmountRead(%d) ResultListSummary(%s) ",
+      MOD, meth, totalNumRead, ldt_common.summarizeList(resultList));
+  return totalNumRead;
+end -- coldListTake()
+
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- LDT General Functions
@@ -3600,6 +3738,7 @@ local function localPush( topRec, ldtCtrl, newStoreValue, src )
   GP=E and trace("[ENTER]:<%s:%s> NewStoreVal(%s) LDTSummary(%s)",
     MOD, meth, tostring(newStoreValue), ldtSummaryString(ldtCtrl));
     
+  local propMap = ldtCtrl[1];
   local ldtMap = ldtCtrl[2];
   local rc = 0;
 
@@ -3622,8 +3761,11 @@ local function localPush( topRec, ldtCtrl, newStoreValue, src )
   local hotListMax = ldtMap[M_HotListMax];
   if hotListMax == nil or hotListMax == 0 then
     -- We don't have a hot list, so nothing to check and nothing to transfer.
-    -- Just proceed directly to the warm list.
-    rc = warmListInsert( src, topRec, ldtCtrl, newStoreValue );
+    -- Just proceed directly to the warm list.  However, Warm List expects
+    -- an entry LIST, not a single value.
+    local entryList = list();
+    list.append(entryList, newStoreValue);
+    rc = warmListInsert( src, topRec, ldtCtrl, entryList );
 
 
     -- NOTE: Ok to use ldtMap and not the usual ldtCtrl here.
@@ -3634,6 +3776,11 @@ local function localPush( topRec, ldtCtrl, newStoreValue, src )
     end
     hotListInsert( ldtCtrl, newStoreValue );
   end
+
+  -- Update the overall Count.
+  local itemCount = propMap[PM_ItemCount];
+  propMap[PM_ItemCount] = (itemCount + 1);
+
 
   GP=D and trace("[DEBUG]<%s:%s> After Insert: HotList(%s)", MOD, meth,
     tostring( ldtMap[M_HotEntryList]));
@@ -3772,7 +3919,7 @@ end -- processModule()
 -- ======================================================================
 local function setupLdtBin( topRec, ldtBinName, createSpec ) 
   local meth = "setupLdtBin()";
-  GP=E and trace("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
+  GP=E and info("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
 
   local ldtCtrl = initializeLdtCtrl( topRec, ldtBinName );
   local propMap = ldtCtrl[1]; 
@@ -3807,6 +3954,7 @@ local function setupLdtBin( topRec, ldtBinName, createSpec )
   -- NOTE: The Caller will write out the LDT bin.  Also, call Create() will
   -- use the ldtCtrl return value, rather than re-access the Top-Record to
   -- get it.
+  GP=E and info("[EXIT]<%s:%s> LDT(%s)",MOD,meth,tostring(ldtCtrl));
   return ldtCtrl;
 end -- setupLdtBin()
 
@@ -3938,12 +4086,12 @@ end -- lstack_subrec_list()
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LSTACK module:
 --
--- (*) Status = push(topRec, ldtBinName, newValue, userModule, src)
--- (*) Status = push_all(topRec, ldtBinName, valueList, userModule, src)
+-- (*) Status = push(topRec, ldtBinName, newValue, createSpec, src)
+-- (*) Status = push_all(topRec, ldtBinName, valueList, createSpec, src)
 -- (*) List   = peek(topRec, ldtBinName, peekCount, src) 
 -- (*) List   = pop(topRec, ldtBinName, popCount, src) 
 -- (*) List   = scan(topRec, ldtBinName, src)
--- (*) List   = filter(topRec,ldtBinName,peekCount,userModule,filter,fargs,src)
+-- (*) List = filter(topRec,ldtBinName,peekCount,filterModule,filter,fargs,src)
 -- (*) Status = destroy(topRec, ldtBinName, src)
 -- (*) Number = size(topRec, ldtBinName)
 -- (*) Map    = get_config(topRec, ldtBinName)
@@ -4272,7 +4420,7 @@ end -- end lstack.push_all()
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
 -- (3) peekCount: The number of items to read from the stack
--- (4) userModule: Lua file that potentially holds the filter function
+-- (4) filterModule: Lua file that potentially holds the filter function
 -- (5) filter: The "Inner UDF" that will filter Peek output
 -- (6) fargs: Arg List to the filter function (i.e. func(val, fargs)).
 -- (7) src: Sub-Rec Context - Needed for repeated calls from caller
@@ -4290,7 +4438,7 @@ end -- end lstack.push_all()
 -- subrecs.
 -- ======================================================================
 function
-lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
+lstack.peek( topRec, ldtBinName, peekCount, filterModule, filter, fargs, src )
   GP=B and info("\n\n >>>>>>>>> API[ LSTACK.PEEK ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -4299,7 +4447,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   local meth = "lstack.peek()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) Cnt(%s) Mod((%s) filter(%s) fargs(%s)",
     MOD, meth, tostring(ldtBinName), tostring(peekCount),
-    tostring(userModule), tostring(filter), tostring(fargs) );
+    tostring(filterModule), tostring(filter), tostring(fargs) );
 
   -- Some simple protection of faulty records or bad bin names
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -4315,7 +4463,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   -- Note that KeyFunction would be used only for special TIMESTACK function.
   -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions(ldtMap, userModule, filter );
+    ldt_common.setReadFunctions(ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4349,6 +4497,7 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   if( peekCount <= 0 ) then
     if( itemCount < storeLimit ) then
       all = true;
+      count = itemCount;
     else
       count = storeLimit; -- peek NO MORE than our storage limit.
     end
@@ -4358,8 +4507,9 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
     count = peekCount;
   end
 
-  -- Set up our answer list.
-  local resultList = list(); -- everyone will fill this in
+  -- Set up our answer list.  Use the NEW list constructor that will
+  -- allocate enough space for our full answer set.
+  local resultList = list.new(count); -- everyone will fill this in
 
   GP=F and trace("[DEBUG]<%s:%s> Peek with Count(%d) StoreLimit(%d)",
       MOD, meth, count, storeLimit );
@@ -4389,9 +4539,10 @@ lstack.peek( topRec, ldtBinName, peekCount, userModule, filter, fargs, src )
   GP=F and trace("[DEBUG]: <%s:%s> Checking WarmList Count(%d) All(%s)",
     MOD, meth, remainingCount, tostring(all));
   -- If no Warm List, then we're done (assume no cold list if no warm)
-  if list.size(ldtMap[M_WarmDigestList]) > 0 then
-    warmCount =
-     warmListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
+  local warmDigestList = ldtMap[M_WarmDigestList];
+  if #warmDigestList > 0 then
+    warmCount = digestListRead(src, topRec, resultList, ldtCtrl,
+                               warmDigestList, remainingCount, all);
   end
 
   -- As Agent Smith would say... "MORE!!!".
@@ -4443,7 +4594,7 @@ end -- function lstack.peek()
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
 -- (3) count: The number of items to pop off the stack
--- (4) userModule: The Lua file that potentially holds the filter function
+-- (4) filterModule: The Lua file that potentially holds the filter function
 -- (5) filter: The "Inner UDF" that will filter Peek output
 -- (6) fargs: Arg List to the filter function (i.e. func(val, fargs)).
 -- (7) src: Sub-Rec Context - Needed for repeated calls from caller
@@ -4461,7 +4612,7 @@ end -- function lstack.peek()
 -- subrecs.
 -- ======================================================================
 function
-lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
+lstack.pop( topRec, ldtBinName, count, filterModule, filter, fargs, src )
   GP=B and info("\n\n >>>>>>>>> API[ LSTACK.POP ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -4472,8 +4623,8 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
   -- This function is currently under construction. We will throw an error
   -- until it is complete and tested.
-  warn("[ERROR]<%s:%s> THIS FUNCTION UNDER CONSTRUCTION", MOD, meth);
-  error( ldte.ERR_INTERNAL );
+  -- warn("[ERROR]<%s:%s> THIS FUNCTION UNDER CONSTRUCTION", MOD, meth);
+  -- error( ldte.ERR_INTERNAL );
   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
   GP=E and trace("[ENTER]: <%s:%s> LDT BIN(%s) Count(%s) Filter(%s) fargs(%s)",
@@ -4496,7 +4647,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   -- Note that KeyFunction would be used only for special TIMESTACK function.
   -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
   G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions(ldtMap, userModule, filter );
+    ldt_common.setReadFunctions(ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4530,6 +4681,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   if( count <= 0 ) then
     if( itemCount < storeLimit ) then
       all = true;
+      count = itemCount;
     else
       count = storeLimit; -- remove NO MORE than our storage limit.
     end
@@ -4539,29 +4691,22 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
     count = count;
   end
 
-  -- Set up our answer list.
-  local resultList = list(); -- everyone will fill this in
+  -- Set up our answer list.  Use the new List Constructor.
+  local resultList = list.new(count);
 
   GP=F and trace("[DEBUG]<%s:%s> Pop with Count(%d) StoreLimit(%d)",
       MOD, meth, count, storeLimit );
 
   -- Pop from the Hot List, then the Warm List, then the Cold List.
   -- Each time we decrement the count and add to the resultlist.
-  -- NOTE: Currently, we pop from hot list only.
+  -- NOTE: For certain configurations, involving large data elements,
+  -- ther may be no HotList.
   local resultList, empty = hotListTake(resultList, ldtCtrl, count, all);
   local numRead = list.size( resultList );
   GP=F and trace("[DEBUG]: <%s:%s> HotListResult:Summary(%s)",
       MOD, meth, ldt_common.summarizeList(resultList));
 
-  -- For now -- we're popping ONLY from the Hot List.  Later we will
-  -- make this to work with the Warm/Cold List -- and backfill
-  -- HOT from warm, and warm from cold. (tjl June 2014)
-  -- =================================================================
-  --[[
-
-  local warmCount = 0;
-
-  -- If the list had all that we need, then done.  Return list.
+  -- If we have enough, we're done.  Otherwise, read from the warm list.
   if(( numRead >= count and all == false) or numRead >= propMap[PM_ItemCount] )
   then
     return resultList;
@@ -4570,19 +4715,21 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
   -- We need more -- get more out of the Warm List.  If ALL flag is set,
   -- keep going until we're done.  Otherwise, compute the correct READ count
   -- given that we've already read from the Hot List.
+  local warmCount = 0;
   local remainingCount = 0; -- Default, when ALL flag is on.
   if( all == false ) then
     remainingCount = count - numRead;
   end
+
   GP=F and trace("[DEBUG]: <%s:%s> Checking WarmList Count(%d) All(%s)",
     MOD, meth, remainingCount, tostring(all));
   -- If no Warm List, then we're done (assume no cold list if no warm)
-  if list.size(ldtMap[M_WarmDigestList]) > 0 then
-    warmCount =
-     warmListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
+  local warmDigestList = ldtMap[M_WarmDigestList];
+  if #warmDigestList > 0 then
+    warmCount = digestListTake(src, topRec, resultList, ldtCtrl,
+                               warmDigestList, remainingCount, all);
   end
 
-  -- As Agent Smith would say... "MORE!!!".
   -- We need more, so get more out of the COLD List.  If ALL flag is set,
   -- keep going until we're done.  Otherwise, compute the correct READ count
   -- given that we've already read from the Hot and Warm Lists.
@@ -4606,8 +4753,7 @@ lstack.pop( topRec, ldtBinName, count, userModule, filter, fargs, src )
 
   -- Otherwise, go look for more in the Cold List.
   local coldCount = 
-     coldListRead(src,topRec,resultList,ldtCtrl,remainingCount,all);
-  ]]--
+     coldListTake(src,topRec,resultList,ldtCtrl,remainingCount,all);
   -- =================================================================
 
   GP=E and trace("[EXIT]: <%s:%s>: Count(%d) ResultListSummary(%s)",

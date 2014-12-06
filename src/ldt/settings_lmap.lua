@@ -17,7 +17,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_lmap_2014_11_24.G"; -- the module name used for tracing
+local MOD="settings_lmap_2014_12_05.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -26,8 +26,9 @@ local MOD="settings_lmap_2014_11_24.G"; -- the module name used for tracing
 -- in the server).
 -- ======================================================================
 local GP;     -- Use for turning on Global Print
-local F=true; -- Set F (flag) to true to turn ON global print
-local E=true; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local F=false; -- Set F (flag) to true to turn ON global print
+local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local D=false; -- Set D (DETAIL) for greater detailed output
 
 -- ======================================================================
 -- We now need a new ldt_common function in order to validate the
@@ -655,11 +656,15 @@ local exports = {}
     -- the hash directory is:
     -- All available space in the TopRec, divided by Cell Overhead
     -- (MaxPageSize - recordOverHead) / hashCellOverHead
+    local hashDirMin = 128; -- go no smaller than this.
     local hashDirMax = (pageSize - recordOverHead) / hashCellOverHead;
     local ldrItemCapacity = math.floor(dataRecByteLimit / maxObjectSize);
     local hashDirSize = maxObjectCount / ldrItemCapacity;
     if hashDirSize > hashDirMax then
       hashDirSize = hashDirMax;
+    end
+    if hashDirSize < hashDirMin then
+      hashDirSize = hashDirMin;
     end
 
     -- BIN LIST THRESHOLD CALCULATION

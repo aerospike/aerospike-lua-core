@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_11_25.A";
+local MOD="ldt_common_2014_12_03.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -72,7 +72,7 @@ local List = getmetatable( list() );
 -- =====================================================================
 -- GLOBAL FUNCTIONS (key, filter, transform, untransform)
 -- ldt_common.setKeyFunction( ldtMap, required, currentFunctionPtr )
--- ldt_common.setReadFunctions( ldtMap, userModule, filter, filterArgs )
+-- ldt_common.setReadFunctions( ldtMap, userModule, filter)
 -- ldt_common.setWriteFunctions( ldtMap )
 --
 -- SUB-RECORD CONTEXT FUNCTIONS
@@ -2097,6 +2097,16 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
     debug("[VALID]<%s:%s> PageSize(%d) Approved", MOD, meth, pageSize);
   end
 
+  -- Make sure that we allow for realistic counts -- don't accept unreasonable
+  -- minimums.
+  if aveObjectCount < 100 then
+    aveObjectCount = 100;
+  end
+
+  if maxObjectCount < 100 then
+    maxObjectCount = 100;
+  end
+
   -- At the end, write all of the values back.  Some things we may have
   -- recomputed, others we may have just set default values.
 
@@ -3242,6 +3252,7 @@ function ldt_common.createPersonObject( flavor, skew )
     local newObject = map();
     local flavorIndex = (flavor % 3) + 1;
     local skewIndex = ((flavor * 2 + skew) % 3) + 1;
+    newObject["key"] = flavor;
     newObject.FirstName = ldt_common.FirstNames[flavorIndex];
     newObject.LastName = ldt_common.LastNames[skewIndex];
     newObject.DOB = "03/27/1950";

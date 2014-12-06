@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_llist_2014_11_25.G"; -- the module name used for tracing
+local MOD="settings_llist_2014_12_05.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -29,6 +29,7 @@ local MOD="settings_llist_2014_11_25.G"; -- the module name used for tracing
 local GP;     -- Global Print Instrument
 local F=false; -- Set F (flag) to true to turn ON global print
 local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local D=false; -- Set D (DEBUG) to get more detailed debug output
 
 -- ======================================================================
 -- We now need a new ldt_common function in order to validate the

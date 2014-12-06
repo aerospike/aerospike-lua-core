@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_lstack_2014_11_17.A";
+local MOD="settings_lstack_2014_12_05.A";
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -27,8 +27,9 @@ local MOD="settings_lstack_2014_11_17.A";
 -- in the server).
 -- ======================================================================
 local GP;      -- Global Print Instrument.
-local F=false; -- Set F (flag) to true to turn ON global print
+local F=false; -- Set F (Flag) to true to turn ON global print
 local E=false; -- Set E (ENTER/EXIT) to true to turn ON Enter/Exit print
+local D=false; -- Set D (DETAIL) for greater detailed output
 
 -- ======================================================================
 -- We now need a new ldt_common function in order to validate the
@@ -516,158 +517,6 @@ local exports = {}
     GP=E and info("[ENTER]<%s:%s> LDT Map(%s) Config Settings(%s)", MOD, meth,
       tostring(ldtMap), tostring(configMap));
 
-    --[[
-    -- Get our working values out of the config map, and where there are
-    -- no values, use the assigned default values.
-    local aveObjectSize   =
-      (configMap.AveObjectSize ~= nil and configMap.AveObjectSize) or
-      DEFAULT_AVE_OBJ_SIZE;
-
-    local maxObjectSize  = 
-      (configMap.MaxObjectSize ~= nil and configMap.MaxObjectSize) or
-      DEFAULT_MAX_OBJ_SIZE;
-
-    local aveKeySize     =
-      (configMap.AveKeySize ~= nil and configMap.AveKeySize) or
-      DEFAULT_AVE_KEY_SIZE;
-
-    local maxKeySize     =
-      (configMap.MaxKeySize ~= nil and configMap.MaxKeySize) or
-      DEFAULT_MAX_KEY_SIZE;
-
-    local aveObjectCount =
-      (configMap.AveObjectCount ~= nil and configMap.AveObjectCount) or
-      DEFAULT_AVE_OBJ_CNT;
-
-    local maxObjectCount =
-      (configMap.MaxObjectCount ~= nil and configMap.MaxObjectCount) or
-      DEFAULT_MAX_OBJ_CNT;
-
-    local pageSize       =
-      (configMap.TargetPageSize ~= nil and configMap.TargetPageSize) or
-      DEFAULT_TARGET_PAGESIZE;
-
-    local writeBlockSize       =
-      (configMap.WriteBlockSize ~= nil and configMap.WriteBlockSize) or
-      DEFAULT_WRITE_BLOCK_SIZE;
-
-    local focus          =
-      (not configMap.Focus and configMap.Focus) or DEFAULT_FOCUS;
-
-    local testMode       =
-      (not configMap.TestMode and configMap.TestMode) or DEFAULT_TEST_MODE;
-
-    GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
-    GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-      tostring(aveObjectSize), tostring(maxObjectSize));
-    GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-      tostring(aveKeySize), tostring(maxKeySize));
-    GP=E and info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-      tostring(aveObjectCount), tostring(maxObjectCount));
-    GP=E and info("[DEBUG]<%s:%s>WriteBlockSize(%s)", MOD, meth,
-      tostring(writeBlockSize));
-    GP=E and info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-      tostring(pageSize), tostring(focus), tostring(testMode));
-
-    if  not ldtMap or
-        not aveObjectSize or
-        not maxObjectSize or
-        not aveObjectCount or
-        not maxObjectCount or
-        not aveKeySize or
-        not maxKeySize or
-        not writeBlockSize or
-        not pageSize or
-        not focus
-    then
-      warn("[ERROR]<%s:%s> One or more of the config setting values are NIL",
-        MOD, meth);
-      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-        tostring(aveObjectSize), tostring(maxObjectSize));
-      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-        tostring(aveKeySize), tostring(maxKeySize));
-      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-        tostring(aveObjectCount), tostring(maxObjectCount));
-      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-        tostring(pageSize), tostring(focus), tostring(testMode));
-      return -1;
-    end
-
-    if  type( aveObjectSize ) ~= "number" or
-        type( maxObjectSize ) ~= "number" or
-        type( aveKeySize ) ~= "number" or
-        type( maxKeySize ) ~= "number" or
-        type( aveObjectCount ) ~= "number" or
-        type( maxObjectCount ) ~= "number" or
-        type( writeBlockSize ) ~= "number" or
-        type( pageSize ) ~= "number" or
-        type( focus ) ~= "number" or
-        type(testMode) ~= "number"
-    then
-      warn("[ERROR]<%s:%s> All parameters must be numbers.", MOD, meth);
-      info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-        type(aveObjectSize), type(maxObjectSize));
-      info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-        type(aveKeySize), type(maxKeySize));
-      info("[DEBUG]<%s:%s>AveObjCnt(%s) MaxObjCnt(%s)", MOD, meth,
-        type(aveObjectCount), type(maxObjectCount));
-      info("[DEBUG]<%s:%s>WriteBlockSize(%s)", MOD, meth,
-        type(writeBlockSize));
-      info("[DEBUG]<%s:%s> PS(%s) F(%s) T(%s)", MOD, meth, 
-        type(pageSize), type(focus), type(testMode));
-      return -1;
-    end
-
-    -- Let's do some number validation before we actually apply the values
-    -- given to us.  The values have to be within a reasonable range,
-    -- and the average sizes cannot be larger than the max values.
-    if  aveObjectSize <= 0 or maxObjectSize <= 0 or
-        aveKeySize <= 0 or maxKeySize <= 0 or
-        aveObjectCount <= 0 or maxObjectCount <= 0 or
-        writeBlockSize <= 0 or
-        pageSize <= 0 or
-        focus < 0 
-    then
-      warn("[ERROR]<%s:%s> Settings must be greater than zero", MOD, meth);
-      info("[INFO] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
-        aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
-      info("[INFO] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d)",
-        aveObjectCount, maxObjectCount, writeBlockSize);
-      info("[INFO] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
-      return -1;
-    end
-
-    info("[DUMP] AveObjSz(%d) MaxObjSz(%d) AveKeySz(%d) MaxKeySz(%d)",
-      aveObjectSize, maxObjectSize, aveKeySize, maxKeySize);
-    info("[DUMP] AveObjCnt(%d) MaxObjCnt(%d) WriteBlkSz(%d)",
-      aveObjectCount, maxObjectCount, writeBlockSize);
-    info("[DUMP] PS(%s) F(%s) T(%s)", pageSize, focus, testMode);
-    
-    -- Do some specific value validation.
-    -- First, Page Size must be in a valid range.
-    -- We 
-    local pageMinimum = 4000;
-    local pageTarget = 16000;
-    local pageMaximum =  writeBlockSize;  -- 128k to 1mb ceiling
-    if pageSize < pageMinimum then
-      warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
-        MOD, meth, pageSize, pageMinimum);
-      pageSize = pageTarget;
-      warn("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
-        MOD, meth, pageTarget);
-    elseif pageSize > pageMaximum then
-      warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
-        MOD, meth, pageSize, pageMaximum);
-      pageSize = pageMaximum;
-      warn("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
-        MOD, meth, pageMaximum);
-    else
-      debug("[VALID]<%s:%s> PageSize(%d) is in range", MOD, meth, pageSize);
-    end
-
-
-
-    --]]
     -- Perform some validation of the user's Config Parameters
     local rc = ldt_common.validateConfigParms(ldtMap, configMap);
     if rc ~= 0 then
@@ -690,11 +539,17 @@ local exports = {}
     local focus           = configMap.Focus;
     local testMode        = configMap.TestMode;
 
-    GP=E and info("[ENTER]<%s:%s> LDT(%s)", MOD, meth, tostring(ldtMap));
-    GP=E and info("[DEBUG]<%s:%s>AveObjSz(%s) MaxObjSz(%s)", MOD, meth,
-      tostring(aveObjectSize), tostring(maxObjectSize));
-    GP=E and info("[DEBUG]<%s:%s>AveKeySz(%s) MaxKeySz(%s)", MOD, meth,
-      tostring(aveKeySize), tostring(maxKeySize));
+
+    GP=F and info("[INPUT]<%s:%s> AveObjSize(%d) MaxObjSize(%d)", MOD, meth,
+      aveObjectSize, maxObjectSize);
+    GP=F and info("[INPUT]<%s:%s> AveKeySize(%d) MaxKeySize(%d)", MOD, meth,
+      aveKeySize, maxKeySize);
+    GP=F and info("[INPUT]<%s:%s> AveObjCnt(%d) MaxObjCnt(%d)", MOD, meth,
+      aveObjectCount, maxObjectCount);
+    GP=F and info("[INPUT]<%s:%s> PageSize(%d) WriteBlkSize(%d)", MOD, meth,
+      pageSize, writeBlockSize);
+    GP=F and info("[INPUT]<%s:%s> RecOH(%d) focus(%d) TestMd(%d)", MOD, meth,
+      recordOverHead, focus, testMode);
 
     -- These are the values that we have to set.
     local hotListMax;     -- # of elements stored in the hot list
@@ -705,7 +560,12 @@ local exports = {}
     local coldListMax;    -- # of digest entries to keep in a Cold Dir
     local coldDirMax;     -- # of Cold Dir sub-recs to keep.
 
+    local ldtOverHead = 500; -- Overhead in Bytes.  Used in Hot List Calc.
+    recordOverHead = recordOverHead + ldtOverHead;
 
+    -- Set up our ceilings:
+    -- First, set up our Hot List ceiling.
+    --
     -- Figure out the settings for our Hot List.
     -- By default, if they can fit, we'd like to have as many as 100
     -- elements in our Hot List.  However, for Large Objects, we'll 
@@ -718,26 +578,26 @@ local exports = {}
     -- We'd like the Hot List to fit in under the ceiling amount,
     -- or be 1/2 of the target page size, whichever is less.
     local halfPage = math.floor(pageSize / 2);
-    local hotListByteCeiling = 20000;
-    local hotListTargetSize =
+    local hotListByteCeiling = 50000;
+    local hotListTargetBytes =
       (halfPage < hotListByteCeiling) and (halfPage) or hotListByteCeiling;
 
     info("[DEBUG]<%s:%s> HalfPage(%d) HotListCeiling(%d) HotListTarget(%d)",
-      MOD, meth, halfPage, hotListCountCeiling, hotListTargetSize);
+      MOD, meth, halfPage, hotListCountCeiling, hotListTargetBytes);
 
     -- If not even a pair of (Max Size) objects can fit in the Hot List,
     -- then we need to skip the Hot List altogether and have
     -- items be written directly to the Warm List (the LDR pages).
-    if ((maxObjectSize * 2) > hotListTargetSize) then
+    if ((maxObjectSize * 2) > hotListTargetBytes) then
       -- Don't bother with a Hot List.  Objects are too big.
       hotListMax = 0;
       hotListTransfer = 0;
-      warn("[WARNING]<%s:%s> Max ObjectSize(%d) is too large for HotList",
+      info("[WARN]<%s:%s> Max ObjectSize(%d) is too large for HotList",
         MOD, meth, maxObjectSize);
-      warn("[WARNING]<%s:%s> Use Smaller Object for better performance",
+      info("[INFO]<%s:%s> This LDT Instance will not have a Hot List",
         MOD, meth);
     else
-      hotListMax = hotListTargetSize / maxObjectSize;
+      hotListMax = hotListTargetBytes / maxObjectSize;
       if hotListMax > hotListCountCeiling then
         hotListMax = hotListCountCeiling;
       end
