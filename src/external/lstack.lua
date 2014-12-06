@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_lstack_2014_08_06.A";
+local MOD="ext_lstack_2014_08_06.C";
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -27,12 +27,12 @@ local MOD="ext_lstack_2014_08_06.A";
 -- ======================================================================
 -- The following external functions are defined in the LSTACK module:
 --
--- (*) Status = push( topRec, ldtBinName, newValue, userModule )
--- (*) Status = push_all( topRec, ldtBinName, valueList, userModule )
+-- (*) Status = push( topRec, ldtBinName, newValue, createSpec )
+-- (*) Status = push_all( topRec, ldtBinName, valueList, createSpec )
 -- (*) List   = peek( topRec, ldtBinName, peekCount ) 
 -- (*) List   = pop( topRec, ldtBinName, popCount ) 
 -- (*) List   = scan( topRec, ldtBinName )
--- (*) List   = filter( topRec, ldtBinName, peekCount,userModule,filter,fargs)
+-- (*) List   = filter( topRec, ldtBinName, peekCount,filterModule,filter,fargs)
 -- (*) Status = destroy( topRec, ldtBinName )
 -- (*) Number = size( topRec, ldtBinName )
 -- (*) Map    = get_config( topRec, ldtBinName )
@@ -43,6 +43,9 @@ local MOD="ext_lstack_2014_08_06.A";
 -- ======================================================================
 -- Reference the LSTACK LDT Library Module
 local lstack = require('ldt/lib_lstack');
+
+-- Reference the LDT COMMON Library Module
+local ldt_common = require('ldt/ldt_common');
 
 -- ======================================================================
 -- || create        || (deprecated)
@@ -133,19 +136,19 @@ function peek( topRec, ldtBinName, peekCount )
   return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil, nil );
 end -- peek()
 
-function filter( topRec, ldtBinName, peekCount, userModule, filter, fargs )
-    info("[FILTER] Bin(%s) Count(%s) userModule(%s) filter(%s) fargs(%s)",
-    tostring(ldtBinName), tostring(peekCount), tostring(userModule),
+function filter( topRec, ldtBinName, peekCount, filterModule, filter, fargs )
+    info("[FILTER] Bin(%s) Count(%s) filterModule(%s) filter(%s) fargs(%s)",
+    tostring(ldtBinName), tostring(peekCount), tostring(filterModule),
     tostring(filter), tostring(fargs));
-  return lstack.peek(topRec,ldtBinName,peekCount,userModule,filter,fargs, nil );
+  return lstack.peek(topRec,ldtBinName,peekCount,filterModule,filter,fargs, nil );
 end -- peek_then_filter()
 
--- OLD EXTERNAL FUNCTIONS (didn't have userModule in the first version)
+-- OLD EXTERNAL FUNCTIONS (didn't have filterModule in the first version)
 function lstack_peek( topRec, ldtBinName, peekCount )
   return lstack.peek( topRec, ldtBinName, peekCount, nil, nil, nil, nil );
 end -- lstack_peek()
 
--- OLD EXTERNAL FUNCTIONS (didn't have userModule in the first version)
+-- OLD EXTERNAL FUNCTIONS (didn't have filterModule in the first version)
 function lstack_peek_then_filter( topRec, ldtBinName, peekCount, filter, fargs )
   return lstack.peek( topRec, ldtBinName, peekCount, nil, filter, fargs, nil );
 end -- lstack_peek_then_filter()
@@ -164,8 +167,8 @@ end -- scan()
 -- =======================================================================
 -- pop() -- Return and remove values from the top of stack
 -- =======================================================================
-function pop( topRec, ldtBinName, peekCount, userModule, filter, fargs )
-  return lstack.pop(topRec,ldtBinName,peekCount,userModule,filter,fargs, nil );
+function pop( topRec, ldtBinName, peekCount, filterModule, filter, fargs )
+  return lstack.pop(topRec,ldtBinName,peekCount,filterModule,filter,fargs, nil );
 end -- peek_then_filter()
 
 -- ========================================================================
@@ -421,7 +424,9 @@ bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
     rand = true;
     incr = 1;
   end
-  for i = 1, count*incr, incr do
+  local endValue = count * incr;
+
+  for i = 1, endValue, incr do
     if rand then
       value = math.random(1, 10000);
     else

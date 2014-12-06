@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_lset_2014_09_03.A";
+local MOD="ext_lset_2014_12_03.A";
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -27,12 +27,12 @@ local MOD="ext_lset_2014_09_03.A";
 -- ======================================================================
 -- The following external functions are defined in the LSET module:
 --
--- (*) Status = add( topRec, ldtBinName, newValue, userModule )
--- (*) Status = add_all( topRec, ldtBinName, valueList, userModule )
+-- (*) Status = add( topRec, ldtBinName, newValue, createSpec )
+-- (*) Status = add_all( topRec, ldtBinName, valueList, createSpec )
 -- (*) Object = get( topRec, ldtBinName, searchValue ) 
 -- (*) Number = exists( topRec, ldtBinName, searchValue ) 
 -- (*) List   = scan( topRec, ldtBinName )
--- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
+-- (*) List   = filter( topRec, ldtBinName, filterModule, filter, fargs )
 -- (*) Status = remove( topRec, ldtBinName, searchValue ) 
 -- (*) Object = take( topRec, ldtBinName, searchValue ) 
 -- (*) Status = destroy( topRec, ldtBinName )
@@ -69,15 +69,15 @@ local ldt_common = require('ldt/ldt_common');
 -- Parms:
 -- (*) topRec: The Aerospike Server record on which we operate
 -- (*) ldtBinName: The name of the bin for the AS Large Set
--- (*) userModule: A map of create specifications:  Most likely including
+-- (*) createSpec: A map of create specifications:  Most likely including
 --               :: a package name with a set of config parameters.
 -- ======================================================================
-function create( topRec, ldtBinName, userModule )
-  return lset.create( topRec, ldtBinName, userModule );
+function create( topRec, ldtBinName, createSpec )
+  return lset.create( topRec, ldtBinName, createSpec, nil);
 end
 
-function lset_create( topRec, ldtBinName, userModule )
-  return lset.create( topRec, ldtBinName, userModule );
+function lset_create( topRec, ldtBinName, createSpec )
+  return lset.create( topRec, ldtBinName, createSpec, nil);
 end
 
 -- ======================================================================
@@ -85,16 +85,16 @@ end
 -- lset_insert()  :: Deprecated
 -- lset_create_and_insert()  :: Deprecated
 -- ======================================================================
-function add( topRec, ldtBinName, newValue, userModule )
-  return lset.add( topRec, ldtBinName, newValue, userModule, nil );
+function add( topRec, ldtBinName, newValue, createSpec )
+  return lset.add( topRec, ldtBinName, newValue, createSpec, nil );
 end -- add()
 
 function lset_insert( topRec, ldtBinName, newValue )
   return lset.add( topRec, ldtBinName, newValue, nil, nil );
 end -- lset_insert()
 
-function lset_create_and_insert( topRec, ldtBinName, newValue, userModule )
-  return lset.add( topRec, ldtBinName, newValue, userModule, nil );
+function lset_create_and_insert( topRec, ldtBinName, newValue, createSpec )
+  return lset.add( topRec, ldtBinName, newValue, createSpec, nil );
 end -- lset_create_and_insert()
 
 -- ======================================================================
@@ -110,7 +110,7 @@ function lset_insert_all( topRec, ldtBinName, valueList )
 end
 
 function lset_create_and_insert_all( topRec, ldtBinName, valueList )
-  return lset.add_all( topRec, ldtBinName, valueList, userModule, nil );
+  return lset.add_all( topRec, ldtBinName, valueList, createSpec, nil );
 end
 
 -- ======================================================================
@@ -123,8 +123,8 @@ function get( topRec, ldtBinName, searchValue )
   return lset.get( topRec, ldtBinName, searchValue, nil, nil, nil, nil);
 end -- get()
 
-function get_then_filter(topRec,ldtBinName,searchValue,userModule,filter,fargs)
-  return lset.get(topRec,ldtBinName,searchValue,userModule,filter,fargs, nil);
+function get_then_filter(topRec,ldtBinName,searchValue,filterModule,filter,fargs)
+  return lset.get(topRec,ldtBinName,searchValue,filterModule,filter,fargs, nil);
 end -- get_with_filter()
 
 function lset_search( topRec, ldtBinName, searchValue )
@@ -174,8 +174,8 @@ end -- lset_search()
 -- filter() -- Return a list containing all of LSET that passed <filter>
 -- lset_scan_then_filter() :: Deprecated
 -- ======================================================================
-function filter(topRec, ldtBinName, userModule, filter, fargs)
-  return lset.scan(topRec, ldtBinName, userModule, filter, fargs,nil);
+function filter(topRec, ldtBinName, filterModule, filter, fargs)
+  return lset.scan(topRec, ldtBinName, filterModule, filter, fargs,nil);
 end -- filter()
 
 -- This was defined to use only predefined filter UDFs. Now Deprecated.
@@ -205,9 +205,9 @@ end -- lset_delete()
 -- remove_with_filter()
 -- lset_delete_then_filter()
 -- ======================================================================
-function remove_with_filter( topRec, ldtBinName, searchValue, userModule,
+function remove_with_filter( topRec, ldtBinName, searchValue, filterModule,
   filter, fargs )
-  return lset.remove(topRec,ldtBinName,searchValue,userModule,
+  return lset.remove(topRec,ldtBinName,searchValue,filterModule,
     filter,fargs,false,nil);
 end -- delete_then_filter()
 

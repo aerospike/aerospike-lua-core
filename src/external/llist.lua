@@ -25,14 +25,14 @@ local MOD="ext_llist_2014_11_20.A";
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LLIST module:
 --
--- (*) Status = add( topRec, ldtBinName, newValue, userModule )
--- (*) Status = add_all( topRec, ldtBinName, valueList, userModule )
--- (*) Status = update( topRec, ldtBinName, newValue, userModule )
--- (*) Status = update_all( topRec, ldtBinName, valueList, userModule )
+-- (*) Status = add( topRec, ldtBinName, newValue, createSpec )
+-- (*) Status = add_all( topRec, ldtBinName, valueList, createSpec )
+-- (*) Status = update( topRec, ldtBinName, newValue, createSpec )
+-- (*) Status = update_all( topRec, ldtBinName, valueList, createSpec )
 -- (*) List   = find( topRec, bin, value, module, filter, fargs )
 -- (*) List   = scan( topRec, ldtBinName )
--- (*) List   = filter( topRec, ldtBinName, userModule, filter, fargs )
--- (*) List   = range(topRec,ldtBinName,minKey,maxKey,userModule,filter,fargs)
+-- (*) List   = filter( topRec, ldtBinName, key, filterModule, filter, fargs )
+-- (*) List   = range(topRec,ldtBinName,minKey,maxKey,filterModule,filter,fargs)
 -- (*) Status = remove( topRec, ldtBinName, searchValue ) 
 -- (*) Status = remove_all( topRec, ldtBinName, valueList ) 
 -- (*) Status = remove_range(topRec,ldtBinName,minKey,maxKey)
@@ -149,12 +149,12 @@ end
 -- (*) ldtBinName: The user's chosen name for the LDT bin
 -- (*) minKey: The key value for the beginning of the range search
 -- (*) maxKey: The key value for the END       of the range search
--- (*) userModule: The User's UDF that contains filter functions
+-- (*) filterModule: The User's UDF that contains filter functions
 -- (*) filter: User Defined Function (UDF) that returns passing values
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
-function range( topRec, ldtBinName, minKey, maxKey, userModule, filter, fargs )
-  return llist.range( topRec, ldtBinName, minKey, maxKey, userModule,
+function range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, minKey, maxKey, filterModule,
                       filter, fargs, nil);
 end
 
@@ -172,22 +172,23 @@ function scan( topRec, ldtBinName )
 end
 
 -- =======================================================================
--- filter(): Pass all elements thru the filter and return all that qualify.
+-- filter(): Pass all matching elements thru the filter and return all
+-- that qualify.
 -- =======================================================================
--- Use the library find() call with no key, but WITH filters.
+-- Use the library find() call.  Note that passing in a nil key to do a
+-- full scan.
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) key: The key of the objects to be searched (key==nil means ALL)
--- (*) userModule: The User's UDF that contains filter functions
+-- (*) key: Search key for a value, or nil to match all values.
+-- (*) filterModule: The User's UDF that contains filter functions
 -- (*) filter: User Defined Function (UDF) that returns passing values
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
-function filter( topRec, ldtBinName, key, userModule, filter, fargs )
-  return llist.find( topRec, ldtBinName, key, userModule, filter, fargs, nil);
+function filter( topRec, ldtBinName, key, filterModule, filter, fargs )
+  return llist.find( topRec, ldtBinName, key, filterModule, filter, fargs, nil);
 end
-
 
 -- ======================================================================
 -- remove(): Remove all items corresponding to the specified key.

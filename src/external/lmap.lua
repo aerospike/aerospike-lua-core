@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the updates to this module
-local MOD="ext_lmap_2014_08_06.A";
+local MOD="ext_lmap_2014_12_03.A";
 
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
@@ -27,13 +27,13 @@ local MOD="ext_lmap_2014_08_06.A";
 -- ======================================================================
 -- The following external functions are defined in the LMAP module:
 --
--- Status = put( topRec, ldtBinName, newName, newValue, userModule) 
--- Status = put_all( topRec, ldtBinName, nameValueMap, userModule)
+-- Status = put( topRec, ldtBinName, newName, newValue, createSpec) 
+-- Status = put_all( topRec, ldtBinName, nameValueMap, createSpec)
 -- List   = get( topRec, ldtBinName, searchName )
 -- List   = exists( topRec, ldtBinName, searchName )
 -- Map    = scan( topRec, ldtBinName )
 -- List   = name_list( topRec, ldtBinName )
--- List   = filter( topRec, ldtBinName, userModule, filter, fargs )
+-- List   = filter( topRec, ldtBinName, filterModule, filter, fargs )
 -- Object = remove( topRec, ldtBinName, searchName )
 -- Status = destroy( topRec, ldtBinName )
 -- Number = size( topRec, ldtBinName )
@@ -64,7 +64,7 @@ local ldt_common = require('ldt/ldt_common');
 -- Parameters: 
 -- (1) topRec: the user-level record holding the LMAP Bin
 -- (2) ldtBinName: The name of the LMAP Bin
--- (3) createSpec: The userModule containing the "adjust_settings()" function
+-- (3) createSpec: The createSpec containing the "adjust_settings()" function
 -- Result:
 --   rc = 0: ok
 --   rc < 0: Aerospike Errors
@@ -117,8 +117,8 @@ end -- scan()
 -- filter() -- Return a map containing all Name/Value pairs that passed
 --             thru the supplied filter( fargs ).
 -- ========================================================================
-function filter( topRec, ldtBinName, userModule, filter, fargs )
-  return lmap.scan(topRec, ldtBinName, userModule, filter, fargs, nil);
+function filter( topRec, ldtBinName, filterModule, filter, fargs )
+  return lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, nil);
 end -- filter()
 
 -- ========================================================================
