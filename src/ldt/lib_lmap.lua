@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="lib_lmap_2014_12_05.B"; 
+local MOD="lib_lmap_2014_12_10.B"; 
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -1388,7 +1388,7 @@ end -- scanLMapList()
 -- in this bin.
 -- ALSO:: Caller write out the LDT bin after this function returns.
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, createSpec ) 
+local function setupLdtBin( topRec, ldtBinName, firstName, firstValue, createSpec)
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -1415,6 +1415,13 @@ local function setupLdtBin( topRec, ldtBinName, createSpec )
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
+  else 
+    createSpec = map();
+    createSpec["Compute"] = 'compute_settings';
+    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
+    createSpec["MaxKeySize"] = ldt_common.getValSize(firstName);
+    -- default max object count is  
+    ldt_common.adjustLdtMap( ldtCtrl, createSpec, lmapPackage);
   end
 
   -- Set up our Bin according to the initial State: Compact List or Hash Dir.
@@ -2872,7 +2879,7 @@ function lmap.create( topRec, ldtBinName, createSpec )
   -- NOTE: Do NOT call validateRecBinAndMap().  Not needed here.
 
   -- Set up a new LDT Bin
-  local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
+  local ldtCtrl = setupLdtBin( topRec, ldtBinName, nil, nil, createSpec );
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
@@ -2938,7 +2945,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
          MOD, meth );
 
     -- set up a new LDT bin
-    setupLdtBin( topRec, ldtBinName, createSpec );
+    setupLdtBin( topRec, ldtBinName, newName, newValue, createSpec );
   end
 
   local ldtCtrl = topRec[ldtBinName]; -- The main lmap
@@ -3056,8 +3063,11 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
     GP=F and trace("[INFO] <%s:%s> LMAP CONTROL BIN does not Exist:Creating",
          MOD, meth );
 
-    -- set up a new LDT bin
-    setupLdtBin( topRec, ldtBinName, createSpec );
+    for name, value in map.pairs( nameValMap ) do
+      -- set up a new LDT bin
+      setupLdtBin( topRec, ldtBinName, name, value, createSpec );
+      break;
+    end
   end
 
   local ldtCtrl = topRec[ldtBinName]; -- The main lmap

@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_12_03.A";
+local MOD="ldt_common_2014_12_10.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -56,6 +56,7 @@ local DO_EARLY_SUBREC_UPDATES = true;
 -- objects.
 local Map = getmetatable( map() );
 local List = getmetatable( list() );
+local Bytes = getmetatable( bytes() );
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -3268,6 +3269,27 @@ function ldt_common.createPersonObject( flavor, skew )
     GP=F and trace("[EXIT]<%s:%s> Result Object(%s)", MOD, meth,
       tostring(newObject));
   return newObject;
+end
+
+function ldt_common.getValSize(value)
+  if value ~= nil then
+    local valType = type(value);
+    if (valType == "number") then
+      return 8;
+    elseif (valType == "string") then
+      return string.len(value);
+    elseif (getmetatable(value) == Map) then
+      return map.nbytes(value);
+    elseif (getmetatable(value) == List) then
+      return list.nbytes(value);
+    elseif (getmetatable(value) == Bytes) then
+      return bytes.size(value);
+    else
+    else
+      return 0;
+    end
+  end
+  return 0;
 end
 
 -- ========================================================================
