@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_12_05.B";
+local MOD="lib_llist_2014_12_09.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -7065,6 +7065,10 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) minKey(%s) maxKey(%s)",
   MOD, meth, tostring(ldtBinName), tostring(minKey), tostring(maxKey));
   
+  if (minKey > maxKey) then 
+    error(ldte.ERR_INPUT_PARM);
+  end 
+
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
@@ -7091,7 +7095,8 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
   else
     debug("[ERROR]<%s:%s> Invalid Delete Value List(%s)",
       MOD, meth, tostring(valueList));
-    error(ldte.ERR_INPUT_PARM);
+    -- if range does not exist,  return list with size 0 
+    -- error(ldte.ERR_INPUT_PARM);
   end
   
   return deleteCount;
