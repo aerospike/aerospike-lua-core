@@ -760,7 +760,7 @@ local exports = {}
 -- since we have verified that the values all fit together.
 -- ========================================================================
   function exports.use_package( ldtMap, package_name )
-    info("[MODULE] APPLY PACKAGE(%s)", package_name );
+    GP=ED and info("[MODULE] APPLY PACKAGE(%s)", package_name );
     applyPackage( ldtMap, package_name );
   end
 
