@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="lib_llist_2014_12_09.B";
+local MOD="lib_llist_2014_12_10.B";
 
 -- This variable holds the version of the code. It should match the
 -- stored version (the version of the code that stored the ldtCtrl object).
@@ -5674,6 +5674,17 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
   local propMap = ldtCtrl[1]; 
   local ldtMap = ldtCtrl[2]; 
   
+  -- Based on the first value, set the key type
+  -- Spec setup uses this information
+  if firstValue then
+    local valType = type(firstValue);
+
+    if valType=="number" or valType=="string" or valType=="bytes" then
+      ldtMap[LC.KeyType] = KT_ATOMIC;
+    else
+      ldtMap[LC.KeyType] = KT_COMPLEX;
+    end
+  end
   -- Remember that record.set_type() for the TopRec
   -- is handled in initializeLdtCtrl()
   
@@ -5689,6 +5700,15 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
+  else
+    local key  = getKeyValue(ldtMap, firstValue);
+    createSpec = map();
+    createSpec["Compute"] = 'compute_settings';
+    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
+    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
+
+    -- default max object count is  
+    ldt_common.adjustLdtMap( ldtCtrl, createSpec, llistPackage);
   end
 
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
@@ -5709,17 +5729,6 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
   -- Item 1 :  the property map & Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
   record.set_flags( topRec, ldtBinName, BF.LDT_BIN );
-
-  -- Based on the first value, set the key type
-  if firstValue then
-    local valType = type(firstValue);
-
-    if valType=="number" or valType=="string" or valType=="bytes" then
-      ldtMap[LC.KeyType] = KT_ATOMIC;
-    else
-      ldtMap[LC.KeyType] = KT_COMPLEX;
-    end
-  end
 
   -- NOTE: The Caller will write out the LDT bin.
   return 0;
