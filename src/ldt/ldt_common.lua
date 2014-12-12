@@ -2782,7 +2782,7 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
         -- case, and the argListMap is actually the configMap;
         -- Note that this looks almost like the case above, except that
         -- here we are passing in the input configMap (the argListMap).
-        info("[COMPUTE CONFIG]<%s:%s> Compute Config: Map(%s)",
+        GP=DEBUG and trace("[COMPUTE CONFIG]<%s:%s> Compute Config: Map(%s)",
           MOD, meth, tostring(argListMap));
         ldtPackage = ldtSpecificPackage[value];
         if( ldtPackage ~= nil ) then
@@ -3284,7 +3284,6 @@ function ldt_common.getValSize(value)
       return list.nbytes(value);
     elseif (getmetatable(value) == Bytes) then
       return bytes.size(value);
-    else
     else
       return 0;
     end
