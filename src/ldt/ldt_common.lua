@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_12_03.A";
+local MOD="ldt_common_2014_12_11.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -2132,7 +2132,7 @@ end -- ldt_common.validateConfigParms()
 
 -- ======================================================================
 -- Summarize the List (usually ResultList) so that we don't create
--- huge amounts of crap in the console.
+-- huge amounts of excess information in the console or log.
 -- Show Size, First Element, Last Element
 -- ======================================================================
 function ldt_common.summarizeList( myList )
@@ -2186,7 +2186,7 @@ end -- ldt_common.dumpList()
 
 -- ======================================================================
 -- Summarize the MAP (usually ResultMap) so that we don't create
--- huge amounts of crap in the console.
+-- huge amounts of excess information in the console or the log.
 -- Show Size and two Name/Values.  Unlike Summarize List, we really can't
 -- make much sense of "first and last" items.
 -- ======================================================================
@@ -3024,6 +3024,78 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
   GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
   return 0;
 end -- ldt_common.destroy()
+
+
+-- ========================================================================
+-- ldt_common.reset(): Restore this LDT to its pristine state.
+-- ========================================================================
+-- Release all of the Sub-Rec storage associated with this LDT and reset
+-- the count to zero.  The caller will have to take care of the LDT specific
+-- structures (e.g. compact list, hot list).
+--
+-- The caller (the parent) has already validated the bin, type and codeVer,
+-- so that is not checked here.
+--
+-- Parms:
+-- (1) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (2) topRec: the user-level record holding the LDT Bin
+-- (3) ldtCtrl: The LDT Control structure.
+-- Result:
+--   res = 0: all is well
+--   res = -1: Some sort of error
+-- ========================================================================
+function ldt_common.reset( src, topRec, ldtCtrl)
+  local meth = "ldt_common.reset()";
+  GP=E and trace("[ENTER]<%s:%s> LDT Ctrl(%s)", MOD, meth, tostring(ldtCtrl));
+  local rc = 0; -- start off optimistic
+
+  -- Extract the property map and LDT control map from the LDT bin list.
+  -- local ldtCtrl = topRec[ ldtBinName ];
+  local propMap = ldtCtrl[1];
+  local ldtBinName = propMap[PM.BinName];
+
+  -- Get the ESR and delete it -- if it exists.  If we have not yet created
+  -- any sub-records, then the ESR will be ZERO.
+  local esrDigest = propMap[PM.EsrDigest];
+  if( esrDigest ~= nil and esrDigest ~= 0 ) then
+    local esrDigestString = tostring(esrDigest);
+    GP=F and trace("[SUBREC OPEN]<%s:%s> Digest(%s)",
+      MOD, meth, esrDigestString );
+    local esrRec = ldt_common.openSubRec(src, topRec, esrDigestString );
+    if( esrRec ~= nil ) then
+      rc = ldt_common.removeSubRec( src, topRec, propMap, esrDigestString );
+      if( rc == nil or rc == 0 ) then
+        GP=F and trace("[STATUS]<%s:%s> Successful CREC REMOVE", MOD, meth );
+      else
+        warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s) ESR Digest(%s)",
+          MOD, meth, rc, ldtBinName, esrDigestString);
+        error( ldte.ERR_SUBREC_DELETE );
+      end
+    else
+      warn("[ESR DELETE ERROR]<%s:%s> ERROR on ESR(%s) Open", MOD, meth,
+        esrDigestString);
+    end
+  else
+    GP=F and trace("[INFO]<%s:%s> LDT ESR is not yet set", MOD, meth);
+  end
+
+  -- Reset out counts.
+  propMap[PM.ItemCount] = 0;
+  propMap[PM.SubRecCount] = 0;
+
+  -- The Caller has more changes to make, so the caller will update the
+  -- Top Record.
+  -- Update the Top Record.
+  GP=D and trace("[DEBUG]<%s:%s> Updating TopRec", MOD, meth);
+  rc = aerospike:update( topRec );
+  if rc ~= nil and rc ~= 0 then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
+
+  GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
+  return 0;
+end -- ldt_common.reset()
 
 -- ========================================================================
 -- ldt_common.size() -- return the number of elements (item count) in the set.
