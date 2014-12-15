@@ -121,7 +121,7 @@ end -- package.StandardList()
 -- Package = "ListJumboObject"
 -- ======================================================================
 function package.ListJumboObject( ldtMap )
-  info("[ENTER] Package.ListJumboObject: Map(%s)", tostring(ldtMap));
+  GP=E and info("[ENTER] Package.ListJumboObject: Map(%s)", tostring(ldtMap));
   -- General LSTACK Parms:
   ldtMap[LC.StoreMode]        = SM_LIST;
   -- LSTACK Data Record (LDR) Chunk Settings: Passed into "Chunk Create"
@@ -136,7 +136,7 @@ function package.ListJumboObject( ldtMap )
   -- Cold Directory List Settings: List of Directory Pages
   ldtMap[LS.ColdListMax]      = 100; -- # of list entries in a Cold dir node
   ldtMap[LS.ColdDirRecMax]    = 100; -- Max# of Cold DIRECTORY Records
-  info("[EXIT] Package.ListJumboObject: Map(%s)", tostring(ldtMap));
+  GP=E and info("[EXIT] Package.ListJumboObject: Map(%s)", tostring(ldtMap));
 end -- package.ListJumboObject()
 
 
@@ -414,7 +414,7 @@ end -- applyPackage
 local exports = {}
 
   function exports.use_package( ldtMap, package_name )
-    info("[MODULE] INVOKE PACKAGE(%s)", package_name );
+    GP=E and info("[MODULE] INVOKE PACKAGE(%s)", package_name );
     applyPackage( ldtMap, package_name );
   end
 
@@ -582,7 +582,7 @@ local exports = {}
     local hotListTargetBytes =
       (halfPage < hotListByteCeiling) and (halfPage) or hotListByteCeiling;
 
-    info("[DEBUG]<%s:%s> HalfPage(%d) HotListCeiling(%d) HotListTarget(%d)",
+    GP=DEBUG and info("[DEBUG]<%s:%s> HalfPage(%d) HotListCeiling(%d) HotListTarget(%d)",
       MOD, meth, halfPage, hotListCountCeiling, hotListTargetBytes);
 
     -- If not even a pair of (Max Size) objects can fit in the Hot List,
@@ -592,9 +592,9 @@ local exports = {}
       -- Don't bother with a Hot List.  Objects are too big.
       hotListMax = 0;
       hotListTransfer = 0;
-      info("[WARN]<%s:%s> Max ObjectSize(%d) is too large for HotList",
+      GP=DEBUG and info("[WARN]<%s:%s> Max ObjectSize(%d) is too large for HotList",
         MOD, meth, maxObjectSize);
-      info("[INFO]<%s:%s> This LDT Instance will not have a Hot List",
+      GP=DEBUG and info("[INFO]<%s:%s> This LDT Instance will not have a Hot List",
         MOD, meth);
     else
       hotListMax = hotListTargetBytes / maxObjectSize;

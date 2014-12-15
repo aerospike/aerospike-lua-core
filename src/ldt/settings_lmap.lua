@@ -453,7 +453,7 @@ local exports = {}
 -- since we have verified that the values all fit together.
 -- ========================================================================
   function exports.use_package( ldtMap, package_name )
-    info("[MODULE] APPLY PACKAGE(%s)", package_name );
+    GP=E and info("[MODULE] APPLY PACKAGE(%s)", package_name );
     applyPackage( ldtMap, package_name );
   end
 
@@ -627,7 +627,7 @@ local exports = {}
       (pageAvailableBytes < compactListByteCeiling) and
       (pageAvailableBytes) or compactListByteCeiling;
 
-    info("[DEBUG]<%s:%s> PageAvail(%d) CompListCeiling(%d) CompListTarget(%d)",
+    GP=E and info("[DEBUG]<%s:%s> PageAvail(%d) CompListCeiling(%d) CompListTarget(%d)",
       MOD, meth, pageAvailableBytes, compactListCountCeiling,
       compactListTargetBytes);
 

@@ -5630,6 +5630,17 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
   
+  -- Based on the first value, set the key type
+  -- Spec setup uses this information
+  if firstValue then
+    local valType = type(firstValue);
+
+    if valType=="number" or valType=="string" or valType=="bytes" then
+      ldtMap[LC.KeyType] = KT_ATOMIC;
+    else
+      ldtMap[LC.KeyType] = KT_COMPLEX;
+    end
+  end
   -- Remember that record.set_type() for the TopRec
   -- is handled in initializeLdtCtrl()
   
@@ -5645,6 +5656,15 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
+  else
+    local key  = getKeyValue(ldtMap, firstValue);
+    createSpec = map();
+    createSpec["Compute"] = 'compute_settings';
+    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
+    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
+
+    -- default max object count is  
+    ldt_common.adjustLdtMap( ldtCtrl, createSpec, llistPackage);
   end
 
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
@@ -5665,17 +5685,6 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
   -- Item 1 :  the property map & Item 2 : the ldtMap
   topRec[ldtBinName] = ldtCtrl; -- store in the record
   record.set_flags( topRec, ldtBinName, BF.LDT_BIN );
-
-  -- Based on the first value, set the key type
-  if firstValue then
-    local valType = type(firstValue);
-
-    if valType=="number" or valType=="string" or valType=="bytes" then
-      ldtMap[LC.KeyType] = KT_ATOMIC;
-    else
-      ldtMap[LC.KeyType] = KT_COMPLEX;
-    end
-  end
 
   -- NOTE: The Caller will write out the LDT bin.
   return 0;
@@ -7021,6 +7030,10 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) minKey(%s) maxKey(%s)",
   MOD, meth, tostring(ldtBinName), tostring(minKey), tostring(maxKey));
   
+  if (minKey > maxKey) then 
+    error(ldte.ERR_INPUT_PARM);
+  end 
+
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
@@ -7047,7 +7060,8 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
   else
     debug("[ERROR]<%s:%s> Invalid Delete Value List(%s)",
       MOD, meth, tostring(valueList));
-    error(ldte.ERR_INPUT_PARM);
+    -- if range does not exist,  return list with size 0 
+    -- error(ldte.ERR_INPUT_PARM);
   end
   
   return deleteCount;

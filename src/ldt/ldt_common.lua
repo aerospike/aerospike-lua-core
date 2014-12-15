@@ -56,6 +56,7 @@ local DO_EARLY_SUBREC_UPDATES = true;
 -- objects.
 local Map = getmetatable( map() );
 local List = getmetatable( list() );
+local Bytes = getmetatable( bytes() );
 
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <<  LDT COMMON Functions >>
@@ -2781,7 +2782,7 @@ function ldt_common.adjustLdtMap( ldtCtrl, argListMap, ldtSpecificPackage )
         -- case, and the argListMap is actually the configMap;
         -- Note that this looks almost like the case above, except that
         -- here we are passing in the input configMap (the argListMap).
-        info("[COMPUTE CONFIG]<%s:%s> Compute Config: Map(%s)",
+        GP=DEBUG and trace("[COMPUTE CONFIG]<%s:%s> Compute Config: Map(%s)",
           MOD, meth, tostring(argListMap));
         ldtPackage = ldtSpecificPackage[value];
         if( ldtPackage ~= nil ) then
@@ -3340,6 +3341,26 @@ function ldt_common.createPersonObject( flavor, skew )
     GP=F and trace("[EXIT]<%s:%s> Result Object(%s)", MOD, meth,
       tostring(newObject));
   return newObject;
+end
+
+function ldt_common.getValSize(value)
+  if value ~= nil then
+    local valType = type(value);
+    if (valType == "number") then
+      return 8;
+    elseif (valType == "string") then
+      return string.len(value);
+    elseif (getmetatable(value) == Map) then
+      return map.nbytes(value);
+    elseif (getmetatable(value) == List) then
+      return list.nbytes(value);
+    elseif (getmetatable(value) == Bytes) then
+      return bytes.size(value);
+    else
+      return 0;
+    end
+  end
+  return 0;
 end
 
 -- ========================================================================

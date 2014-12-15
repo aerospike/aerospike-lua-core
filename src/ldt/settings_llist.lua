@@ -18,7 +18,7 @@
 -- ======================================================================
 
 -- Track the date and iteration of the last update:
-local MOD="settings_llist_2014_12_05.A"; -- the module name used for tracing
+local MOD="settings_llist_2014_12_14.A"; -- the module name used for tracing
 
 -- ======================================================================
 -- || GLOBAL PRINT ||
@@ -760,7 +760,7 @@ local exports = {}
 -- since we have verified that the values all fit together.
 -- ========================================================================
   function exports.use_package( ldtMap, package_name )
-    info("[MODULE] APPLY PACKAGE(%s)", package_name );
+    GP=E and info("[MODULE] APPLY PACKAGE(%s)", package_name );
     applyPackage( ldtMap, package_name );
   end
 
