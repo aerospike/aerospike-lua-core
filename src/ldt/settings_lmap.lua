@@ -35,6 +35,7 @@ local D=false; -- Set D (DETAIL) for greater detailed output
 -- incoming user CONFIG values.
 -- ======================================================================
 local ldt_common = require('ldt/ldt_common');
+local ldte       = require('ldt/ldt_errors');
 
 -- ======================================================================
 -- StoreMode (SM) values (which storage Mode are we using?)
@@ -567,7 +568,7 @@ local exports = {}
     if rc ~= 0 then
       warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
         MOD, meth);
-      return -1;
+      error(ldte.ERR_INPUT_PARM);
     end
 
     -- Now that all of the values have been validated, we can use them

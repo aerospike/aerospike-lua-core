@@ -542,45 +542,45 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
       error( ldte.ERR_FILTER_BAD );
     else
       -- Ok -- so far, looks like we have a valid filter name, 
-      info("<CHECK><%s:%s>userModule(%s) filter(%s)", MOD, meth,
+      GP=DEBUG and info("<CHECK><%s:%s>userModule(%s) filter(%s)", MOD, meth,
       tostring(userModule), tostring(filter));
       
       if( userModule ~= nil and type(userModule) == "string" ) then
         userModuleRef = require(userModule);
 
-        info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s) Ref(%s)", MOD,
+        GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s) Ref(%s)", MOD,
         meth, tostring(filter), tostring(userModule), tostring(userModuleRef));
 
         if( userModuleRef ~= nil and userModuleRef[filter] ~= nil ) then
           L_Filter = userModuleRef[filter];
-          info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s)", MOD, meth,
+          GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from UserModule(%s)", MOD, meth,
           tostring(filter), tostring(userModule));
         else
-          info("[NOTE]<%s:%s> <NO> Filter(%s) from UserMod(%s) M(%s)",MOD,meth,
+          GP=DEBUG and info("[NOTE]<%s:%s> <NO> Filter(%s) from UserMod(%s) M(%s)",MOD,meth,
           tostring(filter), tostring(userModule), tostring(userModuleRef));
         end
       end
 
-      info("[POST USER MOD] L_Filter(%s) createModule(%s)",
+      GP=DEBUG and info("[POST USER MOD] L_Filter(%s) createModule(%s)",
       tostring(L_Filter), tostring(createModule));
 
       -- If we didn't find a good filter, keep looking.  Try the createModule.
       -- The createModule should already have been checked for validity.
       if( L_Filter == nil and createModule ~= nil ) then
-        info("<CHECK><%s:%s>CREATE Module(%s) filter(%s)", MOD, meth,
+        GP=DEBUG and info("<CHECK><%s:%s>CREATE Module(%s) filter(%s)", MOD, meth,
         tostring(createModule), tostring(filter));
 
         createModuleRef = require(createModule);
 
-        info("[NOTE]<%s:%s> Require UserModule(%s) Ref(%s)", MOD, meth,
+        GP=DEBUG and info("[NOTE]<%s:%s> Require UserModule(%s) Ref(%s)", MOD, meth,
         tostring(createModule), tostring(createModuleRef));
 
         if(createModuleRef ~= nil and createModuleRef[filter] ~= nil) then
           L_Filter = createModuleRef[filter];
-          info("[NOTE]<%s:%s> Set Filter(%s) from CreateModule(%s)", MOD, meth,
+          GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from CreateModule(%s)", MOD, meth,
           tostring(filter), tostring(createModule));
         else
-          info("[NOTE]<%s:%s> <NO> Filter(%s) from CreateModule(%s)", MOD, meth,
+          GP=DEBUG and info("[NOTE]<%s:%s> <NO> Filter(%s) from CreateModule(%s)", MOD, meth,
           tostring(filter), tostring(createModule));
         end
       end
@@ -588,17 +588,17 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
       -- one of the standard Functions.
       if( L_Filter == nil and functionTable ~= nil ) then
         L_Filter = functionTable[filter];
-        info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
+        GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
         tostring(filter), tostring(createModule));
       else
-        info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
+        GP=DEBUG and info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
         tostring(L_Filter), tostring( functionTable ));
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( L_Filter == nil ) then
-        info("[WARNING]<%s:%s> filter not found: type(%s) filter(%s)",
+        GP=DEBUG and info("[WARNING]<%s:%s> filter not found: type(%s) filter(%s)",
           MOD, meth, type(filter), tostring(filter) );
         error( ldte.ERR_FILTER_NOT_FOUND );
       end
@@ -610,7 +610,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   local L_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
-      info("[WARNING]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
+      GP=DEBUG and info("[WARNING]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
         MOD, meth, type(untrans), tostring(untrans) );
       error( ldte.ERR_UNTRANS_FUN_BAD );
     else
@@ -799,8 +799,8 @@ function ldt_common.createSubRecContext()
   -- Map [1] is the Record Map (name: DigestString, Value: Rec Ptr)
   -- Map [2] is the Dirty String (name: DigestString, Value: Dirty/Clean)
   local srcCtrl = list();
-  local recMap = map();
-  local dirtyMap = map();
+  local recMap = map(128);
+  local dirtyMap = map(128);
 
   recMap.ItemCount = 0;
   recMap.CleanThreshold = G_OPEN_SR_CLEAN_THRESHOLD;
@@ -2071,20 +2071,20 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
     warn("[ERROR]<%s:%s> PageSize(%d) is too small: %d bytes minimum",
       MOD, meth, pageSize, pageMinimum);
     pageSize = pageTarget;
-    info("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
+    GP=DEBUG and info("[ADJUST]<%s:%s> PageSize Adjusted up to target size: %d bytes",
       MOD, meth, pageTarget);
   elseif pageSize > pageMaximum then
     warn("[ERROR]<%s:%s> PageSize (%d) Larger than Max(%d)", 
       MOD, meth, pageSize, pageMaximum);
     pageSize = pageMaximum;
-    info("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
+    GP=DEBUG info("[ADJUST]<%s:%s> PageSize Adjusted down to max size: %d bytes",
       MOD, meth, pageMaximum);
   elseif maxObjectSize > writeBlockSize then
     warn("[ERROR]<%s:%s> Max Object Size(%d) Exceeds WriteBlockSize(%d)",
       MOD, meth, maxObjectSize, writeBlockSize);
     return -1;
   elseif maxObjectSize > pageSize then
-    info("[ADJUST]<%s:%s> Max Object Size(%d) Exceeds Target PageSize(%d)",
+    GP=DEBUG and info("[ADJUST]<%s:%s> Max Object Size(%d) Exceeds Target PageSize(%d)",
       MOD, meth, maxObjectSize, pageSize);
     if  maxObjectSize < pageTarget then
       pageSize = pageTarget;
@@ -2922,7 +2922,7 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
     --]]
     --
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    GP=DEBUG and info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
     MOD, meth, ldtBinName );
   end
 
@@ -2984,7 +2984,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
         esrDigestString);
     end
   else
-    info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    GP=DEBUG and info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
     MOD, meth, ldtBinName );
   end
 

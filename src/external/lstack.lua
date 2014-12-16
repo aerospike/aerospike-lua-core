@@ -137,9 +137,6 @@ function peek( topRec, ldtBinName, peekCount )
 end -- peek()
 
 function filter( topRec, ldtBinName, peekCount, filterModule, filter, fargs )
-    info("[FILTER] Bin(%s) Count(%s) filterModule(%s) filter(%s) fargs(%s)",
-    tostring(ldtBinName), tostring(peekCount), tostring(filterModule),
-    tostring(filter), tostring(fargs));
   return lstack.peek(topRec,ldtBinName,peekCount,filterModule,filter,fargs, nil );
 end -- peek_then_filter()
 
