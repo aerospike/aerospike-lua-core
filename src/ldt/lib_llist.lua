@@ -2620,7 +2620,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
         filterResult = G_Filter( liveObject, G_FunctionArgs );
       end
       if( filterResult ~= nil ) then
-        list.append( resultList, liveObject );
+        list.append( resultList, filterResult);
       end
 
       GP=F and trace("[Scan]<%s:%s> Pos(%d) Key(%s) Obj(%s) FilterRes(%s)",
