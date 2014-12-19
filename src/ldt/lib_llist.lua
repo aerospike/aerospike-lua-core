@@ -2620,7 +2620,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
         filterResult = G_Filter( liveObject, G_FunctionArgs );
       end
       if( filterResult ~= nil ) then
-        list.append( resultList, liveObject );
+        list.append( resultList, filterResult);
       end
 
       GP=F and trace("[Scan]<%s:%s> Pos(%d) Key(%s) Obj(%s) FilterRes(%s)",
@@ -6183,8 +6183,8 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
 --    rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
       rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], false);
       if( rc < 0 ) then
-        info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
-          tostring( valueList[i] ));
+        info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s] rv=%d", MOD, meth, i,
+          tostring( valueList[i] ), rv);
         -- Skip the errors for now -- just report them, don't die.
         -- error(ldte.ERR_INSERT);
       else

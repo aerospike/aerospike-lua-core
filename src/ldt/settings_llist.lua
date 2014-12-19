@@ -36,6 +36,7 @@ local D=false; -- Set D (DEBUG) to get more detailed debug output
 -- incoming user CONFIG values.
 -- ======================================================================
 local ldt_common = require('ldt/ldt_common');
+local ldte       = require('ldt/ldt_errors');
 
 -- ======================================================================
 -- StoreMode (SM) values (which storage Mode: Binary or List?)
@@ -888,7 +889,7 @@ local exports = {}
     if rc ~= 0 then
       warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
         MOD, meth);
-      return -1;
+      error(ldte.ERR_INPUT_PARM);
     end
 
     -- Now that all of the values have been validated, we can use them
@@ -975,9 +976,9 @@ local exports = {}
     else
       leafListMax = adjustedPageSize / maxObjectSize;
       if leafListMax <= 2 then
-        info("[WARN]<%s:%s>MaxObjectSize(%d) too great for PageSize(%d)",
+        warn("[WARN]<%s:%s>MaxObjectSize(%d) too great for PageSize(%d)",
           MOD, meth, maxObjectSize, adjustedPageSize);
-        return -1;
+        error(ldte.ERR_INPUT_PARM);
       end
       GP=D and info("[LEAF] Objects UNDER Minimum: LeafMax(%d)", leafListMax);
     end
@@ -998,9 +999,9 @@ local exports = {}
     else
       nodeListMax = adjustedPageSize / maxKeySize;
       if nodeListMax <= 2 then
-        info("[WARN]<%s:%s>MaxKeySize(%d) too great for PageSize(%d)",
+        warn("[WARN]<%s:%s>MaxKeySize(%d) too great for PageSize(%d)",
           MOD, meth, maxKeySize, adjustedPageSize);
-        return -1;
+        error(ldte.ERR_INPUT_PARM);
       end
       GP=D and info("[NODE]  Keys UNDER Minimum: NodeMax(%d)", nodeListMax);
     end
@@ -1021,7 +1022,7 @@ local exports = {}
       if rootListMax <= 2 then
         warn("[WARN]<%s:%s>MaxKeySize(%d) too great for ROOT Node(%d)",
           MOD, meth, maxKeySize, adjustedPageSize);
-        return -1;
+        error(ldte.ERR_INPUT_PARM);
       end
       GP=D and info("[ROOT] Calc Keys Fit: RootMax(%d)", rootListMax);
     else
