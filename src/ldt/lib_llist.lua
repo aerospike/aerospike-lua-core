@@ -5838,7 +5838,7 @@ end -- treeMin();
 -- (*) newValue:
 -- (*) update: When true, allow overwrite
 -- =======================================================================
-local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
+local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update, commit)
   local meth = "localWrite()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) NwVal(%s) Upd(%s) src(%s)",
     MOD, meth, tostring(ldtBinName), tostring( newValue ),
@@ -5929,14 +5929,17 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
   -- Update the Top Record with the new Tree Contents.
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF.LDT_BIN );--Must set every time
-  -- With recent changes, we know that the record is now already created
-  -- so all we need to do is perform the update (no create needed).
-  GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
-  rc = aerospike:update( topRec );
-  if ( rc and rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_TOPREC_UPDATE );
-  end 
+ 
+  if (commit == true) then
+    -- With recent changes, we know that the record is now already created
+    -- so all we need to do is perform the update (no create needed).
+    GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
+    rc = aerospike:update( topRec );
+    if ( rc and rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
+  end
 
   GP=E and trace("[EXIT]:<%s:%s> rc(0)", MOD, meth);
   return 0;
@@ -6093,7 +6096,7 @@ function llist.add( topRec, ldtBinName, newValue, createSpec, src )
   end
 
   -- call localWrite() with UPDATE flag turned OFF.
-  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false);
+  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false, true);
 
 end -- function llist.add()
 
@@ -6179,19 +6182,25 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
 
   local rc = 0;
   local successCount = 0;
-    for i = 1, valListSize, 1 do
---    rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
-      rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], false);
-      if( rc < 0 ) then
-        info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s] rv=%d", MOD, meth, i,
-          tostring( valueList[i] ), rv);
-        -- Skip the errors for now -- just report them, don't die.
-        -- error(ldte.ERR_INSERT);
-      else
-        successCount = successCount + 1;
-      end
-    end -- for each value in the list
-  
+  for i = 1, valListSize, 1 do
+--  rc = llist.add( topRec, ldtBinName, valueList[i], createSpec, src );
+    rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], false, false);
+    if( rc < 0 ) then
+      info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s] rv=%d", MOD, meth, i,
+        tostring( valueList[i] ), rv);
+      -- Skip the errors for now -- just report them, don't die.
+      -- error(ldte.ERR_INSERT);
+    else
+      successCount = successCount + 1;
+    end
+  end -- for each value in the list
+
+  -- Commit at the end of all the operation
+  rc = aerospike:update( topRec );
+  if ( rc and rc ~= 0 ) then
+    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+    error( ldte.ERR_TOPREC_UPDATE );
+  end 
   return successCount;
 end -- llist.add_all()
 
@@ -6269,7 +6278,7 @@ function llist.update( topRec, ldtBinName, newValue, createSpec, src )
   end
 
   -- call localWrite() with UPDATE flag turned ON.
-  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true);
+  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true, true);
 
 end -- function llist.update()
 
@@ -6362,7 +6371,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
 --    rc = llist.update( topRec, ldtBinName, valueList[i], createSpec, src );
-      rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], true);
+      rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], true, false);
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Updating Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
@@ -6372,6 +6381,13 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
         successCount = successCount + 1;
       end
     end -- for each value in the list
+
+    -- Commit at the end of all the operation
+    rc = aerospike:update( topRec );
+    if ( rc and rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
   else
     warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
       MOD, meth, tostring(valueList));
@@ -6883,8 +6899,6 @@ function llist.remove( topRec, ldtBinName, value, src )
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  local resultMap;
-
   -- Set up the Read Functions (KeyFunction, Transform, Untransform)
   if ldtMap[LC.KeyType] == KT_COMPLEX then
     G_KeyFunction = ldt_common.setKeyFunction(ldtMap, false, G_KeyFunction); 
@@ -6915,7 +6929,7 @@ function llist.remove( topRec, ldtBinName, value, src )
     -- Search the compact list, find the location, then delete it.
     GP=D and trace("[NOTICE]<%s:%s> Using COMPACT DELETE", MOD, meth);
     local objectList = ldtMap[LS.CompactList];
-    resultMap = searchObjectList( ldtMap, objectList, key );
+    local resultMap = searchObjectList( ldtMap, objectList, key );
     if( resultMap.Status == ERR.OK and resultMap.Found ) then
       ldtMap[LS.CompactList] =
         ldt_common.listDelete(objectList, resultMap.Position);
@@ -6959,8 +6973,11 @@ function llist.remove( topRec, ldtBinName, value, src )
 
     GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
     return 0;
+  elseif (rc == -2) then
+    ldt_common.closeAllSubRecs( src );
+    return -2;
   else
-    GP=F and trace("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
+    warn("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
     error( ldte.ERR_DELETE );
   end
 end -- function llist.remove()
@@ -6972,6 +6989,8 @@ end -- function llist.remove()
 -- (*) topRec:
 -- (*) ldtBinName:
 -- (*) valueList
+-- RETURN:
+-- Number of items removed
 -- =======================================================================
 function llist.remove_all( topRec, ldtBinName, valueList, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST REMOVE_ALL ] <<<<<<<<<<< \n");
@@ -6989,14 +7008,18 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
   end
 
   local rc = 0;
+  local itemRemoved = 0;
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
       rc = llist.remove( topRec, ldtBinName, valueList[i], src );
       if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problem Removing Item #(%d) [%s]", MOD, meth, i,
+        debug("[ERROR]<%s:%s> Problem Removing Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
-        error(ldte.ERR_DELETE);
+        -- Not a Error
+        -- error(ldte.ERR_DELETE);
+      else
+        itemRemoved = itemRemoved + 1;
       end
     end -- for each value in the list
   else
@@ -7005,7 +7028,7 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
     error(ldte.ERR_INPUT_PARM);
   end
   
-  return rc;
+  return itemRemoved;
 end -- llist.remove_all()
 
 
