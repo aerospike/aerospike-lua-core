@@ -591,14 +591,14 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
         GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
         tostring(filter), tostring(createModule));
       else
-        GP=DEBUG and info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
+        info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
         tostring(L_Filter), tostring( functionTable ));
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
       -- then we have a problem.  We have to complain.
       if( L_Filter == nil ) then
-        GP=DEBUG and info("[WARNING]<%s:%s> filter not found: type(%s) filter(%s)",
+        info("[WARNING]<%s:%s> filter not found: type(%s) filter(%s)",
           MOD, meth, type(filter), tostring(filter) );
         error( ldte.ERR_FILTER_NOT_FOUND );
       end
@@ -610,7 +610,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   local L_UnTransform = nil;
   if( untrans ~= nil ) then
     if( type(untrans) ~= "string" or untrans == "" ) then
-      GP=DEBUG and info("[WARNING]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
+      info("[WARNING]<%s:%s> Bad UnTransformation Name: type(%s) function(%s)",
         MOD, meth, type(untrans), tostring(untrans) );
       error( ldte.ERR_UNTRANS_FUN_BAD );
     else
@@ -799,8 +799,8 @@ function ldt_common.createSubRecContext()
   -- Map [1] is the Record Map (name: DigestString, Value: Rec Ptr)
   -- Map [2] is the Dirty String (name: DigestString, Value: Dirty/Clean)
   local srcCtrl = list();
-  local recMap = map(128);
-  local dirtyMap = map(128);
+  local recMap = map();
+  local dirtyMap = map();
 
   recMap.ItemCount = 0;
   recMap.CleanThreshold = G_OPEN_SR_CLEAN_THRESHOLD;
@@ -2418,6 +2418,10 @@ function ldt_common.listDelete( objectList, position )
 
   GP=F and trace("[ENTER]<%s:%s>List(%s) size(%d) Position(%s)", MOD,
   meth, tostring(objectList), listSize, tostring(position) );
+
+  if (listSize == 0) then
+    return objectList;
+  end
 
   if( position < 1 or position > listSize ) then
     warn("[DELETE ERROR]<%s:%s> Bad position(%d) for delete. ListSize(%d)",
