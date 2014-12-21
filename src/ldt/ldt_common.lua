@@ -17,7 +17,7 @@
 -- ======================================================================
 --
 -- Track the data and iteration of the last update.
-local MOD="ldt_common_2014_12_11.A";
+local MOD="ldt_common_2014_12_20.A";
 
 -- This variable holds the version of the code.  It would be in the form
 -- of (Major.Minor), except that Lua does not store real numbers.  So, for
@@ -799,8 +799,8 @@ function ldt_common.createSubRecContext()
   -- Map [1] is the Record Map (name: DigestString, Value: Rec Ptr)
   -- Map [2] is the Dirty String (name: DigestString, Value: Dirty/Clean)
   local srcCtrl = list();
-  local recMap = map();
-  local dirtyMap = map();
+  local recMap   = map.new(32); -- Allocate a healthy amount
+  local dirtyMap = map.new(32);
 
   recMap.ItemCount = 0;
   recMap.CleanThreshold = G_OPEN_SR_CLEAN_THRESHOLD;
@@ -852,8 +852,8 @@ local function cleanSRC( srcCtrl )
           -- a slot for a NEW Sub-Rec to come in.
           local state = dirtyMap[digestString];
           if( state == DM_DIRTY or state == DM_BUSY ) then
-            trace("[DEBUG]<%s:%s> Check to close (%s) Sub-Rec: Dig(%s)", MOD,
-              meth, tostring( state), tostring( digestString ));
+            GP=F and info("[DEBUG]<%s:%s> CANNOT close (%s) Sub-Rec: Dig(%s)",
+              MOD, meth, tostring( state), tostring( digestString ));
           else
             trace("[DEBUG]<%s:%s> Closing (%s) Sub-Rec: Dig(%s)", MOD, meth,
               tostring( state), tostring( digestString ));
@@ -2244,6 +2244,7 @@ function ldt_common.dumpMap( myMap, msg )
   for name, value in map.pairs( myMap ) do
     if name and value then
       subMap[name] = value;
+      subMap["type::"..tostring(name)] = type(name);
       subCount = subCount + 1;
       count = count + 1;
       if( subCount > subSize ) then
@@ -2926,7 +2927,7 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
     --]]
     --
   else
-    GP=DEBUG and info("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
+    debug("[INFO]<%s:%s> LDT ESR is not yet set, so remove not needed. Bin(%s)",
     MOD, meth, ldtBinName );
   end
 
