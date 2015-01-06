@@ -585,14 +585,12 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
         end
       end
       -- Last we try the UdfFunctionTable, In case the user wants to employ
-      -- one of the standard Functions.
+      -- one of the standard Functions. If user has not specified filer function
+      -- try to pick on from internally defined functions
       if( L_Filter == nil and functionTable ~= nil ) then
         L_Filter = functionTable[filter];
         GP=DEBUG and info("[NOTE]<%s:%s> Set Filter(%s) from UdfFunctionTable(%s)",MOD,meth,
         tostring(filter), tostring(createModule));
-      else
-        info("[ERROR]<%s:%s> L_Filter(%s) functionTable(%s)", MOD, meth,
-        tostring(L_Filter), tostring( functionTable ));
       end
 
       -- If we didn't find anything, BUT the user supplied a function name,
@@ -1878,7 +1876,7 @@ local DEFAULT_MAX_KEY_SIZE     =      22;
 local DEFAULT_AVE_OBJ_CNT      =    1000;
 local DEFAULT_MAX_OBJ_CNT      =   10000;
 local DEFAULT_MINIMUM_PAGESIZE =    4000;
-local DEFAULT_TARGET_PAGESIZE  =   16000;
+local DEFAULT_TARGET_PAGESIZE  =   64000;
 local DEFAULT_WRITE_BLOCK_SIZE = 1000000;
 local DEFAULT_RECORD_OVERHEAD  =     500;
 local DEFAULT_FOCUS            =       0;

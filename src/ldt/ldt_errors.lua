@@ -59,7 +59,8 @@ local exports = {
   ERR_UNTRANS_FUN_BAD      ="1436:LDT-Bad UnTransform Function Name",
   ERR_UNTRANS_FUN_NOT_FOUND="1437:LDT-UnTransform Function Not Found",
   ERR_USER_MODULE_BAD      ="1438:LDT-Bad User Module Name",
-  ERR_USER_MODULE_NOT_FOUND="1439:LDT-User Module Not Found"
+  ERR_USER_MODULE_NOT_FOUND="1439:LDT-User Module Not Found",
+  ERR_NS_LDT_NOT_ENABLED   ="1500:LDT-Not Enabled on Namespace"
 
 } -- end exports section
 
