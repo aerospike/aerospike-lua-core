@@ -2626,7 +2626,11 @@ function lmap.create( topRec, ldtBinName, createSpec )
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP CREATE ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
                  
   local meth = "lmap.create()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s) createSpec(%s)",
@@ -2705,7 +2709,11 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   GP=B and trace("\n\n >>>>>>>>> API[ LMAP PUT ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.put()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s) value(%s) module(%s)",
@@ -2823,7 +2831,11 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   GP=B and info("\n\n >>>>>>>>> API[ LMAP PUT ALL] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.put_all()";
   local rc = 0;
@@ -2941,7 +2953,11 @@ lmap.get(topRec, ldtBinName, searchName, filterModule, filter, fargs, src)
   GP=B and info("\n\n >>>>>>>>> API[ LMAP GET] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.get()";
   GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
@@ -3026,7 +3042,11 @@ lmap.get_all(topRec, ldtBinName, nameList, filterModule, filter, fargs, src)
   GP=B and info("\n\n >>>>>>>>> API[ LMAP GET_ALL] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.get()";
   GP=E and trace("[ENTER]<%s:%s> Search for Values: NameList(%s)",
@@ -3091,7 +3111,11 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   GP=B and info("\n\n >>>>>>>>> API[ LMAP EXISTS] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.exists()";
   GP=E and trace("[ENTER]<%s:%s> Search for Value(%s)",
@@ -3166,7 +3190,11 @@ function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   GP=B and info("\n\n >>>>>>>>> API[ LMAP SCAN ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.scan()";
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) UMod(%s) Filter(%s) Fargs(%s)",
@@ -3240,10 +3268,13 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   GP=B and trace("\n\n  >>>>>>>> API[ REMOVE ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.remove()";
-  local rc = 0;
    
   GP=E and trace("[ENTER]<%s:%s> Bin(%s) name(%s)",
     MOD, meth, tostring(ldtBinName), tostring(searchName));
@@ -3332,7 +3363,11 @@ function lmap.destroy( topRec, ldtBinName, src )
   GP=B and info("\n\n  >>>>>>>> API[ LMAP DESTROY ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.destroy()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3371,7 +3406,11 @@ function lmap.size( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>> API[ LMAP SIZE ] <<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "size()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -3407,7 +3446,11 @@ function lmap.config( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>> API[ LMAP CONFIG ] <<<<<<<<<< \n");
   
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.config()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3437,7 +3480,11 @@ function lmap.get_capacity( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>>>> API[ LMAP GET CAPACITY ] <<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.get_capacity()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3474,7 +3521,11 @@ function lmap.set_capacity( topRec, ldtBinName, capacity )
   GP=B and info("\n\n >>>>>>>>>>> API[ LMAP SET CAPACITY ] <<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.set_capacity()";
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
@@ -3524,7 +3575,11 @@ function lmap.ldt_exists( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>>>> API[ LMAP EXISTS ] <<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "lmap.ldt_exists()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -3565,7 +3620,11 @@ function lmap.dump( topRec, ldtBinName, src )
   GP=F and trace("\n\n  >>>>>>>>>>>> API[ LMAP DUMP ] <<<<<<<<<<<<<<<< \n");
   --
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "dump()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );

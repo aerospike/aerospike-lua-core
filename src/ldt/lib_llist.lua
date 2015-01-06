@@ -6356,8 +6356,10 @@ local llist = {};
 function llist.create( topRec, ldtBinName, createSpec )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST CREATE ] <<<<<<<<<< \n");
   local meth = "listCreate()";
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
-  local rc = 0;
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
   if createSpec == nil then
     GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s) NULL createSpec",
@@ -6417,7 +6419,10 @@ end -- function llist.create()
 function llist.add( topRec, ldtBinName, newValue, createSpec, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST ADD ] <<<<<<<<<<< \n");
   local meth = "llist.add()";
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
   GP=E and trace("[ENTER]<%s:%s>LLIST BIN(%s) NwVal(%s) createSpec(%s) src(%s)",
     MOD, meth, tostring(ldtBinName), tostring( newValue ),
@@ -6491,7 +6496,11 @@ end -- function llist.add()
 -- =======================================================================
 function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST ADD_ALL ] <<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "insert_all()";
 
@@ -6602,7 +6611,11 @@ function llist.update( topRec, ldtBinName, newValue, createSpec, src )
     MOD, meth, tostring(ldtBinName), tostring( newValue ),
     tostring(createSpec), tostring(src));
 
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -6669,7 +6682,11 @@ end -- function llist.update()
 function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST ADD_ALL ] <<<<<<<<<<< \n");
 
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
   local meth = "llist.update_all()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueList(%s) createSpec(%s)",
   MOD, meth, tostring(ldtBinName), tostring(valueList), tostring(createSpec));
@@ -6796,8 +6813,10 @@ function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
     MOD, meth, tostring(ldtBinName), tostring(value), tostring(filterModule),
     tostring(filter), tostring(fargs));
 
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
-  local rc = 0;
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
@@ -6932,7 +6951,11 @@ function llist.exists(topRec,ldtBinName,value,src)
   local meth = "llist.exists()";
   GP=E and trace("[ENTER]<%s:%s> bin(%s) Value(%s)",
     MOD, meth, tostring(ldtBinName), tostring(value));
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   warn("[ERROR]<%s:%s> Function Under Construction", MOD, meth);
   error(ldte.ERR_INTERNAL);
@@ -6968,8 +6991,11 @@ llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
   GP=E and trace("[ENTER]<%s:%s> bin(%s) minKey(%s) maxKey(%s)", MOD, meth,
       tostring( ldtBinName), tostring(minKey), tostring(maxKey));
 
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
-  local rc = 0;
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
   -- Define our return list.  Note that this is an unknown size, but
   -- we want to handle reasonable growth.  Go with an initial size of 50
   -- and a growth of 100.
@@ -7073,7 +7099,11 @@ function llist.scan( topRec, ldtBinName, src )
   GP=B and info("\n\n  >>>>>>>>>>>> API[ SCAN ] <<<<<<<<<<<<<< \n");
   local meth = "scan()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   return llist.find( topRec, ldtBinName,nil, nil, nil, nil, src );
 end -- llist.scan()
@@ -7089,7 +7119,11 @@ end -- llist.scan()
 -- =======================================================================
 function llist.filter( topRec, ldtBinName, filterModule, filter, fargs, src )
   GP=B and info("\n\n  >>>>>>>>>>>> API[ FILTER ]<<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "filter()";
   GP=E and trace("[ENTER]<%s:%s> BIN(%s) module(%s) func(%s) fargs(%s)",
@@ -7114,8 +7148,10 @@ end -- llist.filter()
 function llist.remove( topRec, ldtBinName, value, src )
   GP=F and trace("\n\n  >>>>>>>>>>>> API[ REMOVE ]<<<<<<<<<<< \n");
   local meth = "llist.remove()";
-  local rc = 0;
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
   GP=E and trace("[ENTER]<%s:%s>ldtBinName(%s) value(%s)",
       MOD, meth, tostring(ldtBinName), tostring(value));
@@ -7225,7 +7261,11 @@ end -- function llist.remove()
 -- =======================================================================
 function llist.remove_all( topRec, ldtBinName, valueList, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST REMOVE_ALL ] <<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "remove_all()";
   local valListSize = valueList ~= nil and #valueList or 0;
@@ -7278,7 +7318,11 @@ end -- llist.remove_all()
 -- =======================================================================
 function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST REMOVE_RANGE ] <<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "remove_range()";
   GP=E and trace("[ENTER]:<%s:%s>BIN(%s) minKey(%s) maxKey(%s)",
@@ -7344,8 +7388,11 @@ function llist.destroy( topRec, ldtBinName, src)
   GP=B and info("\n\n >>>>>>>>> API[ LLIST DESTROY ] <<<<<<<<<< \n");
   local meth = "llist.destroy()";
   GP=E and trace("[ENTER]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
-  local rc = 0; -- start off optimistic
+
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
   -- Validate the BinName before moving forward
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -7378,7 +7425,11 @@ function llist.size( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST SIZE ] <<<<<<<<<\n");
   local meth = "llist.size()";
   GP=E and trace("[ENTER1]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
 
 --  COMMENTED OUT BECAUSE QAA/JETPACK has problems with this.
 --  return ldt_common.size( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
@@ -7409,7 +7460,11 @@ end -- llist.size()
 -- ========================================================================
 function llist.config( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>>>> API[ LLIST CONFIG ] <<<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "llist.config()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -7439,7 +7494,11 @@ end -- function llist.config()
 function llist.get_capacity( topRec, ldtBinName )
   GP=B and info("\n\n  >>>>>>>> API[ GET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
   local meth = "llist.get_capacity()";
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   -- Note that we could use the common get_capacity() function.
 --return ldt_common.get_capacity( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
@@ -7479,8 +7538,11 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
   GP=B and info("\n\n  >>>>>>>> API[ SET CAPACITY ] <<<<<<<<<<<<<<<<<< \n");
 
   local meth = "llist.set_capacity()";
-  local rc = 0;
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newCapacity(%s)",
     MOD, meth, tostring(ldtBinName), tostring(capacity));
@@ -7527,7 +7589,11 @@ end -- function llist.set_capacity()
 -- ========================================================================
 function llist.ldt_exists( topRec, ldtBinName )
   GP=B and info("\n\n >>>>>>>>>>> API[ LLIST EXISTS ] <<<<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   local meth = "llist.ldt_exists()";
   GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
@@ -7746,7 +7812,11 @@ end -- read_bytes()
 -- ========================================================================
 function llist.dump( topRec, ldtBinName, src )
   GP=B and info("\n\n >>>>>>>>> API[ LLIST DUMP ] <<<<<<<<<< \n");
-  aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
 
   if( src == nil ) then
     src = ldt_common.createSubRecContext();
