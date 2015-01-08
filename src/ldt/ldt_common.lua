@@ -48,9 +48,7 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 
 -- Turn this ON to see mid-flight sub-rec updates called, and OFF to leave
 -- the updates to the end -- at the close of Lua.
--- Currently this must be turned ON in order to bypass a bug in the sub-Rec
--- support code.
-local DO_EARLY_SUBREC_UPDATES = true;
+local DO_EARLY_SUBREC_UPDATES = false;
 
 -- We need this for being able to figure out the exact type of USERDATA
 -- objects.
@@ -1388,6 +1386,14 @@ function ldt_common.markUnBusy( srcCtrl, digestString )
   if( subRecStatus ~= nil and subRecStatus == DM_BUSY ) then
     map.remove( dirtyMap, digestString );
     cleaned = 1;
+  elseif (subRecStatus ~= nil and subRecStatus == DM_DIRTY) then
+    rc = aerospike:update_subrec( subRec );
+    --  Note that update_subrec() returns nil on success
+    if rc then
+      warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+        digestString, tostring(rc));
+      error( ldte.ERR_SUBREC_UPDATE );
+    end
   end
 
   GP=E and info("[EXIT]<%s:%s> Digest(%s) Cleaned(%d)",

@@ -2769,6 +2769,12 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
     ldtMap[LS.TotalCount] = totalCount + 1; -- Total number of items goes up
     GP=F and trace("[DEBUG]<%s:%s> Successful PUT: New IC(%d) TC(%d)",
          MOD, meth, itemCount + 1, totalCount + 1);
+    -- Close ALL of the subrecs that might have been opened
+    rc = ldt_common.closeAllSubRecs( src );
+    if( rc < 0 ) then
+      warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+      error( ldte.ERR_SUBREC_CLOSE );
+    end
   elseif ( rc == 1 ) then
     GP=F and trace("[DEBUG]<%s:%s> OVERWRITE: Did NOT update Count(%d)",
          MOD, meth, propMap[PM.ItemCount]);
@@ -2916,6 +2922,13 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   local totalCount = ldtMap[LS.TotalCount];
   propMap[PM.ItemCount] = itemCount + newCount; -- number of valid items goes up
   ldtMap[LS.TotalCount] = totalCount + newCount; -- Total number of items goes up
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
   
@@ -3325,6 +3338,12 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   local totalCount = ldtMap[LS.TotalCount];
   propMap[PM.ItemCount] = itemCount - 1; -- number of valid items goes down
   ldtMap[LS.TotalCount] = totalCount - 1; -- Total number of items goes up
+
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
   

@@ -3460,7 +3460,9 @@ end -- lset.create()
 -- TODO: Add a common core "local insert" that can be used by both this
 -- function and the lset.all_all() function.
 -- ======================================================================
-function lset.add( topRec, ldtBinName, newValue, createSpec, src )
+function lset.add( topRec, ldtBinName, newValue, createSpec, src, commit)
+  -- commit by default
+  commit = commit or true
   GP=B and info("\n\n  >>>>>>>>>>>>> API[ LSET ADD ] <<<<<<<<<<<<<<<<<< \n");
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
@@ -3519,13 +3521,22 @@ function lset.add( topRec, ldtBinName, newValue, createSpec, src )
     topRecInsert( topRec, ldtCtrl, newValue );
   end
 
-  -- No need to update the counts here, since the called functions handle
-  -- that.  All we need to do is write out the record.
-  rc = aerospike:update( topRec );
-  if ( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-    error( ldte.ERR_TOPREC_UPDATE );
-  end 
+  if (commit) then
+    -- Close ALL of the subrecs that might have been opened
+    rc = ldt_common.closeAllSubRecs( src );
+    if( rc < 0 ) then
+      warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+      error( ldte.ERR_SUBREC_CLOSE );
+    end
+
+    -- No need to update the counts here, since the called functions handle
+    -- that.  All we need to do is write out the record.
+    rc = aerospike:update( topRec );
+    if ( rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
+    end 
+  end
 
   GP=E and trace("[EXIT]:<%s:%s> RC(0)", MOD, meth );
   return rc;
@@ -3573,12 +3584,26 @@ function lset.add_all( topRec, ldtBinName, valueList, createSpec, src )
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-      rc = lset.add( topRec, ldtBinName, valueList[i], createSpec, src );
+      rc = lset.add( topRec, ldtBinName, valueList[i], createSpec, src, false);
       if( rc < 0 ) then
         warn("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s]", MOD, meth, i,
           tostring( valueList[i] ));
           error(ldte.ERR_INSERT);
       end
+    end
+    -- Close ALL of the subrecs that might have been opened
+    rc = ldt_common.closeAllSubRecs( src );
+    if( rc < 0 ) then
+      warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+      error( ldte.ERR_SUBREC_CLOSE );
+    end
+
+    -- No need to update the counts here, since the called functions handle
+    -- that.  All we need to do is write out the record.
+    rc = aerospike:update( topRec );
+    if ( rc ~= 0 ) then
+      warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
+      error( ldte.ERR_TOPREC_UPDATE );
     end
   else
     warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
@@ -3889,6 +3914,14 @@ function lset.remove( topRec, ldtBinName, deleteValue, filterModule,
   local itemCount = propMap[PM.ItemCount];
   propMap[PM.ItemCount] = itemCount - 1;
   topRec[ldtBinName] = ldtCtrl;
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
+  
   record.set_flags(topRec, ldtBinName, BF_LDT_BIN );--Must set every time
 
   rc = aerospike:update( topRec );

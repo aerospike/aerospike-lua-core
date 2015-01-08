@@ -53,13 +53,14 @@ local exports = {
   ERR_FILTER_BAD           ="1430:LDT-Bad Read Filter Name",
   ERR_FILTER_NOT_FOUND     ="1431:LDT-Read Filter Not Found",
   ERR_KEY_FUN_BAD          ="1432:LDT-Bad Key (Unique) Function Name",
-  ERR_KEY_FUN_NOT_FOUND    ="1433:LDT-Key (Unique) Function Not Found",
+  ERR_KEY_FUN_NOT_FOUND    ="1433:LDT-Key (Unique) Or Key Function Not Found",
   ERR_TRANS_FUN_BAD        ="1434:LDT-Bad Transform Function Name",
   ERR_TRANS_FUN_NOT_FOUND  ="1435:LDT-Transform Function Not Found",
   ERR_UNTRANS_FUN_BAD      ="1436:LDT-Bad UnTransform Function Name",
   ERR_UNTRANS_FUN_NOT_FOUND="1437:LDT-UnTransform Function Not Found",
   ERR_USER_MODULE_BAD      ="1438:LDT-Bad User Module Name",
   ERR_USER_MODULE_NOT_FOUND="1439:LDT-User Module Not Found",
+  ERR_INPUT_TOO_LARGE      ="1440:LDT-Input Too Large",
   ERR_NS_LDT_NOT_ENABLED   ="1500:LDT-Not Enabled on Namespace"
 
 } -- end exports section
