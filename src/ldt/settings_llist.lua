@@ -978,7 +978,7 @@ local exports = {}
       if leafListMax <= 2 then
         warn("[WARN]<%s:%s>MaxObjectSize(%d) too great for PageSize(%d)",
           MOD, meth, maxObjectSize, adjustedPageSize);
-        error(ldte.ERR_INPUT_PARM);
+        error(ldte.ERR_INPUT_TOO_LARGE);
       end
       GP=D and info("[LEAF] Objects UNDER Minimum: LeafMax(%d)", leafListMax);
     end

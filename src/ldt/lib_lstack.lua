@@ -4436,7 +4436,6 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
 
   -- Tell the ASD Server that we're doing an LDT call -- for stats purposes.
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
-  info ("RC is %s", tostring(rc));
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
@@ -4496,6 +4495,13 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
   -- Call the common "localPush()" function to do the actual insert.  This
   -- is shared with the lstack.push_all() function.
   localPush( topRec, ldtCtrl, newStoreValue, src );
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
 
   -- Must always assign the object BACK into the record bin.
   topRec[ldtBinName] = ldtCtrl;
@@ -4608,6 +4614,13 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
     warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
       MOD, meth, tostring(valueList));
     error(ldte.ERR_INPUT_PARM);
+  end
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
   end
 
   -- All Done -- now get ready to finish up.
@@ -4921,6 +4934,13 @@ lstack.pop( topRec, ldtBinName, popCount, filterModule, filter, fargs, src )
     -- localReset( src, topRec, ldtCtrl );
   else
     localPop( src, resultList, topRec, ldtCtrl, count );
+  end
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if( rc < 0 ) then
+    warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
   end
 
   -- Must always assign the object BACK into the record bin.
