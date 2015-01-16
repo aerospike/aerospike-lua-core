@@ -1,9 +1,6 @@
 # use this command to validate ALL of the Lua programs in the external space
 # Usage:  validate_all
 
-echo lbytes.lua
-luac -p -l lbytes.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
 echo llist.lua
 luac -p -l llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
 
@@ -15,12 +12,3 @@ luac -p -l lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map
 
 echo lstack.lua
 luac -p -l lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-echo recops.lua
-luac -p -l recops.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-echo test.lua
-luac -p -l test.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-echo udflib.lua
-luac -p -l udflib.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"

@@ -110,14 +110,6 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- status = record.set_flags( topRec, binName, binFlags )
 -- ======================================================================
 --
--- ++==================++
--- || External Modules ||
--- ++==================++
--- Set up our "outside" links.
--- Get addressability to the Function Table: Used for compress/transform,
--- keyExtract, Filters, etc. 
-local functionTable = require('ldt/UdfFunctionTable');
-
 -- We import all of our error codes from "ldt_errors.lua" and we access
 -- them by prefixing them with "ldte.XXXX", so for example, an internal error
 -- return looks like this:
@@ -135,6 +127,8 @@ local CRC32 = require('ldt/CRC32');
 -- We will likely move some other functions in there as they become common.
 local ldt_common = require('ldt/ldt_common');
 
+local Map = getmetatable( map() );
+local List = getmetatable( list() );
 -- ++==================++
 -- || GLOBAL CONSTANTS || -- Local, but global to this module
 -- ++==================++
@@ -200,20 +194,9 @@ local LDT_SF_VAL    = 3;
 local SF_MSGPACK    = 1;
 local SF_JSON       = 2;
 
--- StoreMode (SM) values (which storage Mode are we using?)
-local SM_BINARY  ='B'; -- Using a Transform function to compact values
-local SM_LIST    ='L'; -- Using regular "list" mode for storing values.
-
 -- StoreState (SS) values (which "state" is the set in?)
 local SS_COMPACT ='C'; -- Using "single cell list" (compact) mode
 local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
-
--- KeyType (KT) values -- this is more appropriate for LSET, but there is
--- still come code in here that references this.
--- TODO: Clean up code and stop referring to ATOMIC and COMPLEX.  All LMAP
--- name values are, by definition, simple and can't be complex.
-local KT_ATOMIC  ='A'; -- the set value is just atomic (number or string)
-local KT_COMPLEX ='C'; -- the set value is complex. Use Function to get key.
 
 -- Result Returns (successful values).  Errors are a different category.
 local RESULT_OK = 0;
@@ -295,12 +278,8 @@ local PM = {
 -- Fields Common (LC) to ALL LDTs (managed by the LDT COMMON routines)
 local LC = {
   UserModule             = 'P', -- User's Lua file for overrides
-  KeyFunction            = 'F', -- User Supplied Key Extract Function
-  KeyType                = 'k', -- Type of Key (Always atomic for LMAP)
   StoreMode              = 'M', -- List Mode or Binary Mode
   StoreLimit             = 'L', -- Used for Eviction (eventually)
-  Transform              = 't', -- Transform Lua to Byte format
-  UnTransform            = 'u'  -- UnTransform from Byte to Lua format
 };
 
 -- LDT Fields Specific (LS) to lmap 
@@ -343,7 +322,6 @@ local LDR_ByteEntryCount       = 'C';
 -- C:                        c:                        2:
 -- D:                        d:LS.HashDepth            3:
 -- E:                        e:LS.LdrEntryCountMax      4:
--- F:LC.KeyFunction          f:                        5:
 -- G:                        g:                        6:
 -- H:LS.Threshold            h:LS.HashType              7:
 -- I:                        i:                        8:
@@ -357,8 +335,6 @@ local LDR_ByteEntryCount       = 'C';
 -- Q:                        q:
 -- R:                        r:
 -- S:LS.StoreState           s:LS.LdrByteEntrySize
--- T:                        t:LC.Transform
--- U:                        u:LC.UnTransform
 -- V:                        v:LS.CompactValueList
 -- W:LS.HashDirectory         w:                     
 -- X:                        x:                    
@@ -459,8 +435,6 @@ local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 -- ======================================================================
 -- We have several different situations where we need to look up a user
 -- defined function:
--- (*) Object Transformation (e.g. compression)
--- (*) Object UnTransformation
 -- (*) Predicate Filter (perform additional predicate tests on an object)
 --
 -- These functions are passed in by name (UDF name, Module Name), so we
@@ -472,10 +446,7 @@ local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 -- non-nil.
 -- ======================================================================
 local G_Filter = nil;
-local G_Transform = nil;
-local G_UnTransform = nil;
 local G_FunctionArgs = nil;
-local G_KeyFunction = nil;
 
 -- Special Function -- if supplied by the user in the "createModule", then
 -- we call that UDF to adjust the LDT configuration settings.
@@ -489,104 +460,8 @@ local G_SETTINGS = "adjust_settings";
 -- -----------------------------------------------------------------------
 local function resetUdfPtrs()
   G_Filter = nil;
-  G_Transform = nil;
-  G_UnTransform = nil;
   G_FunctionArgs = nil;
-  G_KeyFunction = nil;
 end -- resetPtrs()
-
--- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
--- =========================================================================
--- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
--- =========================================================================
-
--- =======================================================================
--- Apply Transform Function
--- Take the Transform defined in the lsetMap, if present, and apply
--- it to the value, returning the transformed value.  If no transform
--- is present, then return the original value (as is).
--- NOTE: This can be made more efficient.
--- =======================================================================
-local function applyTransform( transformFunc, newValue )
-  local meth = "applyTransform()";
-  GP=E and trace("[ENTER]<%s:%s> transform(%s) type(%s) Value(%s)", MOD,
-    meth, tostring(transformFunc), type(transformFunc), tostring(newValue));
-
-  local storeValue = newValue;
-  if transformFunc ~= nil then 
-    storeValue = transformFunc( newValue );
-  end
-  return storeValue;
-end -- applyTransform()
-
--- =======================================================================
--- Apply UnTransform Function
--- Take the UnTransform defined in the lsetMap, if present, and apply
--- it to the dbValue, returning the unTransformed value.  If no unTransform
--- is present, then return the original value (as is).
--- NOTE: This can be made more efficient.
--- =======================================================================
-local function applyUnTransform( ldtMap, storeValue )
-  local returnValue = storeValue;
-  if ldtMap[LC.UnTransform] ~= nil and
-    functionTable[ldtMap[LC.UnTransform]] ~= nil then
-    returnValue = functionTable[ldtMap[LC.UnTransform]]( storeValue );
-  end
-  return returnValue;
-end -- applyUnTransform( value )
-
--- =======================================================================
--- unTransformSimpleCompare()
--- Apply the unTransform function to the DB value and compare the transformed
--- value with the searchKey.
--- Return the unTransformed DB value if the values match.
--- =======================================================================
-local function unTransformSimpleCompare(unTransform, dbValue, searchKey)
-  local modValue = dbValue;
-  local resultValue = nil;
-
-  if unTransform ~= nil then
-    modValue = unTransform( dbValue );
-  end
-
-  if modValue == searchKey then
-    resultValue = modValue;
-  end
-
-  return resultValue;
-end -- unTransformSimpleCompare()
-
--- =======================================================================
--- unTransformComplexCompare()
--- Apply the unTransform function to the DB value, extract the key,
--- then compare the values, using simple equals compare.
--- Return the unTransformed DB value if the values match.
--- parms:
--- (*) lsetMap
--- (*) trans: The transformation function: Perform if not null
--- (*) dbValue: The value pulled from the DB
--- (*) searchValue: The value we're looking for.
--- =======================================================================
-local function
-unTransformComplexCompare(ldtMap, unTransform, dbValue, searchKey)
-  local meth = "unTransformComplexCompare()";
-
-  GP=E and trace("[ENTER]<%s:%s> unTransform(%s) dbVal(%s) key(%s)",
-     MOD, meth, tostring(unTransform), tostring(dbValue), tostring(searchKey));
-
-  local modValue = dbValue;
-  local resultValue = nil;
-
-  if unTransform ~= nil then
-    modValue = unTransform( dbValue );
-  end
-  
-  if modValue == searchKey then
-    resultValue = modValue;
-  end
-
-  return resultValue;
-end -- unTransformComplexCompare()
 
 -- ======================================================================
 -- propMapSummary( resultMap, propMap )
@@ -619,8 +494,6 @@ local function ldtMapSummary( resultMap, ldtMap )
   -- General LMAP Parms:
   resultMap.StoreMode            = ldtMap[LC.StoreMode];
   resultMap.StoreState           = ldtMap[LS.StoreState];
-  resultMap.Transform            = ldtMap[LC.Transform];
-  resultMap.UnTransform          = ldtMap[LC.UnTransform];
   resultMap.UserModule           = ldtMap[LC.UserModule];
   resultMap.KeyType              = ldtMap[LC.KeyType];
   resultMap.BinaryStoreSize      = ldtMap[LS.BinaryStoreSize];
@@ -846,8 +719,6 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM.RecType]    = RT_LDT; -- Record Type LDT Top Rec
   propMap[PM.CreateTime] = aerospike:get_current_time();
   
--- Specific LMAP Parms: Held in LMap
-  ldtMap[LC.StoreMode]  = SM_LIST; -- SM_LIST or SM_BINARY:
   ldtMap[LC.StoreLimit]  = 0; -- No storage Limit at start
 
   -- LMAP Data Record Chunk Settings: Passed into "Chunk Create"
@@ -855,12 +726,9 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[LS.LdrByteEntrySize] =   0;  -- Byte size of a fixed size Byte Entry
   ldtMap[LS.LdrByteCountMax]  =   0; -- Max # of Data Chunk Bytes (binary mode)
 
-  -- ldtMap[LC.Transform];    -- Set later, if/when needed
-  -- ldtMap[LC.UnTransform];  -- Set later, if/when needed
   ldtMap[LS.StoreState]       = SS_COMPACT; -- Start out in "single list" mode
   ldtMap[LS.HashType]         = HS_STATIC; -- HS_STATIC or HS_DYNAMIC.
   -- ldtMap[LS.BinaryStoreSize]; -- Set if/when we use binary mode.
-  ldtMap[LC.KeyType]          = KT_ATOMIC; -- assume "atomic" values for now.
   ldtMap[LS.TotalCount]       = 0; -- Count of both valid and deleted elements
   ldtMap[LS.HashDirSize]      = DEFAULT.HASH_MODULO; -- Hash Dir Size
   -- Set this when we're ready to use dynamic hashing.
@@ -1040,104 +908,9 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 end -- validateRecBinAndMap()
 
 -- ======================================================================
--- adjustLdtMap:
--- ======================================================================
--- Using the settings supplied by the caller in the stackCreate call,
--- we adjust the values in the LdtMap:
--- Parms:
--- (*) ldtCtrl: the main Ldt Bin value (propMap, ldtMap)
--- (*) argListMap: Map of Ldt Settings 
--- Return: The updated LdtList
--- ======================================================================
-local function adjustLdtMap( ldtCtrl, argListMap )
-  local meth = "adjustLdtMap()";
-  local propMap = ldtCtrl[LDT_PROP_MAP];
-  local ldtMap = ldtCtrl[LDT_CTRL_MAP];
-
-  GP=E and trace("[ENTER]: <%s:%s>:: LdtCtrl(%s)::\n ArgListMap(%s)",
-    MOD, meth, tostring(ldtCtrl), tostring( argListMap ));
-
-  -- Iterate thru the argListMap and adjust (override) the map settings 
-  -- based on the settings passed in during the stackCreate() call.
-  GP=F and trace("[DEBUG]: <%s:%s> : Processing Arguments:(%s)",
-    MOD, meth, tostring(argListMap));
-
-  -- For the old style -- we'd iterate thru ALL arguments and change
-  -- many settings.  Now we process only packages this way.
-  for name, value in map.pairs( argListMap ) do
-    GP=F and trace("[DEBUG]: <%s:%s> : Processing Arg: Name(%s) Val(%s)",
-      MOD, meth, tostring( name ), tostring( value ));
-
-    -- Process our "prepackaged" settings.  These now reside in the
-    -- settings file.  All of the packages are in a table, and thus are
-    -- looked up dynamically.
-    -- Notice that this is the old way to change settings.  The new way is
-    -- to use a "user module", which contains UDFs that control LDT settings.
-    if name == "Package" and type( value ) == "string" then
-      local ldtPackage = lmapPackage[value];
-      if( ldtPackage ~= nil ) then
-        ldtPackage( ldtMap );
-      end
-    end
-  end -- for each argument
-
-  GP=E and trace("[EXIT]:<%s:%s>:LdtCtrl after Init(%s)",
-    MOD,meth,tostring(ldtCtrl));
-  return ldtCtrl;
-end -- adjustLdtMap
-
--- ======================================================================
--- processModule()
--- ======================================================================
--- We expect to see several things from a user module.
--- (*) An adjust_settings() function: where a user overrides default settings
--- (*) Various filter functions (callable later during search)
--- (*) Transformation functions
--- (*) UnTransformation functions
--- The settings and transformation/untransformation are all set from the
--- adjust_settings() function, which puts these values in the control map.
--- ======================================================================
-local function processModule( ldtCtrl, moduleName )
-  local meth = "processModule()";
-  GP=E and trace("[ENTER]<%s:%s> Process User Module(%s)", MOD, meth,
-    tostring( moduleName ));
-
-  local propMap = ldtCtrl[LDT_PROP_MAP];
-  local ldtMap = ldtCtrl[LDT_CTRL_MAP];
-
-  if( moduleName ~= nil ) then
-    if( type(moduleName) ~= "string" ) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid::wrong type(%s)",
-        MOD, meth, tostring(moduleName), type(moduleName));
-      error( ldte.ERR_USER_MODULE_BAD );
-    end
-
-    local userModule = require(moduleName);
-    if( userModule == nil ) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid", MOD, meth, moduleName);
-      error( ldte.ERR_USER_MODULE_NOT_FOUND );
-    else
-      local userSettings =  userModule[G_SETTINGS];
-      if( userSettings ~= nil ) then
-        userSettings( ldtMap ); -- hope for the best.
-        ldtMap[LC.UserModule] = moduleName;
-      end
-    end
-  else
-    warn("[ERROR]<%s:%s>User Module is NIL", MOD, meth );
-  end
-
-  GP=E and trace("[EXIT]<%s:%s> Module(%s) LDT CTRL(%s)", MOD, meth,
-    tostring( moduleName ), ldtSummaryString(ldtCtrl));
-
-end -- processModule()
-
--- ======================================================================
 -- || validateValue()
 -- ======================================================================
--- In the calling function, we've landed on the name we were looking for,
--- but now we have to potentially untransform and filter the value -- so we
--- do that here.
+-- In the calling function, we've landed on the name we were looking for.
 -- ======================================================================
 local function validateValue( storedValue )
   local meth = "validateValue()";
@@ -1146,12 +919,7 @@ local function validateValue( storedValue )
                  MOD, meth, tostring( storedValue ) );
                  
   local liveObject;
-  -- Apply the Transform (if needed), as well as the filter (if present)
-  if( G_UnTransform ~= nil ) then
-    liveObject = G_UnTransform( storedValue );
-  else
-    liveObject = storedValue;
-  end
+  liveObject = storedValue;
   -- If we have a filter, apply that.
   local resultFiltered;
   if( G_Filter ~= nil ) then
@@ -1212,7 +980,7 @@ end -- searchList()
 -- =======================================================================
 -- Scan the Name/Value lists, touching every item and applying the (global)
 -- filter to each one (if applicable).  For every value that passes the
--- filter (after transform), add the name/value to the resultMap.
+-- filter, add the name/value to the resultMap.
 --
 -- (*) nameList: the list of NAMES (Name/Value) from the LMAP
 -- (*) valueList: the list of VALUES (Name/Value) from the LMAP
@@ -1285,23 +1053,24 @@ local function setupLdtBin( topRec, ldtBinName, firstName, firstValue, createSpe
   
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
-  if( createSpec ~= nil )then
+  if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
-    if( createSpecType == "string" ) then
-      processModule( ldtCtrl, createSpec );
-    elseif ( getmetatable(createSpec) == Map ) then
-      ldt_common.adjustLdtMap( ldtCtrl, createSpec, lmapPackage);
+    if (createSpecType == "string") then
+      ldt_common.processModule(ldtCtrl, createSpec);
+      lsetPackage.compute_settings(ldtMap, ldtMap);
+    elseif (getmetatable(createSpec) == Map) then
+      lsetPackage.compute_settings(ldtMap, createSpec);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
-  else 
-    createSpec = map();
-    createSpec["Compute"] = 'compute_settings';
+  elseif firstValue ~= nil then
+    local key  = getKeyValue(ldtMap, firstValue);
+    createSpec = {};
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxKeySize"] = ldt_common.getValSize(firstName);
-    -- default max object count is  
-    ldt_common.adjustLdtMap( ldtCtrl, createSpec, lmapPackage);
+    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
+    -- Use First value
+    lmapPackage.compute_settings(ldtMap, createSpec);
   end
 
   -- Set up our Bin according to the initial State: Compact List or Hash Dir.
@@ -1676,9 +1445,6 @@ local function compactInsert( ldtCtrl, newName, newValue )
 
   -- Prepare the value for storage (either overwrite or append).
   local storeValue = newValue;
-  if( G_Transform ~= nil ) then
-    storeValue = G_Transform( newValue );
-  end
 
   -- Look for the right place to put it.
   local position = searchList( nameList, newName );
@@ -1695,8 +1461,7 @@ local function compactInsert( ldtCtrl, newName, newValue )
       valueList[position] = storeValue;
     end
   else
-    -- Store the name in the name list.  If we're doing transforms, do that on
-    -- the value (done above) and then store it in the valueList.
+    -- Store the name in the name list.
     list.append( nameList, newName );
     list.append( valueList, storeValue );
   end
@@ -1781,15 +1546,10 @@ lmapListInsert( ldtCtrl, nameList, valueList, newName, newValue, check )
   local ldtMap = ldtCtrl[LDT_CTRL_MAP];
   local rc = RESULT_OK;
 
-  -- If we have a transform to perform, do that now and then store the value.
   -- We're setting the value up here, even though there's a small chance that
   -- we have an illegal overwrite case, because otherwise we'd have to do
   -- this in two places.
   local storeValue = newValue;
-  if( G_Transform ~= nil ) then
-    storeValue = G_Transform( newValue );
-  end
-
   local position = 0;
   if( check == 1 ) then
     position = searchList( nameList, newName );
@@ -2741,10 +2501,8 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  -- No keyFunction needed for lmap.
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
-  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  -- Set up the Read/Write Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil );
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2755,7 +2513,6 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   end
 
   rc = localPut( src, topRec, ldtCtrl, newName, newValue );
-
   -- Update the counts.  If there were any errors, the code would have
   -- jumped out of the Lua code entirely.  So, if we're here, the insert
   -- was successful.
@@ -2872,9 +2629,8 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  -- Set up the Read/Write Functions (KeyFunction, Transform, Untransform)
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
-  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  -- Set up the Read/Write Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2994,9 +2750,8 @@ lmap.get(topRec, ldtBinName, searchName, filterModule, filter, fargs, src)
     src = ldt_common.createSubRecContext();
   end
   
-  -- Set up the Read Functions (UnTransform, Filter)
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  -- Set up the Read Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
 --  --
@@ -3089,9 +2844,8 @@ lmap.get_all(topRec, ldtBinName, nameList, filterModule, filter, fargs, src)
     src = ldt_common.createSubRecContext();
   end
   
-  -- Set up the Read Functions (UnTransform, Filter)
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  -- Set up the Read Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   local listSize = #nameList;
@@ -3152,8 +2906,8 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
     src = ldt_common.createSubRecContext();
   end
   
-  -- Set up the Read Functions (UnTransform, Filter)
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  -- Set up the Read Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
   G_FunctionArgs = nil;
 
   -- Process these two options differently.  Either we're in COMPACT MODE,
@@ -3234,9 +2988,8 @@ function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
     src = ldt_common.createSubRecContext();
   end
 
-  -- Set up the Read Functions (UnTransform, Filter)
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  -- Set up the Read Functions (Filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   if ldtMap[LS.StoreState] == SS_COMPACT then 
@@ -3316,9 +3069,8 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  -- Set up the Read Functions (filter, Untransform)
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions( ldtMap, filterModule, filter);
+  -- Set up the Read Functions (filter)
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter);
   G_FunctionArgs = fargs;
   
   -- For the compact list, it's a simple list delete (if we find it).
