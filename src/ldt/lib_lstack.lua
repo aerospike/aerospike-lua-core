@@ -119,12 +119,6 @@ local TEST_MODE=false; -- turn on for MINIMAL sizes (better testing)
 --
 -- ======================================================================
 
--- ++==================++
--- || External Modules ||
--- ++==================++
--- Get addressability to the Function Table: Used for compress and filter
-local functionTable = require('ldt/UdfFunctionTable');
-
 -- Common LDT Errors that are used by all of the LDT files.
 local ldte=require('ldt/ldt_errors');
 
@@ -170,10 +164,6 @@ local SF_JSON       = 2;
 local AS_TRUE='T';    
 local AS_FALSE='F';
 
-
--- StoreMode (SM) values (which storage Mode are we using?)
-local SM_BINARY ='B'; -- Using a Transform function to compact values
-local SM_LIST   ='L'; -- Using regular "list" mode for storing values.
 
 -- Record Types -- Must be numbers, even though we are eventually passing
 -- in just a "char" (and int8_t).
@@ -308,8 +298,6 @@ local COLD_DIR_CTRL_BIN = "ColdDirCtrlBin";
 --     a linked list of Directory pages;  each dir contains a list of
 --     digests (record pointers) to the LDR data pages.
 -- <+> Naming Conventions:
---   + All Field names (e.g. ldtMap[StoreMode]) begin with Upper Case
---   + All variable names (e.g. ldtMap[StoreMode]) begin with lower Case
 --   + As discussed below, all Map KeyField names are INDIRECTLY referenced
 --     via descriptive variables that map to a single character (to save
 --     space when the entire map is msg-packed into a record bin).
@@ -401,12 +389,7 @@ local CDM = {
 -- Fields Common (LC) to ALL LDTs (managed by the LDT COMMON routines)
 local LC = {
   UserModule             = 'P', -- Name of the User Module
-  -- KeyFunction         = 'F', -- User Supplied Key Extract Function
-  -- KeyType             = 'k', -- Key Type: Atomic or Complex
-  StoreMode              = 'M', -- List or Binary Mode
   StoreLimit             = 'L', -- Max Item Count for stack
-  Transform              = 't', -- User's Transform function
-  UnTransform            = 'u'  -- User's UNTransform function
 };
 
 -- These fields are specific (LS) to LSTACK
@@ -463,22 +446,18 @@ local LS = {
 -- C:LS.ColdDirRecMax        c:LS.ColdListMax           2:
 -- D:                        d:                         3:
 -- E:                        e:LS.LdrEntryCountMax      4:
--- F:LC.KeyFunction          f:LS.ColdTopFull           5:
 -- G:                        g:LS.WarmTopFull           6:
 -- H:LS.HotEntryList         h:LS.HotListMax            7:
 -- I:                        i:LS.HotEntryListItemCount 8:
 -- J:                        j:                         9:
 -- K:                        k:LC.KeyType         
 -- L:LC.StoreLimit           l:LS.WarmListDigestCount
--- M:LC.StoreMode            m:
 -- N:                        n:
 -- O:                        o:
 -- P:LC.UserModule           p:
 -- Q:                        q:
 -- R:LS.ColdDataRecCount     r:LS.ColdDirRecCount
 -- S:                        s:LS.LdrByteEntrySize
--- T:LS.ColdTopListCount     t:LC.Transform
--- U:                        u:LC.UnTransform
 -- V:                        v:
 -- W:LS.WarmDigestList       w:LS.WarmListMax
 -- X:LS.HotListTransfer      x:LS.WarmListTransfer
@@ -497,8 +476,6 @@ local LS = {
 -- ======================================================================
 -- We have several different situations where we need to look up a user
 -- defined function:
--- (*) Object Transformation (e.g. compression)
--- (*) Object UnTransformation
 -- (*) Predicate Filter (perform additional predicate tests on an object)
 --
 -- These functions are passed in by name (UDF name, Module Name), so we
@@ -510,10 +487,7 @@ local LS = {
 -- non-nil.
 -- ======================================================================
 local G_Filter = nil;
-local G_Transform = nil;
-local G_UnTransform = nil;
 local G_FunctionArgs = nil;
-local G_KeyFunction = nil;
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -523,10 +497,7 @@ local G_KeyFunction = nil;
 -- -----------------------------------------------------------------------
 local function resetUdfPtrs()
   G_Filter = nil;
-  G_Transform = nil;
-  G_UnTransform = nil;
   G_FunctionArgs = nil;
-  G_KeyFunction = nil;
 end -- resetPtrs()
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
@@ -566,11 +537,8 @@ end -- function propMapSummary()
 local function ldtMapSummary( resultMap, ldtMap )
 
   -- General LDT Parms:
-  resultMap.StoreMode            = ldtMap[LC.StoreMode];
   resultMap.StoreLimit           = ldtMap[LC.StoreLimit];
   resultMap.UserModule           = ldtMap[LC.UserModule];
-  resultMap.Transform            = ldtMap[LC.Transform];
-  resultMap.UnTransform          = ldtMap[LC.UnTransform];
 
   -- LDT Data Record (LDR) Settings:
   resultMap.LdrEntryCountMax     = ldtMap[LS.LdrEntryCountMax];
@@ -827,7 +795,6 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   propMap[PM.SelfDigest] = record.digest( topRec );
 
   -- Specific LDT Parms: Held in LdtMap
-  ldtMap[LC.StoreMode]   = SM_LIST; -- SM_LIST or SM_BINARY:
   ldtMap[LC.StoreLimit]  = DEFAULT_CAPACITY;  -- Store no more than this.
 
   -- LDT Data Record Settings: Passed into "LDR Create"
@@ -1019,15 +986,9 @@ local function readEntryList( resultList, ldtCtrl, entryList, count )
   local readValue;
   for i = listSize, 1, -1 do
 
-    -- Apply the transform to the item, if present
-    if( G_UnTransform ~= nil ) then
-      readValue = G_UnTransform( entryList[i] );
-    else
-      readValue = entryList[i];
-    end
+    readValue = entryList[i];
 
-    -- After the transform, we can apply the filter, if it is present.  If
-    -- the value passes the filter (or if there is no filter), then add it
+    -- If the value passes the filter (or if there is no filter), then add it
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
@@ -1110,15 +1071,9 @@ local function takeEntryList( resultList, ldtCtrl, entryList, count )
   local readValue;
   for i = listSize, 1, -1 do
 
-    -- Apply the transform to the item, if present
-    if( G_UnTransform ~= nil ) then
-      readValue = G_UnTransform( entryList[i] );
-    else
-      readValue = entryList[i];
-    end
+    readValue = entryList[i];
 
-    -- After the transform, we can apply the filter, if it is present.  If
-    -- the value passes the filter (or if there is no filter), then add it
+    -- If the value passes the filter (or if there is no filter), then add it
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
@@ -1206,8 +1161,6 @@ local function readByteArray( resultList, ldtCtrl, ldrSubRec, count )
             
   local ldtMap = ldtCtrl[LDT_CTRL_MAP];
 
-  -- Note: functionTable is "global" to this module, defined at top of file.
-
   -- Iterate thru the BYTE structure, gathering up items in the result list.
   -- (*) Count Mode: Read <count> or <entryListSize>, whichever is smaller
   local ldrMap = ldrSubRec[LDR_CTRL_BIN];
@@ -1261,14 +1214,9 @@ local function readByteArray( resultList, ldtCtrl, ldrSubRec, count )
 --    MOD, meth, i, byteIndex, tostring( byteValue ));
 
     -- Apply the UDF to the item, if present, and if result NOT NULL, then
-    if( G_UnTransform ~= nil ) then
-      readValue = G_UnTransform( byteValue );
-    else
-      readValue = byteValue;
-    end
+    readValue = byteValue;
 
-    -- After the transform, we can apply the filter, if it is present.  If
-    -- the value passes the filter (or if there is no filter), then add it
+    -- If the value passes the filter (or if there is no filter), then add it
     -- to the resultList.
     local resultValue;
     if( G_Filter ~= nil ) then
@@ -1577,9 +1525,6 @@ end -- ldrInsertBytes()
 -- ldrInsert()
 -- ======================================================================
 -- Insert (append) the LIST of values (overflow from the HotList) 
--- Call the appropriate method "InsertList()" or "InsertBinary()" to
--- do the storage, based on whether this page is in SM_LIST mode or
--- SM_BINARY mode.
 --
 -- Parms:
 -- (*) ldrSubRec: Hotest of the Warm LDR Sub-Records
@@ -1590,14 +1535,7 @@ end -- ldrInsertBytes()
 -- ======================================================================
 local function ldrInsert(ldrSubRec,ldtMap,listIndex,insertList )
   local meth = "ldrInsert()";
-  GP=E and trace("[ENTER]: <%s:%s> Index(%d) List(%s), LDR Summary(%s)",
-    MOD, meth, listIndex, tostring( insertList ),ldrSummary(ldrSubRec));
-
-  if ldtMap[LC.StoreMode] == SM_LIST then
-    return ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList );
-  else
-    return ldrInsertBytes(ldrSubRec,ldtMap,listIndex,insertList );
-  end
+  return ldrInsertList(ldrSubRec,ldtMap,listIndex,insertList );
 end -- ldrInsert()
 
 -- ======================================================================
@@ -1620,23 +1558,10 @@ local function ldrRead( ldrSubRec, resultList, ldtCtrl, count )
   -- Extract the property map and LDT Map from the LDT Control.
   -- local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
-  local storeMode = ldtMap[LC.StoreMode];
 
-  -- If the page is SM_BINARY mode, then we're using the "Binary" Bin
-  -- LDR_BNRY_BIN, otherwise we're using the "List" Bin LDR_LIST_BIN.
   local numRead = 0;
-  if ldtMap[LC.StoreMode] == SM_LIST then
-    local ldrList = ldrSubRec[LDR_LIST_BIN];
-
-    GP=E and trace("[DEBUG]<%s> LDR List(%s)", meth, tostring(ldrList));
-
-    numRead = readEntryList(resultList, ldtCtrl, ldrList, count);
-  else
-    numRead = readByteArray(resultList, ldtCtrl, ldrSubRec, count);
-  end
-
-  GP=E and trace("[EXIT]: <%s:%s> NumberRead(%d) ResultListSummary(%s) ",
-    MOD, meth, numRead, ldt_common.summarizeList( resultList ));
+  local ldrList = ldrSubRec[LDR_LIST_BIN];
+  numRead = readEntryList(resultList, ldtCtrl, ldrList, count);
   return numRead;
 end -- ldrRead()
 
@@ -1657,44 +1582,26 @@ end -- ldrRead()
 -- ======================================================================
 local function ldrTake( src, topRec, ldrSubRec, resultList, ldtCtrl, count )
   local meth = "ldrTake()";
-  GP=E and trace("[ENTER]: <%s:%s> Count(%d)", MOD, meth, count);
 
   -- Extract the property map and LDT Map from the LDT Control.
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
-  local storeMode = ldtMap[LC.StoreMode];
 
-  -- If the page is SM_BINARY mode, then we're using the "Binary" Bin
-  -- LDR_BNRY_BIN, otherwise we're using the "List" Bin LDR_LIST_BIN.
   local numRead = 0;
   local empty = false;
-  if ldtMap[LC.StoreMode] == SM_LIST then
-    local ldrList = ldrSubRec[LDR_LIST_BIN];
 
-    GP=E and trace("[DEBUG]<%s> LDR List(%s)", meth, tostring(ldrList));
+  local ldrList = ldrSubRec[LDR_LIST_BIN];
 
-    numRead, empty = takeEntryList(resultList, ldtCtrl, ldrList, count);
-    -- Update the SubRec with the updated Entry List, unless it is empty, in
-    -- which case we remove it.
-    if empty then
-      local digestString = tostring(record.digest(ldrSubRec));
-      ldt_common.removeSubRec( src, topRec, propMap, digestString );
-    else
-      ldrSubRec[LDR_LIST_BIN] = ldrList;
-      ldt_common.updateSubRec( src, ldrSubRec );
-    end
-
+  numRead, empty = takeEntryList(resultList, ldtCtrl, ldrList, count);
+  -- Update the SubRec with the updated Entry List, unless it is empty, in
+  -- which case we remove it.
+  if empty then
+    local digestString = tostring(record.digest(ldrSubRec));
+    ldt_common.removeSubRec( src, topRec, propMap, digestString );
   else
-    numRead, empty  = takeByteArray(resultList, ldtCtrl, ldrSubRec, count);
-    -- Update the SubRec with the updated Byte Array.
-    -- TODO: Finish Byte Case.
-    warn("[WARN]<%s:%s> Byte Case not finished", MOD, meth);
-    
+    ldrSubRec[LDR_LIST_BIN] = ldrList;
+    ldt_common.updateSubRec( src, ldrSubRec );
   end
-
-
-  GP=E and trace("[EXIT]: <%s:%s> NumberRead(%d) ResultListSummary(%s) ",
-    MOD, meth, numRead, ldt_common.summarizeList( resultList ));
   return numRead, empty;
 end -- ldrTake()
 
@@ -3587,11 +3494,6 @@ end -- buildSubRecListAll()
 -- ======================================================================
 local function locatePosition( topRec, ldtCtrl, sp, position )
   local meth = "locatePosition()";
-  GP=E and trace("[ENTER]:<%s:%s> LDT(%s) Position(%d)",
-    MOD, meth, tostring( ldtCtrl ), position );
-
-    -- TODO: Finish this later -- if needed at all.
-  warn("[WARNING!!]<%s:%s> FUNCTION UNDER CONSTRUCTION!!! ", MOD, meth );
 
   -- Extract the property map and LDT Map from the LDT Control.
   local propMap = ldtCtrl[LDT_PROP_MAP];
@@ -3601,41 +3503,16 @@ local function locatePosition( topRec, ldtCtrl, sp, position )
   local digestListPosition = 0;    -- if non-zero, we're cold or warm list
   local entryListPosition = 0;     -- The place in the entry list.
 
-  GP=F and trace("[NOTICE!!]<%s:%s> This is LIST MODE ONLY", MOD, meth );
-  -- TODO: Must be extended for BINARY -- MODE.
-  if( ldtMap[LC.StoreMode] == SM_LIST ) then
-    local hotListAmount = list.size( ldtMap[LS.HotEntryList] );
-    local warmListMax = ldtMap[LS.WarmListMax];
-    local warmFullCount = ldtMap[LS.WarmListDigestCount] - 1;
-    local warmTopEntries = ldtMap[LS.WarmTopEntryCount];
-    local warmListPart = (warmFullCount * warmListMax) + warmTopEntries;
-    local warmListAmount = hotListAmount + warmListPart;
-    if( position <= hotListAmount ) then
-      GP=F and trace("[Status]<%s:%s> In the Hot List", MOD, meth );
-      -- It's a hot list position:
-      entryListPosition = position;
-    elseif( position <= warmListAmount ) then
-      GP=F and trace("[Status]<%s:%s> In the Warm List", MOD, meth );
-      -- Its a warm list position: Subtract off the HotList portion and then
-      -- calculate where in the Warm list we are.  Integer divide to locate
-      -- the LDR, modulo to locate the warm List Position in the LDR
-      local remaining = position - hotListAmount;
-      -- digestListPosition = 
-    else
-      GP=F and trace("[Status]<%s:%s> In the Cold List", MOD, meth );
-      -- It's a cold list position: Subract off the Hot and Warm List portions
-      -- to isolate the Cold List part.
-    end
-  else
-      warn("[NOTICE]<%s:%s> MUST IMPLEMENT BINARY MODE!!", MOD, meth );
-      warn("[INCOMPLETE CODE] Binary Mode Not Implemented");
-      error( ldte.ERR_INTERNAL );
+  local hotListAmount = list.size( ldtMap[LS.HotEntryList] );
+  local warmListMax = ldtMap[LS.WarmListMax];
+  local warmFullCount = ldtMap[LS.WarmListDigestCount] - 1;
+  local warmTopEntries = ldtMap[LS.WarmTopEntryCount];
+  local warmListPart = (warmFullCount * warmListMax) + warmTopEntries;
+  local warmListAmount = hotListAmount + warmListPart;
+  if (position <= hotListAmount) then
+    -- It's a hot list position:
+    entryListPosition = position;
   end
-  -- TODO:
-  -- (*) Track Warm and Cold List Capacity
-  -- (*) Track WarmTop Size (how much room is left?)
-
-  GP=E and trace("[EXIT]: <%s:%s>", MOD, meth );
 end -- locatePosition
 
 -- ======================================================================
@@ -3733,7 +3610,7 @@ end -- specialHotCapacityInsert()
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtCtrl: The main control structure
--- (*) newStoreValue: The Post-Transformed value to be pushed on the stack
+-- (*) newStoreValue: value to be pushed on the stack
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ========================================================================
 local function localPush( topRec, ldtCtrl, newStoreValue, src )
@@ -4048,58 +3925,6 @@ local function lstack_delete_subrecs( src, topRec, ldtBinName )
 end -- lstack_delete_subrecs()
 
 -- ======================================================================
--- processModule( moduleName )
--- ======================================================================
--- We expect to see several things from a user module.
--- (*) An adjust_settings() function: where a user overrides default settings
--- (*) Various filter functions (callable later during search)
--- (*) Transformation functions
--- (*) UnTransformation functions
--- The settings and transformation/untransformation are all set from the
--- adjust_settings() function, which puts these values in the control map.
--- ======================================================================
-local function processModule( ldtCtrl, moduleName )
-  local meth = "processModule()";
-  GP=E and trace("[ENTER]<%s:%s> Process User Module(%s)", MOD, meth,
-    tostring( moduleName ));
-
-  local propMap = ldtCtrl[LDT_PROP_MAP];
-  local ldtMap = ldtCtrl[LDT_CTRL_MAP];
-
-  if( moduleName ~= nil ) then
-    if( type(moduleName) ~= "string" ) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid::wrong type(%s)",
-        MOD, meth, tostring(moduleName), type(moduleName));
-      error( ldte.ERR_USER_MODULE_BAD );
-    end
-
-    local createModuleRef = require(moduleName);
-
-    GP=F and trace("[STATUS]<%s:%s> moduleName(%s) Mod Ref(%s)", MOD, meth,
-      tostring(moduleName), tostring(createModuleRef));
-
-    if( createModuleRef == nil ) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid", MOD, meth, moduleName);
-      error( ldte.ERR_USER_MODULE_NOT_FOUND );
-    else
-      local userSettings =  createModuleRef[G_SETTINGS];
-      GP=F and trace("[DEBUG]<%s:%s> Process user Settings(%s) Func(%s)", MOD,
-        meth, tostring(createModuleRef[G_SETTINGS]), tostring(userSettings));
-      if( userSettings ~= nil ) then
-        userSettings( ldtMap ); -- hope for the best.
-        ldtMap[LC.UserModule] = moduleName;
-      end
-    end
-  else
-    warn("[ERROR]<%s:%s>User Module is NIL", MOD, meth );
-  end
-
-  GP=E and trace("[EXIT]<%s:%s> Module(%s) LDT CTRL(%s)", MOD, meth,
-  tostring( moduleName ), tostring(ldtCtrl));
-
-end -- processModule()
-
--- ======================================================================
 -- setupLdtBin()
 -- Caller has already verified that there is no bin with this name,
 -- so we're free to allocate and assign a newly created LDT CTRL
@@ -4119,16 +3944,24 @@ local function setupLdtBin( topRec, ldtBinName, createSpec )
 
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
-  if ( createSpec ~= nil ) then
+  if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
-    if ( createSpecType == "string" ) then
-      processModule( ldtCtrl, createSpec );
-    elseif ( getmetatable(createSpec) == Map ) then
-      ldt_common.adjustLdtMap( ldtCtrl, createSpec, lstackPackage );
+    if (createSpecType == "string") then
+      ldt_common.processModule(ldtCtrl, createSpec);
+      lstackPackage.compute_settings(ldtMap, ldtMap);
+    elseif (getmetatable(createSpec) == Map) then
+      lstackPackage.compute_settings(ldtMap, createSpec);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
+  elseif firstValue ~= nil then
+    local key  = getKeyValue(ldtMap, firstValue);
+    createSpec = {};
+    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
+    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
+    -- Use First value
+    lstackPackage.compute_settings(ldtMap, createSpec);
   end
 
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
@@ -4465,24 +4298,9 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  -- Set up the Write Functions (Transform).  But, just in case we're
-  -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
-  -- Note that KeyFunction would be used only for special TIMESTACK function.
-  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions(ldtMap, nil, nil );
-  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil );
 
-  -- Now, it looks like we're ready to insert.  If there is a transform
-  -- function present, then apply it now.
-  -- Note: G_Transform is "global" to this module, defined at top of file.
-  local newStoreValue;
-  if( G_Transform ~= nil ) then
-    GP=F and trace("[DEBUG]: <%s:%s> Applying Transform (%s)",
-      MOD, meth, tostring(G_Transform));
-    newStoreValue = G_Transform( newValue );
-  else
-    newStoreValue = newValue;
-  end
+  local newStoreValue = newValue;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -4570,12 +4388,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  -- Set up the Write Functions (Transform).  But, just in case we're
-  -- in special TIMESTACK mode, set up the KeyFunction and ReadFunction
-  -- Note that KeyFunction would be used only for special TIMESTACK function.
-  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  G_Filter, G_UnTransform = ldt_common.setReadFunctions( ldtMap, nil, nil );
-  G_Transform = ldt_common.setWriteFunctions( ldtMap );
+  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -4596,17 +4409,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
   if( valueList ~= nil and list.size(valueList) > 0 ) then
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
-
-      -- Now, it looks like we're ready to insert.  If there is a transform
-      -- function present, then apply it now.
-      -- Note: G_Transform is "global" to this module, defined at top of file.
-      if( G_Transform ~= nil ) then
-        GP=F and trace("[DEBUG]: <%s:%s> Applying Transform (%s)",
-          MOD, meth, tostring(G_Transform));
-        newStoreValue = G_Transform( valueList[i] );
-      else
-        newStoreValue = valueList[i];
-      end
+      local newStoreValue = valueList[i];
       localPush( topRec, ldtCtrl, newStoreValue, src );
 
     end -- For each item in the valueList
@@ -4706,11 +4509,7 @@ lstack.peek( topRec, ldtBinName, peekCount, filterModule, filter, fargs, src )
   GP=F and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
-  -- Note that KeyFunction would be used only for special TIMESTACK function.
-  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions(ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions(ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4722,7 +4521,6 @@ lstack.peek( topRec, ldtBinName, peekCount, filterModule, filter, fargs, src )
   end
 
   -- Build the user's "resultList" from the items we find that qualify.
-  -- They must pass the "transformFunction()" filter.
   -- Also, Notice that we go in reverse order -- to get the "stack function",
   -- which is Last In, First Out.
   
@@ -4875,11 +4673,7 @@ lstack.pop( topRec, ldtBinName, popCount, filterModule, filter, fargs, src )
   GP=D and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  -- Set up the Read Functions (KeyFunction, UnTransform, Filter)
-  -- Note that KeyFunction would be used only for special TIMESTACK function.
-  -- G_KeyFunction = ldt_common.setKeyFunction( ldtMap, false, G_KeyFunction );
-  G_Filter, G_UnTransform =
-    ldt_common.setReadFunctions(ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions(ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4891,7 +4685,6 @@ lstack.pop( topRec, ldtBinName, popCount, filterModule, filter, fargs, src )
   end
 
   -- Build the user's "resultList" from the items we find that qualify.
-  -- They must pass the "transformFunction()" filter.
   -- Also, Notice that we go in reverse order -- to get the "stack function",
   -- which is Last In, First Out.
   

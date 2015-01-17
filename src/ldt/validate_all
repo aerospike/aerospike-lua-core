@@ -2,44 +2,34 @@
 # Usage:  validate_all
 
 echo CRC32.lua
-luac -p -l CRC32.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l CRC32.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo ldt_common.lua
-luac -p -l ldt_common.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l ldt_common.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo ldt_errors.lua
-luac -p -l ldt_errors.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-#echo lib_lbytes.lua
-#luac -p -l lib_lbytes.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l ldt_errors.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo lib_llist.lua
-luac -p -l lib_llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l lib_llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo lib_lmap.lua
-luac -p -l lib_lmap.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l lib_lmap.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo lib_lset.lua
-luac -p -l lib_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l lib_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo lib_lstack.lua
-luac -p -l lib_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-#echo lib_test.lua
-#luac -p -l lib_test.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l lib_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo settings_llist.lua
-luac -p -l settings_llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l settings_llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo settings_lmap.lua
-luac -p -l settings_lmap.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l settings_lmap.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo settings_lset.lua
-luac -p -l settings_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
+luac -p -l settings_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
 
 echo settings_lstack.lua
-luac -p -l settings_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
-echo UdfFunctionTable.lua
-luac -p -l UdfFunctionTable.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type"
-
+luac -p -l settings_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
