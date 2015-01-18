@@ -1057,18 +1057,18 @@ local function setupLdtBin( topRec, ldtBinName, firstName, firstValue, createSpe
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
       ldt_common.processModule(ldtCtrl, createSpec);
-      lsetPackage.compute_settings(ldtMap, ldtMap);
+      lmapPackage.compute_settings(ldtMap, ldtMap);
     elseif (getmetatable(createSpec) == Map) then
-      lsetPackage.compute_settings(ldtMap, createSpec);
+      lmapPackage.compute_settings(ldtMap, createSpec);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
     end
   elseif firstValue ~= nil then
-    local key  = getKeyValue(ldtMap, firstValue);
     createSpec = {};
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
+    createSpec["MaxObjectCount"] = 100000;
+    createSpec["MaxKeySize"] = ldt_common.getValSize(firstName);
     -- Use First value
     lmapPackage.compute_settings(ldtMap, createSpec);
   end
@@ -1187,7 +1187,7 @@ local function  ldrSubRecSummary( subRec )
     return "NULL LDR PROPERTY BIN";
   end;
 
-  local resultMap = map();
+  local resultMap = {};
   local subRecCtrlMap = subRec[LDR_CTRL_BIN];
   local subRecPropMap = subRec[SUBREC_PROP_BIN];
 

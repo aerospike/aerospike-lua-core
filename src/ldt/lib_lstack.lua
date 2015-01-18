@@ -572,7 +572,7 @@ end -- function ldtMapSummary
 -- Provide a string version of the LDT Map Summary.
 -- ======================================================================
 local function ldtMapSummaryString( ldtMap )
-  local resultMap = map();
+  local resultMap = {};
   ldtMapSummary(resultMap, ldtMap);
   return tostring(resultMap);
 end
@@ -627,7 +627,7 @@ local function ldtDebugDump( ldtCtrl )
   local meth = "ldtDebugDump()";
 
   -- Print MOST of the "TopRecord" contents of this LMAP object.
-  local resultMap                = map();
+  local resultMap                = {};
   resultMap.SUMMARY              = "LSTACK Summary";
 
   trace("\n\n <><><><><><><><><> [ LDT LSTACK SUMMARY ] <><><><><><><><><> \n");
@@ -663,7 +663,7 @@ local function ldtDebugDump( ldtCtrl )
 
   -- Reset for each section, otherwise the result would be too much for
   -- the info call to process, and the information would be truncated.
-  local resultMap2 = map();
+  local resultMap2 = {};
   resultMap2.SUMMARY              = "LSTACK-SPECIFIC Values";
 
   -- Load the LMAP-specific properties
@@ -672,7 +672,7 @@ local function ldtDebugDump( ldtCtrl )
   resultMap2 = nil;
 
   -- Print the Hash Directory
-  local resultMap3 = map();
+  local resultMap3 = {};
   resultMap3.SUMMARY              = "LSTACK Hot List";
   resultMap3.HotEntryList         = ldtMap[LS.HotEntryList];
   trace("\n<<<%s>>>\n", tostring(resultMap3));
@@ -3931,7 +3931,7 @@ end -- lstack_delete_subrecs()
 -- in this bin.
 -- ALSO:: Caller write out the LDT bin after this function returns.
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, createSpec ) 
+local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec ) 
   local meth = "setupLdtBin()";
   GP=E and info("[ENTER]<%s:%s> Bin(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -3956,10 +3956,8 @@ local function setupLdtBin( topRec, ldtBinName, createSpec )
         MOD, meth, tostring( createSpec ));
     end
   elseif firstValue ~= nil then
-    local key  = getKeyValue(ldtMap, firstValue);
     createSpec = {};
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
     -- Use First value
     lstackPackage.compute_settings(ldtMap, createSpec);
   end
@@ -4219,7 +4217,7 @@ function lstack.create( topRec, ldtBinName, createSpec )
   
   GP=F and trace("[DEBUG]: <%s:%s> : Initialize SET CTRL Map", MOD, meth );
   -- We need a new LDT bin -- set it up.
-  local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
+  local ldtCtrl = setupLdtBin( topRec, ldtBinName, nil, createSpec );
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
@@ -4289,7 +4287,7 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
       MOD, meth );
 
     -- set up a new LDT bin
-    setupLdtBin( topRec, ldtBinName, createSpec );
+    setupLdtBin( topRec, ldtBinName, newValue, createSpec );
   end
 
   local ldtCtrl = topRec[ldtBinName]; -- The main lmap
@@ -4379,7 +4377,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
       MOD, meth );
 
     -- set up a new LDT bin
-    setupLdtBin( topRec, ldtBinName, createSpec );
+    setupLdtBin( topRec, ldtBinName, valueList[0], createSpec );
   end
 
   local ldtCtrl = topRec[ldtBinName]; -- The main lmap
