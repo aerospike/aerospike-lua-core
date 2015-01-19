@@ -2476,7 +2476,7 @@ end -- validateRecBinAndMap()
 -- Return:
 --   The newly created ldtCtrl Map
 -- ======================================================================
-local function setupLdtBin( topRec, ldtBinName, createSpec ) 
+local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec ) 
   local meth = "setupLdtBin()";
   GP=E and trace("[ENTER]<%s:%s> binName(%s)",MOD,meth,tostring(ldtBinName));
 
@@ -2507,6 +2507,7 @@ local function setupLdtBin( topRec, ldtBinName, createSpec )
     local key  = getKeyValue(ldtMap, firstValue);
     createSpec = {};
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
+    createSpec["MaxObjectCount"] = 100000;
     createSpec["MaxKeySize"] = ldt_common.getValSize(key);
     -- Use First value
     lsetPackage.compute_settings(ldtMap, createSpec);
@@ -3261,7 +3262,7 @@ function lset.create( topRec, ldtBinName, createSpec )
   GP=F and trace("[DEBUG]: <%s:%s> : Initialize SET CTRL Map", MOD, meth );
 
   -- We need a new LDT bin -- set it up.
-  local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec );
+  local ldtCtrl = setupLdtBin( topRec, ldtBinName, nil, createSpec );
 
   -- For debugging, print out our main control map.
   GP=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3322,7 +3323,7 @@ function lset.add( topRec, ldtBinName, newValue, createSpec, src, commit)
          MOD, meth, tostring( ldtBinName ));
 
     -- We need a new LDT bin -- set it up.
-    setupLdtBin( topRec, ldtBinName, createSpec );
+    setupLdtBin( topRec, ldtBinName, newValue, createSpec );
   end
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open

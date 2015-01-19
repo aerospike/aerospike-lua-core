@@ -250,7 +250,7 @@ local exports = {}
       (pageAvailableBytes < compactListByteCeiling) and
       (pageAvailableBytes) or compactListByteCeiling;
 
-    debug("[DEBUG]<%s:%s> PageAvail(%d) CompListCeiling(%d) CompListTarget(%d)",
+    GP=D and info("[DEBUG]<%s:%s> PageAvail(%d) CompListCeiling(%d) CompListTarget(%d)",
       MOD, meth, pageAvailableBytes, compactListCountCeiling,
       compactListTargetBytes);
 

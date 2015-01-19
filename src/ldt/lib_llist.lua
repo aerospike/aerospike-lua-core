@@ -572,7 +572,7 @@ local function ldtSummary( ldtCtrl )
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
   
-  local resultMap             = {};
+  local resultMap             = map();
   resultMap.SUMMARY           = "LList Summary";
 
   -- General Properties (the Properties Bin

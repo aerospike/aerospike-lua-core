@@ -120,15 +120,12 @@ local exports = {}
     -- Now that all of the values have been validated, we can use them
     -- safely without worry.  No more checking needed.
     local maxObjectSize   = configMap.MaxObjectSize;
-    local maxKeySize      = configMap.MaxKeySize;
     local pageSize        = configMap.TargetPageSize;
     local writeBlockSize  = configMap.WriteBlockSize;
     local recordOverHead  = configMap.RecordOverHead;
 
     GP=F and info("[INPUT]<%s:%s> MaxObjSize(%d)", MOD, meth,
       maxObjectSize);
-    GP=F and info("[INPUT]<%s:%s> MaxKeySize(%d)", MOD, meth,
-      maxKeySize);
     GP=F and info("[INPUT]<%s:%s> PageSize(%d) WriteBlkSize(%d)", MOD, meth,
       pageSize, writeBlockSize);
     GP=F and info("[INPUT]<%s:%s> RecOH(%d)", MOD, meth,

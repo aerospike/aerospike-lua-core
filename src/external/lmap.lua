@@ -126,17 +126,16 @@ function exists( topRec, ldtBinName, searchName )
 end -- exists()
 
 -- ========================================================================
--- keyList() -- Return a list containing ALL name/value pairs.
--- ========================================================================
-function scan( topRec, ldtBinName )
-  return llist.find(topRec, ldtBinName, nil);
-end -- scan()
-
--- ========================================================================
 -- scan() -- Return a map containing ALL name/value pairs.
 -- ========================================================================
 function scan( topRec, ldtBinName )
-  return llist.scan(topRec, ldtBinName, nil, nil, nil, nil, nil);
+  local resultList = llist.scan(topRec, ldtBinName, nil, nil, nil, nil, nil);
+  local resultMap = map();
+  for i = 1, #resultList, 1 do
+    local l = resultList[i];
+    resultMap[l['key']] = l['value'];
+  end
+  return resultMap;
 end -- scan()
 
 -- ========================================================================
@@ -144,7 +143,14 @@ end -- scan()
 --             thru the supplied filter( fargs ).
 -- ========================================================================
 function filter( topRec, ldtBinName, filterModule, filter, fargs )
-  return llist.scan(topRec, ldtBinName, nil, filterModule, filter, fargs, nil);
+  local resultList = llist.scan(topRec, ldtBinName, nil, filterModule, filter, fargs, nil);
+  local resultMap = map();
+  for i = 1, #resultList, 1 do
+    local l = resultList[i];
+    resultMap[l['key']] = l['value'];
+  end
+  return resultMap;
+
 end -- filter()
 
 -- ========================================================================
