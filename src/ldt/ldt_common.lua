@@ -1315,6 +1315,10 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
     (configMap.RecordOverHead ~= nil and configMap.RecordOverHead) or
     DEFAULT_RECORD_OVERHEAD;
 
+  local userPageSize         =
+    (configMap.PageSize ~= nil and configMap.PageSize) or
+    DEFAULT_TARGET_PAGESIZE;
+
   if  ldtMap          == nil or
       maxObjectSize   == nil or type(maxObjectSize)  ~= "number" or
       maxKeySize      == nil or type(maxKeySize)     ~= "number" or
@@ -1378,6 +1382,7 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
   configMap.MaxObjectSize   = maxObjectSize;
   configMap.MaxKeySize      = maxKeySize;
   configMap.TargetPageSize  = pageSize;
+  configMap.PageSize        = userPageSize;
   configMap.WriteBlockSize  = writeBlockSize;
   configMap.RecordOverHead  = recordOverHead;
 
@@ -1393,24 +1398,17 @@ end -- ldt_common.validateConfigParms()
 -- (*) Various filter functions (callable later during search)
 -- adjust_settings() function, which puts these values in the control map.
 -- ======================================================================
-function ldt_common.processModule(ldtMap, moduleName)
+function ldt_common.processModule(ldtMap, configMap, moduleName)
   local meth = "processModule()";
 
   if (moduleName ~= nil) then
-    if (type(moduleName) ~= "string") then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid::wrong type(%s)",
-        MOD, meth, tostring(moduleName), type(moduleName));
-      error( ldte.ERR_USER_MODULE_BAD );
-    end
-
     local userModule = require(moduleName);
     if (userModule == nil) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid", MOD, meth, moduleName);
       error( ldte.ERR_USER_MODULE_NOT_FOUND );
     else
-      local userSettings =  userModule[G_SETTINGS];
+      local userSettings = userModule[G_SETTINGS];
       if (userSettings ~= nil) then
-        userSettings( ldtMap ); -- hope for the best.
+        userSettings(configMap); -- Update based on user need
         ldtMap[LC.UserModule] = moduleName;
       end
     end

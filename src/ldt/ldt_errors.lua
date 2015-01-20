@@ -54,8 +54,8 @@ local exports = {
   ERR_FILTER_NOT_FOUND     ="1431:LDT-Read Filter Not Found",
   ERR_KEY_BAD              ="1432:LDT-Bad Key Type",
   ERR_KEY_FIELD_NOT_FOUND  ="1433:LDT-Key Field Not Found",
-  ERR_USER_MODULE_BAD      ="1438:LDT-Bad User Module Name",
-  ERR_USER_MODULE_NOT_FOUND="1439:LDT-User Module Not Found",
+  ERR_INPUT_CREATESPEC     ="1438:LDT-Input Create Specification Error",
+  ERR_INPUT_USER_MODULE_NOT_FOUND="1439:LDT-User Module Not Found",
   ERR_INPUT_TOO_LARGE      ="1440:LDT-Input Too Large",
   ERR_NS_LDT_NOT_ENABLED   ="1500:LDT-Not Enabled on Namespace"
 

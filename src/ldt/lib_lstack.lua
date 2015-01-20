@@ -3956,6 +3956,7 @@ local function compute_settings(ldtMap, configMap )
   local pageSize        = configMap.TargetPageSize;
   local writeBlockSize  = configMap.WriteBlockSize;
   local recordOverHead  = configMap.RecordOverHead;
+  local userPageSize    = configMap.PageSize;
 
   -- These are the values that we have to set.
   local hotListMax;     -- # of elements stored in the hot list
@@ -4047,6 +4048,10 @@ local function compute_settings(ldtMap, configMap )
     ldrListMax = math.floor(pageSize / maxObjectSize);
   end
 
+  if (ldrListMax < (userPageSize / maxObjectSize)) then
+    ldrListMax = math.floor(userPageSize / maxObjectSize)
+  end
+
   -- The Cold List can really stay unbounded, but if we have a conservative
   -- "Max Object Count", then we can really compute our upper bounds.
   -- However, for larger key sizes, we may have to
@@ -4085,26 +4090,22 @@ local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec )
 
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
+  local configMap = {};
+
   if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
-      ldt_common.processModule(ldtCtrl, createSpec);
-      compute_settings(ldtMap, ldtMap);
+      ldt_common.processModule(ldtMap, configMap, createSpec); -- Use Module
     elseif (getmetatable(createSpec) == Map) then
-      compute_settings(ldtMap, createSpec);
-    else
-      warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( createSpec ));
+      configMap = createSpec; -- Use Passed in Map
+    else 
+      error(ldte.ERR_INPUT_CREATESPEC);
     end
   elseif firstValue ~= nil then
-    createSpec = {};
-    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
     -- Use First value
-    compute_settings(ldtMap, createSpec);
+    configMap.MaxObjectSize = ldt_common.getValSize(firstValue);
   end
-
-  GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",
-                 MOD, meth , tostring(ldtMap));
+  compute_settings(ldtMap, configMap);
 
   -- Sets the topRec control bin attribute to point to the 2 item list
   -- we created from initializeLdtCtrl() : 

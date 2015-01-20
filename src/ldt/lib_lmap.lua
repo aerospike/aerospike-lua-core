@@ -1069,6 +1069,7 @@ local function compute_settings(ldtMap, configMap )
   local pageSize        = configMap.TargetPageSize;
   local writeBlockSize  = configMap.WriteBlockSize;
   local recordOverHead  = configMap.RecordOverHead;
+  local userPageSize    = configMap.PageSize;
 
   -- These are the values that we have to set.
   local storeState;          -- Start Compact or Regular
@@ -1155,6 +1156,10 @@ local function compute_settings(ldtMap, configMap )
   -- LDT Data Record (LDR) List Limit
   ldrListMax = math.floor(dataRecByteLimit / maxObjectSize);
 
+  if (ldrListMax * maxObjectSize) < (userPageSize - ldrOverHead) then
+    ldrListMax = math.floor((userPageSize - ldrOverHead) / maxObjectSize);
+  end
+
   -- Apply our computed values to the LDT Map.
   ldtMap[LS.StoreState]       = storeState;
   ldtMap[LS.Modulo]           = hashDirSize;
@@ -1192,25 +1197,25 @@ local function setupLdtBin( topRec, ldtBinName, firstName, firstValue, createSpe
   
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
+  local configMap = {};
+
   if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
-      ldt_common.processModule(ldtCtrl, createSpec);
-      compute_settings(ldtMap, ldtMap);
+      ldt_common.processModule(ldtMap, configMap, createSpec); -- Use Module
     elseif (getmetatable(createSpec) == Map) then
-      compute_settings(ldtMap, createSpec);
-    else
-      warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( createSpec ));
+      configMap = createSpec; -- Use Passed in Map
+    else 
+      error(ldte.ERR_INPUT_CREATESPEC);
     end
   elseif firstValue ~= nil then
-    createSpec = {};
-    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxObjectCount"] = 100000;
-    createSpec["MaxKeySize"] = ldt_common.getValSize(firstName);
     -- Use First value
-    compute_settings(ldtMap, createSpec);
+    local key  = getKeyValue(ldtMap, firstValue);
+    configMap.MaxObjectSize = ldt_common.getValSize(firstValue);
+    configMap.MaxObjectCount = 100000;
+    configMap.MaxKeySize = ldt_common.getValSize(key);
   end
+  compute_settings(ldtMap, configMap);
 
   -- Set up our Bin according to the initial State: Compact List or Hash Dir.
   if ldtMap[LS.StoreState] == SS_REGULAR then

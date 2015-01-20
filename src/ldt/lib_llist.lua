@@ -1314,37 +1314,6 @@ end -- objectCompare()
 --       : 5 < 10, Want Child A
 
 
--- THIS FUNCTION APPEARS TO NOT BE USED.
--- ======================================================================
--- initPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
--- ======================================================================
--- -- Set up the LDR Property Map (one PM per LDT)
--- Parms:
--- (*) propMap: 
--- (*) esrDigest:
--- (*) selfDigest:
--- (*) topDigest:
--- (*) rtFlag:
--- (*) topPropMap:
--- ======================================================================
-local function
-initPropMap( propMap, esrDigest, selfDigest, topDigest, rtFlag, topPropMap )
-  local meth = "initPropMap()";
-
-  -- Remember the ESR in the Top Record
-  topPropMap[PM.EsrDigest] = esrDigest;
-
-  -- Initialize the PropertyMap of the new ESR
-  propMap[PM.EsrDigest]    = esrDigest;
-  propMap[PM.RecType  ]    = rtFlag;
-  propMap[PM.Magic]        = MAGIC;
-  propMap[PM.ParentDigest] = topDigest;
-  propMap[PM.SelfDigest]   = selfDigest;
-  -- For subrecs, set create time to ZERO.
-  propMap[PM.CreateTime]   = 0;
-
-end -- initPropMap()
-
 -- ======================================================================
 -- searchKeyListLinear(): Search the Key list in a Root or Inner Node
 -- ======================================================================
@@ -5317,6 +5286,9 @@ local function compute_settings(ldtMap, configMap )
   local pageSize        = configMap.TargetPageSize;
   local writeBlockSize  = configMap.WriteBlockSize;
   local recordOverHead  = configMap.RecordOverHead;
+  local userPageSize    = configMap.PageSize;
+
+  info ("USER PAGE SIZE is %d %d", userPageSize, pageSize);
 
   -- If set by user pick Store Limit and KeyUnique
   if (configMap.StoreLimit ~= nil) then
@@ -5394,6 +5366,11 @@ local function compute_settings(ldtMap, configMap )
     end
   end
 
+  -- Override using user defined page size. This is for storage optimization
+  if ((leafListMax * maxObjectSize) < (userPageSize - recordOverHead)) then
+    leafListMax = math.floor((userPageSize - recordOverHead)/ maxObjectSize);
+  end
+
   -- SET UP NODE SIZE VALUES.
   -- Try for at least 100 objects in the nodes, and no more than 200.
   -- However, for larger key sizes, we may have to
@@ -5414,6 +5391,12 @@ local function compute_settings(ldtMap, configMap )
       error(ldte.ERR_INPUT_PARM);
     end
   end
+
+  -- Override using user defined page size. This is for storage optimization
+  if ((nodeListMax * maxKeySize) < (userPageSize - recordOverHead)) then
+    nodeListMax = math.floor((userPageSize - recordOverHead)/ maxKeySize);
+  end
+
 
   -- SET UP ROOT SIZE VALUES.
   -- Try for at least 20 objects in the nodes, and no more than 100.
@@ -5466,27 +5449,24 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
   
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
+  
+  local configMap = {};
   if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
-      -- Use Module
-      ldt_common.processModule(ldtMap, createSpec);
-      compute_settings(ldtMap, ldtMap);
+      ldt_common.processModule(ldtMap, configMap, createSpec); -- Use Module
     elseif (getmetatable(createSpec) == Map) then
-      -- Use Passed in Spec
-      compute_settings(ldtMap, createSpec);
+      configMap = createSpec; -- Use Passed in Map
     else 
-      warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( createSpec ));
+      error(ldte.ERR_INPUT_CREATESPEC);
     end
   elseif firstValue ~= nil then
-    local key  = getKeyValue(ldtMap, firstValue);
-    createSpec = {};
-    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
     -- Use First value
-    compute_settings(ldtMap, createSpec);
+    local key  = getKeyValue(ldtMap, firstValue);
+    configMap.MaxObjectSize = ldt_common.getValSize(firstValue);
+    configMap.MaxKeySize = ldt_common.getValSize(key);
   end
+  compute_settings(ldtMap, configMap);
 
   -- Set up our Bin according to which type of storage we're starting with.
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 

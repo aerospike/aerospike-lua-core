@@ -2624,28 +2624,25 @@ local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec )
   
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
+  local configMap = {};
+
   if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
-      -- Use Module
-      ldt_common.processModule(ldtMap, createSpec);
-      compute_settings(ldtMap, ldtMap);
+      ldt_common.processModule(ldtMap, configMap, createSpec); -- Use Module
     elseif (getmetatable(createSpec) == Map) then
-      -- Use Passed in Spec
-      compute_settings(ldtMap, createSpec);
+      configMap = createSpec; -- Use Passed in Map
     else 
-      warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( createSpec ));
+      error(ldte.ERR_INPUT_CREATESPEC);
     end
   elseif firstValue ~= nil then
-    local key  = getKeyValue(ldtMap, firstValue);
-    createSpec = {};
-    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxObjectCount"] = 100000;
-    createSpec["MaxKeySize"] = ldt_common.getValSize(key);
     -- Use First value
-    compute_settings(ldtMap, createSpec);
+    local key  = getKeyValue(ldtMap, firstValue);
+    configMap.MaxObjectSize = ldt_common.getValSize(firstValue);
+    configMap.MaxObjectCount = 100000;
+    configMap.MaxKeySize = ldt_common.getValSize(key);
   end
+  compute_settings(ldtMap, configMap);
 
   -- Set up our Bin according to the initial state.  The default init
   -- has already setup for Compact List, but if we're starting in regular
