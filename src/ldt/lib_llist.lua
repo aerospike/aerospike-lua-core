@@ -122,10 +122,6 @@ local nodeDelete;
 -- return looks like this:
 -- error( ldte.ERR_INTERNAL );
 local ldte = require('ldt/ldt_errors');
-
--- We have a set of packaged settings for each LDT
-local llistPackage = require('ldt/settings_llist');
-
 local ldt_common = require('ldt/ldt_common');
 
 -- These values should be "built-in" for our Lua, but it is either missing
@@ -245,13 +241,6 @@ local AS_FALSE='F';
 -- StoreState (SS) values (which "state" is the set in?)
 local SS_COMPACT ='C'; -- Using "single bin" (compact) mode
 local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
-
--- KeyDataType (KDT) value
-local KDT = {
-  NUMBER = 'N'; -- The key (or derived key) is a NUMBER
-  STRING = 'S'; -- The key (or derived key) is a STRING
-  BYTES  = 'B'; -- The key (or derived key) is a BYTE array
-};
 
 -- << Search Constants >>
 -- Use Numbers so that it translates to our C conventions
@@ -384,7 +373,6 @@ local LS = {
   LeafCount           = 'c',-- A count of all Leaf Nodes
   NodeCount           = 'C',-- A count of all Nodes (including Leaves)
   TreeLevel           = 'l',-- Tree Level (Root::Inner nodes::leaves)
-  KeyDataType         = 'd',-- Data Type of key (Number, Integer)
   KeyUnique           = 'U',-- Are Keys Unique? (AS_TRUE or AS_FALSE))
   StoreState          = 'S',-- Compact or Regular Storage
   Threshold           = 'H',-- After this#:Move from compact to tree mode
@@ -411,12 +399,10 @@ local LS = {
 -- ----------------------------------------------------------------------
 -- A:LS.LeftLeafDigest         a:                         0:
 -- C:LS.NodeCount              c:LS.LeafCount             2:
--- D:LS.RootDigestList         d:LS.KeyDataType           3:
 -- E:                          e:                         4:
 -- G:                          g:                         6:
 -- H:LS.Threshold              h:                         7:
 -- I:                          i:                         8:
--- K:LS.RootKeyList            k:LC.KeyType         
 -- L:                          l:LS.TreeLevel          
 -- N:SPECIAL(LBYTES)           n:SPECIAL(LBYTES)
 -- O:SPECIAL(LBYTES)           o:SPECIAL(LBYTES)
@@ -1214,8 +1200,7 @@ end -- getKeyValue();
 -- ======================================================================
 -- Compare Search Key Value with KeyList, following the protocol for data
 -- compare types.  Since compare uses only atomic key types (the value
--- that would be the RESULT of the extractKey() function), we can do the
--- simple compare here, and we don't need "keyType".
+-- that would be the RESULT of the extractKey() function), 
 -- CR.LESS_THAN    (-1) for searchKey <  dataKey,
 -- CR.EQUAL        ( 0) for searchKey == dataKey,
 -- CR.GREATER_THAN ( 1) for searchKey >  dataKey
@@ -1262,10 +1247,6 @@ end -- keyCompare()
 -- ======================================================================
 local function objectCompare( ldtMap, searchKey, objectValue )
   local meth = "objectCompare()";
-  local keyType = ldtMap[LC.KeyType];
-
-  GP=D and trace("[ENTER]<%s:%s> keyType(%s) searchKey(%s) data(%s)",
-    MOD, meth, tostring(keyType), tostring(searchKey), tostring(objectValue));
 
   local result = CR.INTERNAL_ERROR; -- Expect result to be reassigned.
 
@@ -1289,7 +1270,6 @@ local function objectCompare( ldtMap, searchKey, objectValue )
       error(ldte.ERR_TYPE_MISMATCH);
     end
 
-    -- For atomic types (keyType == 0), compare objects directly
     if searchKey == objectKey then
       result = CR.EQUAL;
     elseif searchKey < objectKey then
@@ -1689,9 +1669,6 @@ end --searchKeyList()
 -- ======================================================================
 local function searchObjectListLinear( ldtMap, objectList, searchKey )
   local meth = "searchObjectListLinear()";
-  local keyType = ldtMap[LC.KeyType];
-  GP=D and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
-    MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
 
   local resultMap = {};
   resultMap.Position = 0;
@@ -1788,9 +1765,6 @@ end -- searchObjectListLinear()
 -- ======================================================================
 local function searchObjectListBinary( ldtMap, objectList, searchKey )
   local meth = "searchObjectListBinary()";
-  local keyType = ldtMap[LC.KeyType];
-  GP=D and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
-    MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
 
   local resultMap = {};
   resultMap.Status = ERR.OK;
@@ -1920,10 +1894,6 @@ end -- searchObjectListBinary()
 -- ======================================================================
 local function searchObjectList( ldtMap, objectList, searchKey )
   local meth = "searchObjectList()";
-  local keyType = ldtMap[LC.KeyType];
-  GP=D and trace("[ENTER]<%s:%s>searchKey(%s) keyType(%s) ObjList(%s)",
-    MOD, meth, tostring(searchKey), tostring(keyType), tostring(objectList));
-
 
   -- If we're given a nil searchKey, then we say "found" and return
   -- position 1 -- basically, to set up Scan.
@@ -3839,9 +3809,6 @@ local function computeDuplicateSplit(ldtMap, objectList)
     return 0;
   end
 
-  -- Remove this if we do not need it.
-  local keyType = ldtMap[LC.KeyType];
-
   -- Start at the BEST position (the middle), and find the closest place
   -- to there to split.
   local startPosition = math.floor(list.size(objectList) / 2);
@@ -5311,6 +5278,175 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   return rc;
 end -- treeDelete()
 
+-- This function takes in the user's settings and sets the appropriate
+-- values in the LDT mechanism.
+--
+-- All parameters must be numbers.  testMode is optional, but if it
+-- exists, it must be a number.
+-- ldtMap        :: The main control Map of the LDT
+-- configMap     :: A Map of Config Settings.
+--
+-- The values we expect to see in the configMap will be one or more of
+-- the following values.  For any value NOT seen in the map, we will use
+-- the published default value.
+--
+-- MaxObjectSize :: the maximum object size (in bytes).
+-- MaxKeySize    :: the maximum Key size (in bytes).
+-- WriteBlockSize:: The namespace Write Block Size (in bytes)
+-- PageSize      :: Targetted Page Size (8kb to 1mb)
+-- KeyUnique     :: If key is unique default: Unique
+-- StoreLimit    :: StoreLimit
+-- ========================================================================
+-- ======================================================================
+local function compute_settings(ldtMap, configMap )
+  local meth="compute_settings()"
+ 
+  -- Perform some validation of the user's Config Parameters.
+  -- Notice that this is done only once at the initial create.
+  local rc = ldt_common.validateConfigParms(ldtMap, configMap);
+  if rc ~= 0 then
+    warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
+      MOD, meth);
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  -- Now that all of the values have been validated, we can use them
+  -- safely without worry.  No more checking needed.
+  local maxObjectSize   = configMap.MaxObjectSize;
+  local maxKeySize      = configMap.MaxKeySize;
+  local pageSize        = configMap.TargetPageSize;
+  local writeBlockSize  = configMap.WriteBlockSize;
+  local recordOverHead  = configMap.RecordOverHead;
+
+  -- If set by user pick Store Limit and KeyUnique
+  if (configMap.StoreLimit ~= nil) then
+    ldtMap[LC.StoreLimit] = configMap.StoreLimit;
+  end
+
+  if (configMap.KeyUnique ~= nil) then
+    if (configMap.KeyUnique == true) then
+      ldtMap[LC.KeyUnique]  = AS_TRUE;
+    else
+      ldtMap[LC.KeyUnique]  = AS_FALSE;
+    end
+  end
+
+  -- These are the values we're going to set.
+  local threshold; -- # of objects that we initially cache in the TopRec
+  local rootListMax; -- # of Key/Digest entries we hold in the TopRec
+  local nodeListMax; -- # of Key/Digest entries we hold in a Node SubRec.
+  local leafListMax; -- # of Data Objects we hold in a Leaf SubRec
+
+  local ldtOverHead = 500; -- Overhead in Bytes.  Used in Root Node calc.
+  recordOverHead = recordOverHead + ldtOverHead;
+
+  -- Set up our ceilings:
+  -- First, set up our Compact List Threshold ceiling.
+  -- To have a compact list for LLIST, we must have at least four
+  -- elements.  And, those minimum four elements must fit in the
+  -- allotted amount (no more than 100k, no more than 1/2 the page),
+  -- even after allowing for record overhead.
+  --
+  -- The validateConfigParms() call will have pushed up our practical
+  -- page size to the max limit if it was set arbitrarily small, so
+  -- we start there.
+  --
+  -- SET UP COMPACT LIST THRESHOLD VALUE.
+  local maxThresholdCeiling = 10 * 1024;
+  local maxThresholdCount = 100;
+  local bytesAvailable = math.floor(pageSize / 2) - recordOverHead;
+  if (bytesAvailable > maxThresholdCeiling) then
+    bytesAvailable = maxThresholdCeiling;
+  end
+
+  -- If we can't hold at least 4 objects, then skip the compact list.
+  if ((maxObjectSize * 4) > bytesAvailable) then
+    threshold = 0;
+    ldtMap[LS.StoreState] = SS_REGULAR; -- start in "compact mode"
+  else
+    threshold = math.floor(bytesAvailable / maxObjectSize);
+    if (threshold > maxThresholdCount) then
+      threshold = maxThresholdCount;
+    end
+    ldtMap[LS.StoreState] = SS_COMPACT; -- start in "compact mode"
+  end
+
+  -- SET UP LEAF SIZE VALUES.
+  -- Note that the validateConfigParms() call has already adjusted the
+  -- requested pagesize to either hold at least 10 items, or to be max size.
+  -- Ideally, we would like to hold at least 10 objects in the leaves,
+  -- but no more than 100 objects.  Note that this max number may change
+  -- as we evolve.
+  local adjustedPageSize = pageSize - recordOverHead;
+  local minLeafCount = 10;
+  local maxLeafCount = 100;
+  -- See if objects easily fit in a Leaf.
+  if ((maxObjectSize * maxLeafCount) < adjustedPageSize) then
+    leafListMax = maxLeafCount;
+  elseif ((maxObjectSize * minLeafCount ) <= adjustedPageSize) then
+    leafListMax = (adjustedPageSize / maxObjectSize) - 1;
+  else
+    leafListMax = adjustedPageSize / maxObjectSize;
+    if leafListMax <= 2 then
+      warn("[WARN]<%s:%s>MaxObjectSize(%d) too great for PageSize(%d)",
+        MOD, meth, maxObjectSize, adjustedPageSize);
+      error(ldte.ERR_INPUT_TOO_LARGE);
+    end
+  end
+
+  -- SET UP NODE SIZE VALUES.
+  -- Try for at least 100 objects in the nodes, and no more than 200.
+  -- However, for larger key sizes, we may have to
+  -- use larger than requested PageSizes.
+  local minNodeCount = 50;
+  local maxNodeCount = 200;
+
+  -- See if the Keys easily fit in a Node.
+  if ((maxKeySize * maxNodeCount ) < adjustedPageSize) then
+    nodeListMax = maxNodeCount;
+  elseif ((maxKeySize * minNodeCount) <= adjustedPageSize) then
+    nodeListMax = (adjustedPageSize / maxKeySize) - 1;
+  else
+    nodeListMax = adjustedPageSize / maxKeySize;
+    if nodeListMax <= 2 then
+      warn("[WARN]<%s:%s>MaxKeySize(%d) too great for PageSize(%d)",
+        MOD, meth, maxKeySize, adjustedPageSize);
+      error(ldte.ERR_INPUT_PARM);
+    end
+  end
+
+  -- SET UP ROOT SIZE VALUES.
+  -- Try for at least 20 objects in the nodes, and no more than 100.
+  -- However, for larger key sizes, we may have to
+  -- use larger than requested PageSizes.
+  local adjustedPageSize = pageSize;
+  local minRootCount = 20;
+  local maxRootCount = 100;
+  -- See if the Keys easily fit in the Root
+  if ((maxKeySize * maxRootCount) < adjustedPageSize) then
+    rootListMax = maxRootCount;
+  elseif ((maxKeySize * minRootCount) <= adjustedPageSize) then
+    rootListMax = adjustedPageSize / maxKeySize;
+    if (rootListMax <= 2) then
+      warn("[WARN]<%s:%s>MaxKeySize(%d) too great for ROOT Node(%d)",
+        MOD, meth, maxKeySize, adjustedPageSize);
+      error(ldte.ERR_INPUT_PARM);
+    end
+  else
+    rootListMax = adjustedPageSize / maxKeySize;
+  end
+
+  -- Apply our computed values.
+  ldtMap[LS.Threshold]   = threshold;
+  ldtMap[LS.RootListMax] = rootListMax;
+  ldtMap[LS.NodeListMax] = nodeListMax;
+  ldtMap[LS.LeafListMax] = leafListMax;
+  return 0;
+
+end 
+
+
+
 -- ======================================================================
 -- setupLdtBin()
 -- Caller has already verified that there is no bin with this name,
@@ -5335,10 +5471,10 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
     if (createSpecType == "string") then
       -- Use Module
       ldt_common.processModule(ldtMap, createSpec);
-      llistPackage.compute_settings(ldtMap, ldtMap);
+      compute_settings(ldtMap, ldtMap);
     elseif (getmetatable(createSpec) == Map) then
       -- Use Passed in Spec
-      llistPackage.compute_settings(ldtMap, createSpec);
+      compute_settings(ldtMap, createSpec);
     else 
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
@@ -5349,7 +5485,7 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
     createSpec["MaxKeySize"] = ldt_common.getValSize(key);
     -- Use First value
-    llistPackage.compute_settings(ldtMap, createSpec);
+    compute_settings(ldtMap, createSpec);
   end
 
   -- Set up our Bin according to which type of storage we're starting with.
@@ -5754,7 +5890,6 @@ end -- function llist.add()
 -- =======================================================================
 -- TODO: Convert this to use a COMMON local INSERT() function, not just
 -- call llist.add() and do all of its validation each time.
--- REMEMBER to set KeyType on the First insert.
 -- =======================================================================
 function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6787,200 +6922,6 @@ function llist.ldt_exists( topRec, ldtBinName )
     return 0
   end
 end -- function llist.ldt_exists()
-
--- ========================================================================
--- <<< NEW (Experimental) FUNCTIONS >>>====================================
--- ========================================================================
--- (1) llist.write_bytes( topRec, ldtBinName, inputArray, offset, src )
--- (2) llist.read_bytes( topRec, ldtBinName, offset, src )
--- ========================================================================
-
--- ======================================================================
--- llist.write_bytes( topRec, ldtBinName, inputArray, offset )
--- ======================================================================
--- Take the input array (which may be a string, bytes, or something
--- else) and store it as pieces in the LLIST.  Use a Map Object as the
--- thing we're storing, where the "key" is the sequence number and the
--- "data" is the binary byte array.
---
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- (3) inputArray: The input data
--- (4) offset: Not used yet, but eventually will be the point at which
---             we start writing (or appending).  For now, assumed to be
---             zero, which means WRITE NEW every time.
--- (5) src: Sub-Rec context
---
--- Result:
---   Success: Return number of bytes written
---   Failure: Return error.
--- ======================================================================
-function llist.write_bytes( topRec, ldtBinName, inputArray, offset, src)
-
-  local meth = "store_bytes()";
-  GP=E and info("[ENTER]<%s:%s> Bin(%s)", MOD, meth );
-
-  local Bytes = getmetatable( bytes() );
-
-  -- Depending on the input type, we process the inputArray differently.
-  local inputType;
-  if type(inputArray) == "string" then
-    GP=D and debug("Processing STRING array");
-    inputType = 1;
-  elseif getmetatable( inputArray ) == Bytes then
-    GP=D and debug("Processing BYTES array");
-    inputType = 2;
-  else
-    GP=D and debug("Processing OTHER array(%s)", type(inputArray));
-    inputType = 3;
-  end
-
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- Take the byte array and break it into fixed size chunks.  Put that
-  -- chunk into an array that is part of a map.  Make a list of those maps
-  -- and write that list to our LDT.
-  local rc = 0;
-  local amountLeft = #inputArray;
-  local chunkSize = 1024 * 64;  -- Use 64k chunks
-  local keySize = 8;  -- simple number key
-  local numChunks = math.ceil(amountLeft / chunkSize);
-  local targetPageSize = 1024 * 700;
-  local writeBlockSize = 1024 * 1024;
-  local maxChunkCount = 200;
-  local amountWritten = 0;
-
-  GP=D and debug("[DEBUG]<%s:%s> ByteLen(%d) CH Size(%d) Num CH(%d)", MOD,
-    meth, amountLeft, chunkSize, numChunks);
-
-  local mapChunk;
-  local bytePayload;
-  local stringIndex;
-  local configMap = {};
-  configMap["Compute"]         = "compute_settings";
-  configMap["MaxObjectSize"]   = chunkSize;
-  configMap["MaxKeySize"]      = keySize;
-  configMap["MaxObjectCount"]  = maxChunkCount;
-  configMap["TargetPageSize"]  = targetPageSize;
-  configMap["WriteBlockSize"]  = writeBlockSize;
-
-  local bytePayLoad;
-  local fullStride = chunkSize;
-  for c = 0, (numChunks - 1) do
-    -- For all full size chunks, we'll stride by the full chunk and offset
-    -- thru the string array by that amount.  For either small sizes or
-    -- the last chunk, we will have a partial chunk.
-    if amountLeft < chunkSize then
-      chunkSize = amountLeft;
-    end
-
-    -- Create a new Map to hold our data
-    mapChunk = {};
-    mapChunk["key"] = c;
-    stringIndex = (c * fullStride);
-    bytePayLoad = bytes(chunkSize);
-
-    for i = 1, chunkSize do
-      bytePayLoad[i] =  string.byte(inputArray, (stringIndex + i));
-    end -- for each byte in chunk
-
-    mapChunk["data"] = bytePayLoad;
-    llist.add( topRec, ldtBinName, mapChunk, configMap, src);
-    configMap = nil; -- no need to pass in next time around.
-    amountLeft = amountLeft - chunkSize;
-
-    amountWritten = amountWritten + chunkSize;
-
-    GP=D and debug("[DEBUG]<%s:%s> StoredChunk(%d) AmtLeft(%d) ChunkSize(%d)",
-      MOD, meth, c, amountLeft, chunkSize);
-  end -- end for each Data Chunk
-
-  GP=E and info("[EXIT]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
-
-  return amountWritten;
-end -- llist.write_bytes()
-
--- ======================================================================
--- llist.read_bytes( topRec, ldtBinName, offset )
--- ======================================================================
--- From the LLIST object that is holding a list of MAPS that contain
--- binary data, read them and return the binary data.
---
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- (3) offset: Not used yet, but eventually will be the point at which
---             we start writing (or appending).  For now, assumed to be
---             zero, which means WRITE NEW every time.
--- (4) src: Sub-Rec context
--- Result:
---   Success: Return number of bytes written
---   Failure: Return error.
--- ======================================================================
-function llist.read_bytes( topRec, ldtBinName, offset, src )
-  local meth = "read_bytes()";
-
-  GP=E and info("[ENTER]<%s:%s> Bin(%s) Offset(%d)", MOD, meth,
-    tostring(ldtBinName), offset);
-
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- Create a byte array that is the size of the full LDT.  Then fill it
-  -- up from the pieces that we've stored in it.
-  local ldtSize = llist.size( topRec, ldtBinName );
-  GP=D and debug("[DEBUG]<%s:%s> LDT Size(%d)", MOD, meth, ldtSize);
-
-  local resultArray = bytes(ldtSize);
-
-  local ldtScanResult = llist.scan( topRec, ldtBinName, src );
-
-  -- Process our Scan Result and fill up the resultArray.
-  local mapObject;
-  local outputIndex = 0;
-  local byteData;
-  local amountRead = 0;
-
-  for i = 1, #ldtScanResult do
-    -- Each scan object is a map that contains byte data.  Copy that byte
-    -- data into our result.
-    mapObject = ldtScanResult[i];
-    -- Look inside the map object
-    GP=D and debug("[DEBUG]<%s:%s> Obj(%d) Contents(%s)",
-      MOD, meth, i, tostring(mapObject));
-
-    byteData = mapObject["data"];
-    local byteDataSize = bytes.size(byteData);
-    GP=D and debug("[DEBUG]<%s:%s> Reading Chunk(%d) Amount(%d) byteData(%s)",
-      MOD, meth, i, byteDataSize, tostring(byteData));
-    
-    for j = 1, byteDataSize do
-      resultArray[outputIndex + j] = byteData[j];
-    end -- for each byte in chunk
-    outputIndex = outputIndex + byteDataSize;
-  end -- for each scan object
-
-  amountRead = outputIndex;
-
-  GP=D and debug("[DEBUG]<%s:%s> Read a total of (%d) bytes", MOD, meth, outputIndex);
-
-  GP=E and info("[EXIT]<%s:%s> Bin(%s) Result Size(%d) Result(%s)", MOD, meth,
-    tostring(ldtBinName), #resultArray, tostring(resultArray));
-
-  return resultArray;
-end -- read_bytes()
 
 -- ========================================================================
 -- llist.dump(): Debugging/Tracing mechanism -- show the WHOLE tree.

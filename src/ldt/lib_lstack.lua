@@ -122,9 +122,6 @@ local TEST_MODE=false; -- turn on for MINIMAL sizes (better testing)
 -- Common LDT Errors that are used by all of the LDT files.
 local ldte=require('ldt/ldt_errors');
 
--- We have a set of packaged settings for each LDT
-local lstackPackage = require('ldt/settings_lstack');
-
 -- We have recently moved a number of COMMON functions into the "ldt_common"
 -- module, namely the subrec routines and some list management routines.
 -- We will likely move some other functions in there as they become common.
@@ -3924,6 +3921,150 @@ local function lstack_delete_subrecs( src, topRec, ldtBinName )
 
 end -- lstack_delete_subrecs()
 
+-- ========================================================================
+-- compute_settings()
+-- ========================================================================
+-- This function takes in the user's settings and sets the appropriate
+-- values in the LDT mechanism.
+--
+-- All parameters must be numbers.
+-- ldtMap        :: The main control Map of the LDT
+-- configMap     :: A Map of Config Settings.
+--
+-- The values we expect to see in the configMap will be one or more of
+-- the following values.  For any value NOT seen in the map, we will use
+-- the published default value.
+--
+-- MaxObjectSize :: the maximum object size (in bytes).
+-- MaxKeySize    :: the maximum Key size (in bytes).
+-- WriteBlockSize:: The namespace Write Block Size (in bytes)
+-- PageSize      :: Targetted Page Size (8kb to 1mb)
+-- ========================================================================
+local function compute_settings(ldtMap, configMap )
+  local meth="compute_settings()"
+  -- Perform some validation of the user's Config Parameters
+  local rc = ldt_common.validateConfigParms(ldtMap, configMap);
+  if rc ~= 0 then
+    warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
+      MOD, meth);
+    error(ldte.ERR_INPUT_PARAM);
+  end
+
+  -- Now that all of the values have been validated, we can use them
+  -- safely without worry.  No more checking needed.
+  local maxObjectSize   = configMap.MaxObjectSize;
+  local pageSize        = configMap.TargetPageSize;
+  local writeBlockSize  = configMap.WriteBlockSize;
+  local recordOverHead  = configMap.RecordOverHead;
+
+  -- These are the values that we have to set.
+  local hotListMax;     -- # of elements stored in the hot list
+  local hotListTransfer;-- # of hot elements to move (per op) to the warm list
+  local ldrListMax;     -- # of elements to store in a data sub-rec
+  local warmListMax;    -- # of sub-rec digests to keep in the TopRec
+  local warmListTransfer;-- # of digest entries to transfer to cold list
+  local coldListMax;    -- # of digest entries to keep in a Cold Dir
+  local coldDirMax;     -- # of Cold Dir sub-recs to keep.
+
+  local ldtOverHead = 500; -- Overhead in Bytes.  Used in Hot List Calc.
+  recordOverHead = recordOverHead + ldtOverHead;
+
+  -- Set up our ceilings:
+  -- First, set up our Hot List ceiling.
+  --
+  -- Figure out the settings for our Hot List.
+  -- By default, if they can fit, we'd like to have as many as 100
+  -- elements in our Hot List.  However, for Large Objects, we'll 
+  -- have to settle for far fewer.
+  -- In general, we would hope for at least a hot list of size 4
+  -- (4 items, with a transfer size of 2) however, if we have really
+  -- large objects AND/OR we have multiple LDTs in this record, then
+  -- we cannot hog TopRecord space for the Hot List.
+  local hotListCountCeiling = 100;
+  -- We'd like the Hot List to fit in under the ceiling amount,
+  -- or be 1/2 of the target page size, whichever is less.
+  local halfPage = math.floor(pageSize / 2);
+  local hotListByteCeiling = 50000;
+  local hotListTargetBytes =
+    (halfPage < hotListByteCeiling) and (halfPage) or hotListByteCeiling;
+
+  -- If not even a pair of (Max Size) objects can fit in the Hot List,
+  -- then we need to skip the Hot List altogether and have
+  -- items be written directly to the Warm List (the LDR pages).
+  if ((maxObjectSize * 2) > hotListTargetBytes) then
+    -- Don't bother with a Hot List.  Objects are too big.
+    hotListMax = 0;
+    hotListTransfer = 0;
+  else
+    hotListMax = hotListTargetBytes / maxObjectSize;
+    if hotListMax > hotListCountCeiling then
+      hotListMax = hotListCountCeiling;
+    end
+    hotListTransfer = hotListMax / 2;
+  end
+
+  -- This is the max amount of room we expect the Hot List to use.
+  local hotListFootPrint = hotListMax * maxObjectSize;
+
+  -- In general, the WARM List is not bounded by Object Size, but it
+  -- is affected by the number of OTHER LDTs and bins that might be in the
+  -- record.  If LDT is not the sole LDT in the Top Record, we won't
+  -- allocate the maximum amount of space.  The recordOverHead value
+  -- that is passed in shows us the expected "interference" from other
+  -- KVS bins or other LDTs.  
+  local warmListCountCeiling = 100;
+  local warmListByteCeiling = 2000;
+  local warmListEntrySize = 20;
+
+  local spaceLeft =  pageSize - (hotListFootPrint + recordOverHead);
+  if spaceLeft > warmListByteCeiling then
+    warmListMax = warmListCountCeiling;
+    warmListTransfer = 10;
+  elseif spaceLeft < (warmListEntrySize * 10) then
+    warn("[WARNING]<%s:%s> Too Little Size for LSTACK WARM LIST: (%d bytes)",
+      MOD, meth, spaceLeft);
+    warmListMax = 8;
+    warmListTransfer = 2;
+  else
+    warmListMax = math.floor(spaceLeft / warmListEntrySize);
+    warmListTransfer = 2;
+  end
+
+  -- Similar to the Hot List calcuations, we see how much data will fit
+  -- on a Ldt Data Record (LDR) sub-record. Notice that the ldt_common
+  -- function has already figured out our optimal pageSize, so we'll just
+  -- use that.
+  if maxObjectSize > pageSize then
+    local spaceLeft = (writeBlockSize - recordOverHead);
+    if maxObjectSize > spaceLeft then
+      warn("[WARNING]<%s:%s> Max Object Size(%d) Too Large for system(%d)",
+        MOD, meth, maxObjectSize, spaceLeft);
+      error(ldte.ERR_INPUT_PARM);
+    end
+
+    ldrListMax = 1;
+  else
+    ldrListMax = math.floor(pageSize / maxObjectSize);
+  end
+
+  -- The Cold List can really stay unbounded, but if we have a conservative
+  -- "Max Object Count", then we can really compute our upper bounds.
+  -- However, for larger key sizes, we may have to
+  -- use larger than requested PageSizes.
+  coldListMax = 200;
+  coldDirMax = 100;
+
+  -- Apply our computed values.
+  ldtMap[LS.LdrEntryCountMax] = ldrListMax;
+  ldtMap[LS.HotListMax]       = hotListMax;
+  ldtMap[LS.HotListTransfer]  = hotListTransfer;
+  ldtMap[LS.WarmListMax]      = warmListMax;
+  ldtMap[LS.WarmListTransfer] = warmListTransfer;
+  ldtMap[LS.ColdListMax]      = coldListMax;
+  ldtMap[LS.ColdDirRecMax]    = coldDirMax;
+  return 0;
+end 
+
 -- ======================================================================
 -- setupLdtBin()
 -- Caller has already verified that there is no bin with this name,
@@ -3948,9 +4089,9 @@ local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec )
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
       ldt_common.processModule(ldtCtrl, createSpec);
-      lstackPackage.compute_settings(ldtMap, ldtMap);
+      compute_settings(ldtMap, ldtMap);
     elseif (getmetatable(createSpec) == Map) then
-      lstackPackage.compute_settings(ldtMap, createSpec);
+      compute_settings(ldtMap, createSpec);
     else
       warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
         MOD, meth, tostring( createSpec ));
@@ -3959,7 +4100,7 @@ local function setupLdtBin( topRec, ldtBinName, firstValue, createSpec )
     createSpec = {};
     createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
     -- Use First value
-    lstackPackage.compute_settings(ldtMap, createSpec);
+    compute_settings(ldtMap, createSpec);
   end
 
   GP=F and trace("[DEBUG]: <%s:%s> : CTRL Map after Adjust(%s)",

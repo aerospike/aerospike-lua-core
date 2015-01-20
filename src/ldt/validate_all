@@ -21,15 +21,3 @@ luac -p -l lib_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\
 
 echo lib_lstack.lua
 luac -p -l lib_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
-
-echo settings_llist.lua
-luac -p -l settings_llist.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
-
-echo settings_lmap.lua
-luac -p -l settings_lmap.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
-
-echo settings_lset.lua
-luac -p -l settings_lset.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
-
-echo settings_lstack.lua
-luac -p -l settings_lstack.lua | grep ETGLOBAL | grep -v "trace\|debug\|warn\|tostring\|map\|list\|aerospike\|info\|record\|error\|require\|bytes\|type\|pairs\|math\|getmetatable\|string"
