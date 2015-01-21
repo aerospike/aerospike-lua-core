@@ -162,17 +162,15 @@ local SUBREC_PROP_BIN     = "SR_PROP_BIN";
 -- The Node SubRecords (NSRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above, plus 3 of 4 bins
 -- >> (14 char name limit) >>12345678901234<<<<<<<<<<<<<<<<<<<<<<<<<
-local NSR_CTRL_BIN        = "NsrControlBin";
-local NSR_KEY_LIST_BIN    = "NsrKeyListBin"; -- For Var Length Keys
-local NSR_KEY_BINARY_BIN  = "NsrBinaryBin";-- For Fixed Length Keys
-local NSR_DIGEST_BIN      = "NsrDigestBin"; -- Digest List
+local NSR_CTRL_BIN        = string.byte('C');
+local NSR_KEY_LIST_BIN    = string.byte('K'); -- For Var Length Keys
+local NSR_DIGEST_BIN      = string.byte('D'); -- Digest List
 
 -- The Leaf SubRecords (LSRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above, plus
 -- >> (14 char name limit) >>12345678901234<<<<<<<<<<<<<<<<<<<<<<<<<
-local LSR_CTRL_BIN        = "LsrControlBin";
-local LSR_LIST_BIN        = "LsrListBin";
-local LSR_BINARY_BIN      = "LsrBinaryBin";
+local LSR_CTRL_BIN        = string.byte('C');
+local LSR_LIST_BIN        = string.byte('B');
 
 -- The Existence Sub-Records (ESRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above (and that might be all)
@@ -235,12 +233,12 @@ local SF_JSON       = 2;
 -- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
 -- is a character (defined here).  We're using Characters rather than
 -- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
-local AS_TRUE='T';
-local AS_FALSE='F';
+local AS_TRUE = string.byte('T');
+local AS_FALSE = string.byte('F');
 
 -- StoreState (SS) values (which "state" is the set in?)
-local SS_COMPACT ='C'; -- Using "single bin" (compact) mode
-local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
+local SS_COMPACT = string.byte('C'); -- Using "single bin" (compact) mode
+local SS_REGULAR = string.byte('R'); -- Using "Regular Storage" (regular) mode
 
 -- << Search Constants >>
 -- Use Numbers so that it translates to our C conventions
@@ -315,42 +313,41 @@ local UDF_CONTEXT_LDT = 1;
 -- Record Level Property Map (RPM) Fields: One RPM per record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local RPM = {
-  LdtCount             = 'C',  -- Number of LDTs in this rec
+  LdtCount             = string.byte('C'),  -- Number of LDTs in this rec
   VInfo                = 'V',  -- Partition Version Info
-  Magic                = 'Z',  -- Special Sauce
-  SelfDigest           = 'D'   -- Digest of this record
+  Magic                = string.byte('Z'),  -- Special Sauce
+  SelfDigest           = string.byte('D')   -- Digest of this record
 };
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local PM = {
-  ItemCount             = 'I', -- (Top): Count of all items in LDT
-  Version               = 'V', -- (Top): Code Version
-  SubRecCount           = 'S', -- (Top): # of subrecs in the LDT
-  LdtType               = 'T', -- (Top): Type: stack, set, map, list
-  BinName               = 'B', -- (Top): LDT Bin Name
-  Magic                 = 'Z', -- (All): Special Sauce
-  CreateTime            = 'C', -- (All): Creation time of this rec
+  ItemCount             = string.byte('I'), -- (Top): Count of all items in LDT
+  Version               = string.byte('V'), -- (Top): Code Version
+  SubRecCount           = string.byte('S'), -- (Top): # of subrecs in the LDT
+  LdtType               = string.byte('T'), -- (Top): Type: stack, set, map, list
+  BinName               = string.byte('B'), -- (Top): LDT Bin Name
+  Magic                 = string.byte('Z'), -- (All): Special Sauce
+  CreateTime            = string.byte('C'), -- (All): Creation time of this rec
+  RecType               = string.byte('R'), -- (All): Type of Rec:Top,Ldr,Esr,CDir
   EsrDigest             = 'E', -- (All): Digest of ESR
-  RecType               = 'R', -- (All): Type of Rec:Top,Ldr,Esr,CDir
   SelfDigest            = 'D', -- (All): Digest of THIS Record
   ParentDigest          = 'P'  -- (Subrec): Digest of TopRec
-  -- LogInfo    ....    = 'L', -- (All): Log Info (currently unused)
 };
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Leaf and Node Fields (There is some overlap between nodes and leaves)
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-local LF_ListEntryCount       = 'L';-- # current list entries used
-local LF_ListEntryTotal       = 'T';-- # total list entries allocated
-local LF_ByteEntryCount       = 'B';-- # current bytes used
-local LF_PrevPage             = 'P';-- Digest of Previous (left) Leaf Page
-local LF_NextPage             = 'N';-- Digest of Next (right) Leaf Page
+local LF_ListEntryCount       = string.byte('L');-- # current list entries used
+local LF_ListEntryTotal       = string.byte('T');-- # total list entries allocated
+local LF_ByteEntryCount       = string.byte('B');-- # current bytes used
+local LF_PrevPage             = string.byte('P');-- Digest of Previous (left) Leaf Page
+local LF_NextPage             = string.byte('N');-- Digest of Next (right) Leaf Page
 
-local ND_ListEntryCount       = 'L';-- # current list entries used
-local ND_ListEntryTotal       = 'T';-- # total list entries allocated
-local ND_ByteEntryCount       = 'B';-- # current bytes used
+local ND_ListEntryCount       = string.byte('L');-- # current list entries used
+local ND_ListEntryTotal       = string.byte('T');-- # total list entries allocated
+local ND_ByteEntryCount       = string.byte('B');-- # current bytes used
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LLIST LDT Record (root) Map Fields
@@ -360,35 +357,35 @@ local ND_ByteEntryCount       = 'B';-- # current bytes used
 -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
 -- (Ldt Common --> LC)
 local LC = {
-  UserModule          = 'P',-- User's Lua file for overrides
-  StoreLimit          = 'L',-- Storage Capacity Limit
-  OverWrite           = 'o',-- Allow Overwrite (AS_TRUE or AS_FALSE)
+  UserModule          = string.byte('P'),-- User's Lua file for overrides
+  StoreLimit          = string.byte('L'),-- Storage Capacity Limit
+  OverWrite           = string.byte('o'),-- Allow Overwrite (AS_TRUE or AS_FALSE)
                             -- Implicitly true for LLIST
 };
 
 -- Fields Specific to LLIST LDTs (Ldt Specific --> LS)
 local LS = {
   -- Tree Level values
-  -- TotalCount       = 'T',-- A count of all "slots" used in LLIST
-  LeafCount           = 'c',-- A count of all Leaf Nodes
-  NodeCount           = 'C',-- A count of all Nodes (including Leaves)
-  TreeLevel           = 'l',-- Tree Level (Root::Inner nodes::leaves)
-  KeyUnique           = 'U',-- Are Keys Unique? (AS_TRUE or AS_FALSE))
-  StoreState          = 'S',-- Compact or Regular Storage
-  Threshold           = 'H',-- After this#:Move from compact to tree mode
-  RevThreshold        = 'V',-- Drop back into Compact Mode at this pt.
-  KeyField            = 'f',-- Key Field to use as key
+  -- TotalCount       = string.byte('T'),-- A count of all "slots" used in LLIST
+  LeafCount           = string.byte('c'),-- A count of all Leaf Nodes
+  NodeCount           = string.byte('C'),-- A count of all Nodes (including Leaves)
+  TreeLevel           = string.byte('l'),-- Tree Level (Root::Inner nodes::leaves)
+  KeyUnique           = string.byte('U'),-- Are Keys Unique? (AS_TRUE or AS_FALSE))
+  StoreState          = string.byte('S'),-- Compact or Regular Storage
+  Threshold           = string.byte('H'),-- After this#:Move from compact to tree mode
+  RevThreshold        = string.byte('V'),-- Drop back into Compact Mode at this pt.
+  KeyField            = string.byte('f'),-- Key Field to use as key
   -- Top Node Tree Root Directory
-  RootListMax         = 'R', -- Length of Key List (page list is KL + 1)
-  RootKeyList         = 'K',-- Root Key List, when in List Mode
-  RootDigestList      = 'D',-- Digest List, when in List Mode
-  CompactList         = 'Q',--Simple Compact List -- before "tree mode"
+  RootListMax         = string.byte('R'), -- Length of Key List (page list is KL + 1)
+  RootKeyList         = string.byte('K'),-- Root Key List, when in List Mode
+  RootDigestList      = string.byte('D'),-- Digest List, when in List Mode
+  CompactList         = string.byte('Q'),--Simple Compact List -- before "tree mode"
   -- LLIST Inner Node Settings
-  NodeListMax         = 'X',-- Max # of items in a node (key+digest)
+  NodeListMax         = string.byte('X'),-- Max # of items in a node (key+digest)
   -- LLIST Tree Leaves (Data Pages)
-  LeafListMax         = 'x',-- Max # of items in a leaf node
-  LeftLeafDigest      = 'A',-- Record Ptr of Left-most leaf
-  RightLeafDigest     = 'Z' -- Record Ptr of Right-most leaf
+  LeafListMax         = string.byte('x'),-- Max # of items in a leaf node
+  LeftLeafDigest      = string.byte('A'),-- Record Ptr of Left-most leaf
+  RightLeafDigest     = string.byte('Z') -- Record Ptr of Right-most leaf
 };
 
 -- ------------------------------------------------------------------------
@@ -416,19 +413,6 @@ local LS = {
 -- Z:LS.RightLeafDigest        z:
 -- -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 --
--- Key Compare Function for Complex Objects
--- By default, a complex object will have a "key" field (held in the KEY_FIELD
--- global constant) which the -- key_compare() function will use to compare.
--- If the user passes in something else, then we'll use THAT to perform the
--- compare, which MUST return -1, 0 or 1 for A < B, A == B, A > B.
--- UNLESS we are using a simple true/false equals compare.
--- ========================================================================
--- Actually -- the default will be EQUALS.  The >=< functions will be used
--- in the Ordered LIST implementation, not in the simple list implementation.
--- ========================================================================
-local KC_DEFAULT="keyCompareEqual"; -- Key Compare used only in complex mode
-local KH_DEFAULT="keyHash";         -- Key Hash used only in complex mode
-
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- <><><><> <Initialize Control Maps> <Initialize Control Maps> <><><><>
 -- There are three main Record Types used in the LLIST Package, and their
@@ -3233,7 +3217,6 @@ end -- insertParentNode()
 -- (1) SUBREC_PROP_BIN: Main record Properties go here
 -- (2) LSR_CTRL_BIN:    Main Leaf Control structure
 -- (3) LSR_LIST_BIN:    Object List goes here
--- (4) LSR_BINARY_BIN:  Packed Binary Array (if used) goes here
 -- 
 -- Parms:
 -- (*) src: subrecContext: The pool of open subrecords
@@ -5288,8 +5271,6 @@ local function compute_settings(ldtMap, configMap )
   local recordOverHead  = configMap.RecordOverHead;
   local userPageSize    = configMap.PageSize;
 
-  info ("USER PAGE SIZE is %d %d", userPageSize, pageSize);
-
   -- If set by user pick Store Limit and KeyUnique
   if (configMap.StoreLimit ~= nil) then
     ldtMap[LC.StoreLimit] = configMap.StoreLimit;
@@ -5301,6 +5282,8 @@ local function compute_settings(ldtMap, configMap )
     else
       ldtMap[LC.KeyUnique]  = AS_FALSE;
     end
+  else 
+      ldtMap[LC.KeyUnique]  = AS_TRUE;
   end
 
   -- These are the values we're going to set.
