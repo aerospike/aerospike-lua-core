@@ -2974,14 +2974,14 @@ lmap.get_all(topRec, ldtBinName, nameList, filterModule, filter, fargs, src)
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map(); -- add results to this list.
   local rc = 0; -- start out OK.
 
 
   if nameList == nil or #nameList == 0 then
-    return resultMap; -- return an empty map.
+    return map.new(1);
   end
 
+  local resultMap = map.new(#nameList); -- add results to this list.
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -3042,7 +3042,7 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map(); -- add results to this list.
+  local resultMap = {}; -- add results to this list.
   local rc = 0; -- start out OK.
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -3122,7 +3122,11 @@ function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map();
+  local itemCount = propMap[PM.ItemCount];
+  if (itemCount == nil or itemCount == 0) then
+    return map.new(1);
+  end
+  local resultMap = map.new(itemCount);
   local rc = 0; -- start out OK.
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3195,8 +3199,6 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   GP=E and trace("[DEBUG]<%s:%s> filterModule(%s) filter(%s) fargs(%s)",
     MOD, meth, tostring(filterModule), tostring(filter),tostring(fargs));
 
-  local resultMap = map();  -- add results to this list.
-
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   -- Some simple protection of faulty records or bad bin names
@@ -3222,7 +3224,7 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   
   -- For the compact list, it's a simple list delete (if we find it).
   -- For the subRec list, it's a more complicated search and delete.
-  local resultMap = map();
+  local resultMap = {};
   if ldtMap[LS.StoreState] == SS_COMPACT then
     rc = compactDelete( ldtMap, searchName, resultMap );
   else

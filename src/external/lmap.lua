@@ -47,6 +47,7 @@ local MOD="ext_lmap_2014_12_03.A";
 local lmap = require('ldt/lib_lmap');
 local llist = require('ldt/lib_llist');
 local ldt_common = require('ldt/ldt_common');
+local IS_LIST = false
 
 -- ======================================================================
 -- create() ::  (deprecated)
@@ -71,7 +72,11 @@ local ldt_common = require('ldt/ldt_common');
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function create( topRec, ldtBinName, createSpec )
-  return llist.create( topRec, ldtBinName, createSpec );
+  if (IS_LIST == false) then
+    return lmap.create( topRec, ldtBinName, createSpec );
+  else
+    return llist.create( topRec, ldtBinName, createSpec );
+  end
 end -- create()
 
 -- ======================================================================
@@ -79,49 +84,65 @@ end -- create()
 -- put_all() -- Insert multiple name/value pairs into the LMAP
 -- ======================================================================
 function put( topRec, ldtBinName, newName, newValue, createSpec )
-  local newValMap = map();
-  newValMap['key'] = newName
-  newValMap['value'] = newValue
-  return llist.add( topRec, ldtBinName, newValMap, createSpec, nil);
+  if (IS_LIST == false) then
+    return lmap.put( topRec, ldtBinName, newName, newValue, createSpec, nil);
+  else 
+    local newValMap = map.new(1);
+    newValMap['key'] = newName
+    newValMap['value'] = newValue
+    return llist.add( topRec, ldtBinName, newValMap, createSpec, nil);
+  end
 end -- put()
 
 function put_all( topRec, ldtBinName, nameValMap, createSpec )
-  local valList = list();
-  for name, value in map.pairs( nameValMap ) do
-    local newValMap = map();
-    newValMap['key'] = name;
-    newValMap['value'] = value;
-    list.append(valList, newValMap);
+  if (IS_LIST == false) then
+    return lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, nil);
+  else
+    local valList = list();
+    local newValMap = map.new(1);
+    for name, value in map.pairs( nameValMap ) do
+      newValMap['key'] = name;
+      newValMap['value'] = value;
+      list.append(valList, newValMap);
+    end
+    return llist.add_all( topRec, ldtBinName, valList, createSpec, nil);
   end
-  return llist.add_all( topRec, ldtBinName, valList, createSpec, nil);
 end -- put_all()
 
 -- ========================================================================
 -- get() -- Return a map containing the requested name/value pair.
 -- ========================================================================
 function get( topRec, ldtBinName, searchName )
-  local newLookupMap = map();
-  newLookupMap['key'] = searchName;
-  local resultList = llist.find(topRec, ldtBinName, newLookupMap, nil)
-  local resultMap = map();
-  for i = 1, #resultList, 1 do
-    local l = resultList[i];
-    resultMap[l['key']] = l['value'];
+  if (IS_LIST == false) then
+    return lmap.get(topRec, ldtBinName, searchName, nil, nil, nil, nil);
+  else
+    local newLookupMap = map.new(1);
+    newLookupMap['key'] = searchName;
+    local resultList = llist.find(topRec, ldtBinName, newLookupMap, nil)
+    local resultMap = map.new(#resultList);
+    for i = 1, #resultList, 1 do
+      local l = resultList[i];
+      resultMap[l['key']] = l['value'];
+    end
+    return resultMap;
   end
-  return resultMap;
 end -- get()
 
 -- ========================================================================
 -- exists() -- Return 1 if the item exists, else return 0.
 -- ========================================================================
 function exists( topRec, ldtBinName, searchName )
-  local newLookupMap = map();
-  newLookupMap['key'] = searchName;
-  local rc = llist.find(topRec, ldtBinName, newLookupMap);
-  if (rc ~= nil) then
-    return 1;
+  if (IS_LIST == false) then
+    return lmap.exists(topRec, ldtBinName, searchName);
   else 
-    return 0;
+    local newLookupMap = map.new(1);
+    newLookupMap['key'] = searchName;
+    local rc = llist.find(topRec, ldtBinName, newLookupMap);
+    if (rc ~= nil) then
+      return 1;
+    else 
+      return 0;
+    end
   end
 end -- exists()
 
@@ -129,13 +150,17 @@ end -- exists()
 -- scan() -- Return a map containing ALL name/value pairs.
 -- ========================================================================
 function scan( topRec, ldtBinName )
-  local resultList = llist.scan(topRec, ldtBinName, nil, nil, nil, nil, nil);
-  local resultMap = map();
-  for i = 1, #resultList, 1 do
-    local l = resultList[i];
-    resultMap[l['key']] = l['value'];
+  if (IS_LIST == false) then
+    return lmap.scan(topRec, ldtBinName, nil, nil, nil, nil);
+  else
+    local resultList = llist.scan(topRec, ldtBinName, nil, nil, nil, nil, nil);
+    local resultMap = map.new(#resultList);
+    for i = 1, #resultList, 1 do
+      local l = resultList[i];
+      resultMap[l['key']] = l['value'];
+    end
+    return resultMap;
   end
-  return resultMap;
 end -- scan()
 
 -- ========================================================================
@@ -143,37 +168,52 @@ end -- scan()
 --             thru the supplied filter( fargs ).
 -- ========================================================================
 function filter( topRec, ldtBinName, filterModule, filter, fargs )
-  local resultList = llist.scan(topRec, ldtBinName, nil, filterModule, filter, fargs, nil);
-  local resultMap = map();
-  for i = 1, #resultList, 1 do
-    local l = resultList[i];
-    resultMap[l['key']] = l['value'];
+  if (IS_LIST == false) then
+    return lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, nil);
+  else 
+    local resultList = llist.scan(topRec, ldtBinName, nil, filterModule, filter, fargs, nil);
+    local resultMap = map.new(resultList);
+    for i = 1, #resultList, 1 do
+      local l = resultList[i];
+      resultMap[l['key']] = l['value'];
+    end
+    return resultMap;
   end
-  return resultMap;
-
 end -- filter()
 
 -- ========================================================================
 -- remove() -- Remove the name/value pair matching <searchName>
 -- ========================================================================
 function remove( topRec, ldtBinName, searchName )
-  local newLookupMap = map();
-  newLookupMap['key'] = searchName;
-  return llist.remove(topRec, ldtBinName, newLookupMap, nil);
+  if (IS_LIST == false) then
+    return lmap.remove(topRec, ldtBinName, searchName, nil, nil, nil, nil );
+  else
+    local newLookupMap = map.new(1);
+    newLookupMap['key'] = searchName;
+    return llist.remove(topRec, ldtBinName, newLookupMap, nil);
+  end
 end -- remove()
 
 -- ========================================================================
 -- destroy() - Entirely obliterate the LDT (record bin value and all)
 -- ========================================================================
 function destroy( topRec, ldtBinName )
+  if (IS_LIST == false) then
+--  return lmap.destroy( topRec, ldtBinName, nil );
+  else
   return llist.destroy( topRec, ldtBinName, nil );
+  end
 end -- destroy()
 
 -- ========================================================================
 -- size() -- return the number of elements (item count) in the set.
 -- ========================================================================
 function size( topRec, ldtBinName )
-  return llist.size( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.size( topRec, ldtBinName );
+  else
+    return llist.size( topRec, ldtBinName );
+  end
 end -- size()
 
 -- ========================================================================
@@ -181,11 +221,19 @@ end -- size()
 -- get_config() -- return the config settings
 -- ========================================================================
 function config( topRec, ldtBinName )
-  return llist.config( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.config( topRec, ldtBinName );
+  else
+    return llist.config( topRec, ldtBinName );
+  end
 end -- config()
 
 function get_config( topRec, ldtBinName )
-  return llist.config( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.config( topRec, ldtBinName );
+  else
+    return llist.config( topRec, ldtBinName );
+  end
 end -- get_config()
 
 -- ========================================================================
@@ -200,11 +248,19 @@ end -- get_config()
 --   rc < 0: Aerospike Errors
 -- ========================================================================
 function get_capacity( topRec, ldtBinName )
-  return llist.get_capacity( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.get_capacity( topRec, ldtBinName );
+  else
+    return llist.get_capacity( topRec, ldtBinName );
+  end
 end
 
 function set_capacity( topRec, ldtBinName, capacity )
-  return llist.set_capacity( topRec, ldtBinName, capacity );
+  if (IS_LIST == false) then
+    return lmap.set_capacity( topRec, ldtBinName, capacity );
+  else
+    return llist.set_capacity( topRec, ldtBinName, capacity );
+  end
 end
 
 -- ========================================================================
@@ -215,7 +271,11 @@ end
 -- (2) ldtBinName: The name of the LDT Bin
 -- ========================================================================
 function ldt_exists( topRec, ldtBinName )
-  return llist.ldt_exists( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.ldt_exists( topRec, ldtBinName );
+  else
+    return llist.ldt_exists( topRec, ldtBinName );
+  end
 end
 
 -- ========================================================================
@@ -226,7 +286,11 @@ end
 -- (2) ldtBinName: The name of the LDT Bin
 -- ========================================================================
 function ldt_validate( topRec, ldtBinName )
-  return llist.validate( topRec, ldtBinName );
+  if (IS_LIST == false) then
+    return lmap.validate( topRec, ldtBinName );
+  else
+    return llist.validate( topRec, ldtBinName );
+  end
 end
 
 -- ========================================================================
