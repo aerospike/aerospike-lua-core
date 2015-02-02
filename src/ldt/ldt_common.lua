@@ -64,8 +64,8 @@ local AS_BIN_NAME_LIMIT = 14;
 
 -- AS_BOOLEAN TYPE:
 -- NB: No easy boolean in lua pick chars
-local AS_TRUE=string.byte('T');    
-local AS_FALSE=string.byte('F');
+local AS_TRUE='T';    
+local AS_FALSE='F';
 
 -- The LDT Control Structure is a LIST of Objects:
 -- (*) A Common Property Map
@@ -97,8 +97,8 @@ local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 -- Our Dirty Map has two settings:  Dirty and Busy.
 -- Dirty means that it has been written, and thus cannot be closed.
 -- Busy means that it is read-only, but currently in use and cannot be closed.
-local DM_DIRTY = string.byte('D');
-local DM_BUSY  = string.byte('B');
+local DM_DIRTY = 'D';
+local DM_BUSY  = 'B';
 
 -- We maintain a pool, or "context", of sub-records that are open.  That allows
 -- us to look up subRecs and get the open reference, rather than bothering
@@ -185,7 +185,7 @@ local SUBREC_PROP_BIN   = "SR_PROP_BIN";
 --     ldtMap.HotEntryListItemCount = 50;
 --            123456789012345678901
 --     (which would require 21 bytes of storage); We instead do this:
---     local HotEntryListItemCount=string.byte('H'));
+--     local HotEntryListItemCount='H';
 --     ldtMap[HotEntryListItemCount] = 50;
 --     Now, we're paying the storage cost for 'H' (1 byte) and the value.
 --
@@ -206,23 +206,23 @@ local SUBREC_PROP_BIN   = "SR_PROP_BIN";
 -- Record Level Property Map (RPM) Fields: One RPM per record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local RPM = {
-  LdtCount             = string.byte('C');  -- Number of LDTs in this rec
+  LdtCount             = 'C';  -- Number of LDTs in this rec
   VInfo                = 'V';  -- Partition Version Info
-  Magic                = string.byte('Z');  -- Special Sauce
-  SelfDigest           = string.byte('D');  -- Digest of this record
+  Magic                = 'Z';  -- Special Sauce
+  SelfDigest           = 'D';  -- Digest of this record
 };
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local PM = {
-  ItemCount             = string.byte('I'); -- (Top): # of items in LDT
-  SubRecCount           = string.byte('S'); -- (Top): # of subRecs in the LDT
-  Version               = string.byte('V'); -- (Top): Code Version
-  LdtType               = string.byte('T'); -- (Top): Type: stack, set, map, list
-  BinName               = string.byte('B'); -- (Top): LDT Bin Name
-  Magic                 = string.byte('Z'); -- (All): Special Sauce
-  CreateTime            = string.byte('C'); -- (All): Creation time of this rec
-  RecType               = string.byte('R'); -- (All): Type of Rec:Top,Ldr,Esr,CDir
+  ItemCount             = 'I'; -- (Top): # of items in LDT
+  SubRecCount           = 'S'; -- (Top): # of subRecs in the LDT
+  Version               = 'V'; -- (Top): Code Version
+  LdtType               = 'T'; -- (Top): Type: stack, set, map, list
+  BinName               = 'B'; -- (Top): LDT Bin Name
+  Magic                 = 'Z'; -- (All): Special Sauce
+  CreateTime            = 'C'; -- (All): Creation time of this rec
+  RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
   EsrDigest             = 'E'; -- (All): Digest of ESR
   ParentDigest          = 'P'; -- (SubRec): Digest of TopRec
   SelfDigest            = 'D'; -- (SubRec): Digest of THIS Record
@@ -233,8 +233,8 @@ local PM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local LC = {
   -- Fields Common to ALL LDTs (managed by the LDT COMMON routines)
-  UserModule             = string.byte('P'); -- User's Lua file for overrides
-  StoreLimit             = string.byte('L'); -- Max Items: Used for Eviction (eventually)
+  UserModule             = 'P'; -- User's Lua file for overrides
+  StoreLimit             = 'L'; -- Max Items: Used for Eviction (eventually)
 };
 
 -- ======================================================================

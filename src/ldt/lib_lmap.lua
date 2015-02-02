@@ -138,15 +138,15 @@ local LDT_TYPE = "LMAP";
 -- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
 -- is a character (defined here).  We're using Characters rather than
 -- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
-local AS_TRUE = string.byte('T');
-local AS_FALSE = string.byte('F');
+local AS_TRUE = 'T';
+local AS_FALSE = 'F';
 
 -- Our Hash Tables can operate in two modes:
 -- (*) Static (a fixed size Hash Table)
 -- (*) Dynamic (A variable size Hash Table that uses Linear Hash Algorithm)
 --     (Dynamic hashing is not yet operational, but will be soon).
-local HS_STATIC  = string.byte('S');
-local HS_DYNAMIC = string.byte('D');
+local HS_STATIC  = 'S';
+local HS_DYNAMIC = 'D';
 
 -- ======================= << DEFAULT VALUES >> ========================
 local DEFAULT = {
@@ -192,8 +192,8 @@ local SF_MSGPACK    = 1;
 local SF_JSON       = 2;
 
 -- StoreState (SS) values (which "state" is the set in?)
-local SS_COMPACT = string.byte('C'); -- Using "single cell list" (compact) mode
-local SS_REGULAR = string.byte('R'); -- Using "Regular Storage" (regular) mode
+local SS_COMPACT = 'C'; -- Using "single cell list" (compact) mode
+local SS_REGULAR = 'R'; -- Using "Regular Storage" (regular) mode
 
 -- Result Returns (successful values).  Errors are a different category.
 local RESULT_OK = 0;
@@ -243,10 +243,10 @@ local RT_ESR = 4; -- 0x4: Existence Sub Record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields common across all LDTs and managed by the Record Property Map
 local RPM = {
-  LdtCount             = string.byte('C'),  -- Number of LDTs in this rec
+  LdtCount             = 'C',  -- Number of LDTs in this rec
   VInfo                = 'V',  -- Partition Version Info
-  Magic                = string.byte('Z'),  -- Special Sauce
-  SelfDigest           = string.byte('D')   -- Digest of this record
+  Magic                = 'Z',  -- Special Sauce
+  SelfDigest           = 'D'   -- Digest of this record
 };
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -254,14 +254,14 @@ local RPM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields common for all LDT's
 local PM = {
-  ItemCount             = string.byte('I'), -- (Top): Count of all items in LDT
-  Version               = string.byte('V'), -- (Top): Code Version
-  SubRecCount           = string.byte('S'), -- (Top): # of sub-recs in the LDT
-  LdtType               = string.byte('T'), -- (Top): Type: stack, set, map, list
-  BinName               = string.byte('B'), -- (Top): LDT Bin Name
-  Magic                 = string.byte('Z'), -- (All): Special Sauce
-  CreateTime			= string.byte('C'),
-  RecType               = string.byte('R'), -- (All): Type of Rec:Top,Ldr,Esr,CDir
+  ItemCount             = 'I', -- (Top): Count of all items in LDT
+  Version               = 'V', -- (Top): Code Version
+  SubRecCount           = 'S', -- (Top): # of sub-recs in the LDT
+  LdtType               = 'T', -- (Top): Type: stack, set, map, list
+  BinName               = 'B', -- (Top): LDT Bin Name
+  Magic                 = 'Z', -- (All): Special Sauce
+  CreateTime			= 'C',
+  RecType               = 'R', -- (All): Type of Rec:Top,Ldr,Esr,CDir
   EsrDigest             = 'E', -- (All): Digest of ESR
   ParentDigest          = 'P', -- (Subrec): Digest of TopRec
   SelfDigest            = 'D'  -- (Subrec): Digest of THIS Record
@@ -273,37 +273,37 @@ local PM = {
 -- These fields are common across all LDTs:
 -- Fields Common (LC) to ALL LDTs (managed by the LDT COMMON routines)
 local LC = {
-  UserModule             = string.byte('P'), -- User's Lua file for overrides
-  StoreMode              = string.byte('M'), -- List Mode or Binary Mode
-  StoreLimit             = string.byte('L'), -- Used for Eviction (eventually)
+  UserModule             = 'P', -- User's Lua file for overrides
+  StoreMode              = 'M', -- List Mode or Binary Mode
+  StoreLimit             = 'L', -- Used for Eviction (eventually)
 };
 
 -- LDT Fields Specific (LS) to lmap 
 local LS = {
-  HashType               = string.byte('h'), -- Hash Type: HS_STATIC or HS_DYNAMIC.
-  HashDepth              = string.byte('d'), -- # of Hash Bits to use in Dynamic Hashing
-  LdrEntryCountMax       = string.byte('e'), -- Max # of items in an LDR
-  LdrByteEntrySize       = string.byte('s'),
-  LdrByteCountMax        = string.byte('b'),
-  StoreState             = string.byte('S'),-- "Compact List" or "Regular Hash"
-  BinaryStoreSize        = string.byte('B'), 
-  TotalCount             = string.byte('N'),-- Total insert count (not counting dels)
-  HashDirSize            = string.byte('O'),-- Show current Hash Dir Size
-  HashDirMark            = string.byte('m'),-- Show where we are in the linear hash
-  Threshold              = string.byte('H'),-- Convert from simple list to hash table
-  CompactNameList        = string.byte('n'),--Simple Compact List -- before "dir mode"
-  CompactValueList       = string.byte('v'),--Simple Compact List -- before "dir mode"
-  OverWrite              = string.byte('o'),-- Allow Overwrite of a Value for a given
+  HashType               = 'h', -- Hash Type: HS_STATIC or HS_DYNAMIC.
+  HashDepth              = 'd', -- # of Hash Bits to use in Dynamic Hashing
+  LdrEntryCountMax       = 'e', -- Max # of items in an LDR
+  LdrByteEntrySize       = 's',
+  LdrByteCountMax        = 'b',
+  StoreState             = 'S',-- "Compact List" or "Regular Hash"
+  BinaryStoreSize        = 'B', 
+  TotalCount             = 'N',-- Total insert count (not counting dels)
+  HashDirSize            = 'O',-- Show current Hash Dir Size
+  HashDirMark            = 'm',-- Show where we are in the linear hash
+  Threshold              = 'H',-- Convert from simple list to hash table
+  CompactNameList        = 'n',--Simple Compact List -- before "dir mode"
+  CompactValueList       = 'v',--Simple Compact List -- before "dir mode"
+  OverWrite              = 'o',-- Allow Overwrite of a Value for a given
                                      -- name.  If false (AS_FALSE), then we
                                      -- throw a UNIQUE error.
-  HashDirectory          = string.byte('W'),-- The Directory of Hash Entries
-  HashCellMaxList        = string.byte('X') -- Max List size in a Cell anchor
+  HashDirectory          = 'W',-- The Directory of Hash Entries
+  HashCellMaxList        = 'X' -- Max List size in a Cell anchor
 };
 
 -- The LDR (SubRecord) Control Map holds MINIMAL information:
 -- It currently holds ONLY the Byte Count -- for when Binary Storage is
 -- in effect.  Otherwise, it is mostly ignored.
-local LDR_ByteEntryCount       = string.byte('C');
+local LDR_ByteEntryCount       = 'C';
 
 -- ------------------------------------------------------------------------
 -- Maintain the LDT letter Mapping here, so that we never have a name
@@ -354,19 +354,19 @@ local LDR_ByteEntryCount       = string.byte('C');
 -- (4) C_TREE: A Tree Root points to a set of Sub-Records
 -- -----------------------------------------------------------------------
 -- Here are the fields used in a Hash Cell Anchor
-local C_CellState      = string.byte('S'); -- Hold the Cell State
-local C_CellNameList   = string.byte('N'); -- Pt to a LIST of Name objects
-local C_CellValueList  = string.byte('V'); -- Pt to a LIST of Value objects
-local C_CellDigest     = string.byte('D'); -- Pt to a single digest value
-local C_CellTree       = string.byte('T'); -- Pt to a LIST of digests (Radix Tree)
-local C_CellItemCount  = string.byte('C'); -- Cell Item count, once we're in Sub-Rec Mode
+local C_CellState      = 'S'; -- Hold the Cell State
+local C_CellNameList   = 'N'; -- Pt to a LIST of Name objects
+local C_CellValueList  = 'V'; -- Pt to a LIST of Value objects
+local C_CellDigest     = 'D'; -- Pt to a single digest value
+local C_CellTree       = 'T'; -- Pt to a LIST of digests (Radix Tree)
+local C_CellItemCount  = 'C'; -- Cell Item count, once we're in Sub-Rec Mode
 
 -- Here are the various constants used with Hash Cells
 -- Hash Cell States:
-local C_STATE_EMPTY   = string.byte('E'); -- This cell is empty.
-local C_STATE_LIST    = string.byte('L'); 
-local C_STATE_DIGEST  = string.byte('D');
-local C_STATE_TREE    = string.byte('T');
+local C_STATE_EMPTY   = 'E'; -- This cell is empty.
+local C_STATE_LIST    = 'L'; 
+local C_STATE_DIGEST  = 'D';
+local C_STATE_TREE    = 'T';
 
 -- NOTE that we may choose to mark a Hash Cell Entry as "EMPTY" directly
 -- and save the space and MSG_PACK cost of converting a map that holds ONLY

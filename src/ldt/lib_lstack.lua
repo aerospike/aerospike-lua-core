@@ -158,8 +158,8 @@ local SF_JSON       = 2;
 -- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
 -- is a character (defined here).  We're using Characters rather than
 -- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
-local AS_TRUE = string.byte('T');    
-local AS_FALSE = string.byte('F');
+local AS_TRUE = 'T';    
+local AS_FALSE = 'F';
 
 
 -- Record Types -- Must be numbers, even though we are eventually passing
@@ -323,7 +323,7 @@ local COLD_DIR_CTRL_BIN = "ColdDirCtrlBin";
 --     ldtMap.HotEntryListItemCount = 50;
 --            123456789012345678901
 --     (which would require 21 bytes of storage); We instead do this:
---     local HotEntryListItemCount=string.byte('H'));
+--     local HotEntryListItemCount='H';
 --     ldtMap[HotEntryListItemCount] = 50;
 --     Now, we're paying the storage cost for 'H' (1 byte) and the value.
 --
@@ -344,23 +344,23 @@ local COLD_DIR_CTRL_BIN = "ColdDirCtrlBin";
 -- Record Level Property Map (RPM) Fields: One RPM per record
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local RPM = {
-  LdtCount             = string.byte('C'),  -- Number of LDTs in this rec
+  LdtCount             = 'C',  -- Number of LDTs in this rec
   VInfo                = 'V',  -- Partition Version Info
-  Magic                = string.byte('Z'),  -- Special Sauce
-  SelfDigest           = string.byte('D')   -- Digest of this record
+  Magic                = 'Z',  -- Special Sauce
+  SelfDigest           = 'D'   -- Digest of this record
 };
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT specific Property Map (PM) Fields: One PM per LDT bin:
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 local PM = {
-  ItemCount             = string.byte('I'), -- (Top): # of items in LDT
-  SubRecCount           = string.byte('S'), -- (Top): # of subrecs in the LDT
-  Version               = string.byte('V'), -- (Top): Code Version
-  LdtType               = string.byte('T'), -- (Top): Type: stack, set, map, list
-  BinName               = string.byte('B'), -- (Top): LDT Bin Name
-  Magic                 = string.byte('Z'), -- (All): Special Sauce
-  CreateTime            = string.byte('C'), -- (All): Creation time of this rec
-  RecType               = string.byte('R'), -- (All): Type of Rec:Top,Ldr,Esr,CDir
+  ItemCount             = 'I', -- (Top): # of items in LDT
+  SubRecCount           = 'S', -- (Top): # of subrecs in the LDT
+  Version               = 'V', -- (Top): Code Version
+  LdtType               = 'T', -- (Top): Type: stack, set, map, list
+  BinName               = 'B', -- (Top): LDT Bin Name
+  Magic                 = 'Z', -- (All): Special Sauce
+  CreateTime            = 'C', -- (All): Creation time of this rec
+  RecType               = 'R', -- (All): Type of Rec:Top,Ldr,Esr,CDir
   EsrDigest             = 'E', -- (All): Digest of ESR
   ParentDigest          = 'P', -- (Subrec): Digest of TopRec
   SelfDigest            = 'D'  -- (Subrec): Digest of THIS Record
@@ -370,13 +370,13 @@ local PM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT Data Record (LDR) Control Map Fields (Recall that each Map ALSO has
 -- the PM (general property map) fields.
-local LDR_ByteEntryCount       = string.byte('C'); -- Current Count of bytes used
+local LDR_ByteEntryCount       = 'C'; -- Current Count of bytes used
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Cold Directory Control Map::In addition to the General Property Map
 local CDM = {
-  NextDirRec           = string.byte('N');-- Ptr to next Cold Dir Page
-  PrevDirRec           = string.byte('P');-- Ptr to Prev Cold Dir Page
-  DigestCount          = string.byte('C');-- Current Digest Count
+  NextDirRec           = 'N';-- Ptr to next Cold Dir Page
+  PrevDirRec           = 'P';-- Ptr to Prev Cold Dir Page
+  DigestCount          = 'C';-- Current Digest Count
 };
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Main LSTACK Map Field Name Mapping
@@ -384,49 +384,49 @@ local CDM = {
 -- These fields are common across all LDTs:
 -- Fields Common (LC) to ALL LDTs (managed by the LDT COMMON routines)
 local LC = {
-  UserModule             = string.byte('P'), -- Name of the User Module
-  StoreLimit             = string.byte('L'), -- Max Item Count for stack
+  UserModule             = 'P', -- Name of the User Module
+  StoreLimit             = 'L', -- Max Item Count for stack
 };
 
 -- These fields are specific (LS) to LSTACK
 local LS = {
-  LdrEntryCountMax       = string.byte('e'), -- Max # of entries in an LDR
-  LdrByteEntrySize       = string.byte('s'), -- Fixed Size of a binary Object in LDR
-  LdrByteCountMax        = string.byte('b'), -- Max # of bytes in an LDR
-  HotEntryList           = string.byte('H'), -- The Hot Entry List
-  HotEntryListItemCount  = string.byte('i'), -- The Hot List Count
-  HotListMax             = string.byte('h'), -- Max Size of the Hot List
-  HotListTransfer        = string.byte('X'), -- Amount to transfer from Hot List
-  WarmDigestList         = string.byte('W'), -- The Warm Digest List
-  WarmListDigestCount    = string.byte('l'), -- # of Digests in the Warm List
-  WarmListMax            = string.byte('w'), -- Max # of Digests in the Warm List
-  WarmListTransfer       = string.byte('x'), -- Amount to Transfer from the Warm List
+  LdrEntryCountMax       = 'e', -- Max # of entries in an LDR
+  LdrByteEntrySize       = 's', -- Fixed Size of a binary Object in LDR
+  LdrByteCountMax        = 'b', -- Max # of bytes in an LDR
+  HotEntryList           = 'H', -- The Hot Entry List
+  HotEntryListItemCount  = 'i', -- The Hot List Count
+  HotListMax             = 'h', -- Max Size of the Hot List
+  HotListTransfer        = 'X', -- Amount to transfer from Hot List
+  WarmDigestList         = 'W', -- The Warm Digest List
+  WarmListDigestCount    = 'l', -- # of Digests in the Warm List
+  WarmListMax            = 'w', -- Max # of Digests in the Warm List
+  WarmListTransfer       = 'x', -- Amount to Transfer from the Warm List
 -- Note that WarmTopXXXXCount will eventually replace the need to show if
 -- the Warm Top is FULL -- because we'll always know the count (and "full"
 -- will be self-evident).
-  WarmTopFull            = string.byte('g'), -- AS_Boolean: Shows if Warm Top is full
-  WarmTopEntryCount      = string.byte('A'), -- # of Objects in the Warm Top (LDR)
-  WarmTopByteCount       = string.byte('a'), -- # Bytes in the Warm Top (LDR)
+  WarmTopFull            = 'g', -- AS_Boolean: Shows if Warm Top is full
+  WarmTopEntryCount      = 'A', -- # of Objects in the Warm Top (LDR)
+  WarmTopByteCount       = 'a', -- # Bytes in the Warm Top (LDR)
 
 -- Note that ColdTopListCount will eventually replace the need to know if
 -- the Cold Top is FULL -- because we'll always know the count of the Cold
 -- Directory Top -- and so "full" will be self-evident.
-  ColdTopFull            = string.byte('f'), -- AS_Boolean: Shows if Cold Top is full
-  ColdTopListCount       = string.byte('T'), -- Shows List Count for Cold Top
+  ColdTopFull            = 'f', -- AS_Boolean: Shows if Cold Top is full
+  ColdTopListCount       = 'T', -- Shows List Count for Cold Top
 
-  ColdDirListHead        = string.byte('Z'), -- Digest of the Head of the Cold List
-  ColdDirListTail        = string.byte('z'), -- Digest of the Head of the Cold List
-  ColdDataRecCount       = string.byte('R'),-- # of LDRs in Cold Storage
+  ColdDirListHead        = 'Z', -- Digest of the Head of the Cold List
+  ColdDirListTail        = 'z', -- Digest of the Head of the Cold List
+  ColdDataRecCount       = 'R',-- # of LDRs in Cold Storage
 -- It's assumed that this will match the warm list size, and we'll move
 -- half of the warm digest list to a cold list on each transfer.
-  ColdListMax            = string.byte('c'),-- Max # of items in a cold dir list
+  ColdListMax            = 'c',-- Max # of items in a cold dir list
 -- This is used to LIMIT the size of an LSTACK -- we will do it efficiently
 -- at the COLD DIR LEVEL.  So, for Example, if we set it to 3, then we'll
 -- discard the last (full) cold Dir List when we add a new fourth Dir Head.
 -- Thus, the number of FULL Cold Directory Pages "D" should be set at
 -- (D + 1).
-  ColdDirRecMax          = string.byte('C'),-- Max # of Cold Dir subrecs we'll have
-  ColdDirRecCount        = string.byte('r') -- # of Cold Dir sub-Records
+  ColdDirRecMax          = 'C',-- Max # of Cold Dir subrecs we'll have
+  ColdDirRecCount        = 'r' -- # of Cold Dir sub-Records
 };
 
 -- ------------------------------------------------------------------------

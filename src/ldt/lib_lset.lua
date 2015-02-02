@@ -268,8 +268,8 @@ local LDT_TYPE   = "LSET";
 -- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
 -- is a character (defined here).  We're using Characters rather than
 -- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
-local AS_TRUE= string.byte('T');
-local AS_FALSE= string.byte('F');
+local AS_TRUE= 'T';
+local AS_FALSE= 'F';
 
 -- =======================================================================
 -- NOTE: It is important that the next values stay consistent
@@ -321,15 +321,15 @@ local SF_MSGPACK    = 1;
 local SF_JSON       = 2;
 
 -- StoreState (SS) values (which "state" is the set in?)
-local SS_COMPACT = string.byte('C'); -- Using "single bin" (compact) mode
-local SS_REGULAR = string.byte('R'); -- Using "Regular Storage" (regular) mode
+local SS_COMPACT = 'C'; -- Using "single bin" (compact) mode
+local SS_REGULAR = 'R'; -- Using "Regular Storage" (regular) mode
 
 -- KeyType (KT) values
-local KT_ATOMIC  = string.byte('A'); -- the set value is just atomic (number or string)
-local KT_COMPLEX = string.byte('C'); -- the set value is complex. Use Function to get key.
+local KT_ATOMIC  = 'A'; -- the set value is just atomic (number or string)
+local KT_COMPLEX = 'C'; -- the set value is complex. Use Function to get key.
 
 -- Hash Value (HV) Constants
-local HV_EMPTY = string.byte('E'); -- Marks an Entry Hash Directory Entry.
+local HV_EMPTY = 'E'; -- Marks an Entry Hash Directory Entry.
 
 -- Bin Flag Types -- to show the various types of bins.
 -- NOTE: All bins will be labelled as either (1:RESTRICTED OR 2:HIDDEN)
@@ -339,13 +339,13 @@ local BF_LDT_HIDDEN  = 2; -- LDT Bin::Set the Hidden Flag on this bin
 local BF_LDT_CONTROL = 4; -- Main LDT Control Bin (one per record)
 --
 -- HashType (HT) values
-local HT_STATIC  = string.byte('S'); -- Use a FIXED set of bins for hash lists
-local HT_DYNAMIC = string.byte('D'); -- Use a DYNAMIC set of bins for hash lists
+local HT_STATIC  = 'S'; -- Use a FIXED set of bins for hash lists
+local HT_DYNAMIC = 'D'; -- Use a DYNAMIC set of bins for hash lists
 
 -- SetTypeStore (ST) values
-local ST_RECORD = string.byte('R'); -- Store values (lists) directly in the Top Record
-local ST_SUBRECORD = string.byte('S'); -- Store values (lists) in Sub-Records
-local ST_HYBRID = string.byte('H'); -- Store values (lists) Hybrid Style
+local ST_RECORD = 'R'; -- Store values (lists) directly in the Top Record
+local ST_SUBRECORD = 'S'; -- Store values (lists) in Sub-Records
+local ST_HYBRID = 'H'; -- Store values (lists) Hybrid Style
 -- NOTE: Hybrid style means that we'll use sub-records, but for any hash
 -- value that is less than "SUBRECORD_THRESHOLD", we'll store the value(s)
 -- in the top record.  It is likely that very short lists will waste a lot
@@ -393,7 +393,7 @@ local ERR_GENERAL       = -1; -- General Error
 local ERR_NOT_FOUND     = -2; -- Search Error
 
 -- In order to tell the Server what's happening with LDT (and maybe other
--- calls), we call "set_context()" with various flags.  The server then
+-- calls, we call "set_context()" with various flags.  The server then
 -- uses this to measure LDT call behavior.
 local UDF_CONTEXT_LDT = 1;
 
@@ -409,10 +409,10 @@ local UDF_CONTEXT_LDT = 1;
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields common across lset, lstack & lmap 
 local RPM = {
-  LdtCount             = string.byte('C'),  -- Number of LDTs in this rec
+  LdtCount             = 'C',  -- Number of LDTs in this rec
   VInfo                = 'V',  -- Partition Version Info
-  Magic                = string.byte('Z'),  -- Special Sauce
-  SelfDigest           = string.byte('D')   -- Digest of this record
+  Magic                = 'Z',  -- Special Sauce
+  SelfDigest           = 'D'   -- Digest of this record
 };
 
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -420,14 +420,14 @@ local RPM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Property Map (PM) Fields for all LDT's
 local PM = {
-  ItemCount             = string.byte('I'), -- (Top): Count of all items in LDT
-  Version               = string.byte('V'), -- (Top): Code Version
-  SubRecCount           = string.byte('S'), -- (Top): # of subRecs in the LDT
-  LdtType               = string.byte('T'), -- (Top): Type: stack, set, map, list
-  BinName               = string.byte('B'), -- (Top): LDT Bin Name
-  Magic                 = string.byte('Z'), -- (All): Special Sauce
-  CreateTime            = string.byte('C'), -- (Top): LDT Create Time
-  RecType               = string.byte('R'), -- (All): Type of Rec:Top,Ldr,Esr,CDir
+  ItemCount             = 'I', -- (Top): Count of all items in LDT
+  Version               = 'V', -- (Top): Code Version
+  SubRecCount           = 'S', -- (Top): # of subRecs in the LDT
+  LdtType               = 'T', -- (Top): Type: stack, set, map, list
+  BinName               = 'B', -- (Top): LDT Bin Name
+  Magic                 = 'Z', -- (All): Special Sauce
+  CreateTime            = 'C', -- (Top): LDT Create Time
+  RecType               = 'R', -- (All): Type of Rec:Top,Ldr,Esr,CDir
   EsrDigest             = 'E', -- (All): Digest of ESR
   ParentDigest          = 'P', -- (Subrec): Digest of TopRec
   SelfDigest            = 'D'  -- (Subrec): Digest of THIS Record
@@ -438,26 +438,26 @@ local PM = {
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- Fields Common (LC) to ALL LDTs (managed by the LDT COMMON routines)
 local LC = {
-  UserModule             = string.byte('P'), -- User's Lua file for overrides
-  StoreLimit             = string.byte('L'), -- Used for Eviction (eventually)
+  UserModule             = 'P', -- User's Lua file for overrides
+  StoreLimit             = 'L', -- Used for Eviction (eventually)
 };
 
 -- Fields Specific (LS) to lset & lmap 
 local LS = {
-  HashType               = string.byte('h'), -- Hash Type (static or dynamic)
-  HashDepth              = string.byte('d'), -- # of hash Bits to use in Dynamic Hashing
-  LdrEntryCountMax       = string.byte('e'), -- Max size of the LDR List
-  LdrByteEntrySize       = string.byte('s'), -- Size of a Fixed Byte Object
-  LdrByteCountMax        = string.byte('b'), -- Max Size of the LDR in bytes
-  StoreState             = string.byte('S'), -- Store State (Compact or List)
-  SetTypeStore           = string.byte('T'), -- Type of the Set Store (Rec/SubRec)
-  BinaryStoreSize        = string.byte('B'), -- Size of Object when in Binary form
-  TotalCount             = string.byte('C'), -- Total number of slots used
-  Modulo 				 = string.byte('m'), -- Modulo used for Hash Function
-  Threshold              = string.byte('H'), -- Threshold: Compact->Regular state
-  CompactList            = string.byte('c'), -- Compact List (when in Compact Mode)
-  HashDirectory          = string.byte('D'), -- Directory of Hash Cells
-  HashCellMaxList        = string.byte('X')  -- Threshold for converting from a
+  HashType               = 'h', -- Hash Type (static or dynamic)
+  HashDepth              = 'd', -- # of hash Bits to use in Dynamic Hashing
+  LdrEntryCountMax       = 'e', -- Max size of the LDR List
+  LdrByteEntrySize       = 's', -- Size of a Fixed Byte Object
+  LdrByteCountMax        = 'b', -- Max Size of the LDR in bytes
+  StoreState             = 'S', -- Store State (Compact or List)
+  SetTypeStore           = 'T', -- Type of the Set Store (Rec/SubRec)
+  BinaryStoreSize        = 'B', -- Size of Object when in Binary form
+  TotalCount             = 'C', -- Total number of slots used
+  Modulo 				 = 'm', -- Modulo used for Hash Function
+  Threshold              = 'H', -- Threshold: Compact->Regular state
+  CompactList            = 'c', -- Compact List (when in Compact Mode)
+  HashDirectory          = 'D', -- Directory of Hash Cells
+  HashCellMaxList        = 'X'  -- Threshold for converting from a
                                 -- Hash Cell binlist to sub-record.
 };
 
@@ -522,19 +522,19 @@ local LS = {
 -- (4) C_TREE: A Tree Root points to a set of Sub-Records
 -- -----------------------------------------------------------------------
 -- Here are the fields used in a Hash Cell Anchor
-local C_CellState      = string.byte('S'); -- Hold the Cell State
+local C_CellState      = 'S'; -- Hold the Cell State
 -- Similar to LMAP, but we don't use "NameList" in LSET, just "ValueList"
--- local C_CellNameList   = string.byte('N'); -- Pt to a LIST of objects (not for LSET)
-local C_CellValueList  = string.byte('V'); -- Pt to a LIST of objects
-local C_CellDigest     = string.byte('D'); -- Pt to a single digest value
-local C_CellTree       = string.byte('T'); -- Pt to a LIST of digests
-local C_CellItemCount  = string.byte('C'); -- Cell item count, once we're in Sub-Rec Mode
+-- local C_CellNameList   = 'N'; -- Pt to a LIST of objects (not for LSET)
+local C_CellValueList  = 'V'; -- Pt to a LIST of objects
+local C_CellDigest     = 'D'; -- Pt to a single digest value
+local C_CellTree       = 'T'; -- Pt to a LIST of digests
+local C_CellItemCount  = 'C'; -- Cell item count, once we're in Sub-Rec Mode
 
 -- Here are the various constants used with Hash Cells
-local C_STATE_EMPTY   = string.byte('E'); -- 
-local C_STATE_LIST    = string.byte('L');
-local C_STATE_DIGEST  = string.byte('D');
-local C_STATE_TREE    = string.byte('T');
+local C_STATE_EMPTY   = 'E'; -- 
+local C_STATE_LIST    = 'L';
+local C_STATE_DIGEST  = 'D';
+local C_STATE_TREE    = 'T';
 
 -- NOTE that we may choose to mark a Hash Cell Entry as "EMPTY" directly
 -- and save the space and MSG_PACK cost of converting a map that holds ONLY
@@ -544,8 +544,8 @@ local C_STATE_TREE    = string.byte('T');
 -- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 -- LDT Data Record (LDR) Control Map Fields (Recall that each Map ALSO has
 -- the PM (general property map) fields.
-local LDR_ByteEntryCount       = string.byte('C'); -- Count of bytes used (in binary mode)
-local LDR_NextSubRecDigest     = string.byte('N'); -- Digest of Next Subrec in the chain
+local LDR_ByteEntryCount       = 'C'; -- Count of bytes used (in binary mode)
+local LDR_NextSubRecDigest     = 'N'; -- Digest of Next Subrec in the chain
 
 -- ++====================++
 -- || INTERNAL BIN NAMES || -- Local, but global to this module
