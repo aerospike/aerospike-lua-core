@@ -377,6 +377,7 @@ local LS = {
   KeyField            = 'f',-- Key Field to use as key
   -- Top Node Tree Root Directory
   RootListMax         = 'R', -- Length of Key List (page list is KL + 1)
+  PageSize            = 'P', -- Split Page Size
   RootKeyList         = 'K',-- Root Key List, when in List Mode
   RootDigestList      = 'D',-- Digest List, when in List Mode
   CompactList         = 'Q',--Simple Compact List -- before "tree mode"
@@ -2034,7 +2035,7 @@ local function adjustLeafPointersAfterInsert( src, topRec, ldtMap, newLeftLeaf, 
   local rightLeafMap = rightLeaf[LSR_CTRL_BIN];
 
   local oldLeftLeafDigest = rightLeafMap[LF_PrevPage];
-  if( oldLeftLeafDigest == 0 ) then
+  if (oldLeftLeafDigest == nil) or (oldLeftLeafDigest == 0) then
     -- There is no left Leaf.  Just assign ZERO to the newLeftLeaf Left Ptr.
     -- Also -- register this leaf as the NEW LEFT-MOST LEAF.
     GP=F and trace("[DEBUG]<%s:%s> No Old Left Leaf (assign ZERO)",MOD, meth );
@@ -2045,7 +2046,7 @@ local function adjustLeafPointersAfterInsert( src, topRec, ldtMap, newLeftLeaf, 
     local oldLeftLeafDigestString = tostring(oldLeftLeafDigest);
     local oldLeftLeaf =
         ldt_common.openSubRec( src, topRec, oldLeftLeafDigestString );
-    if( oldLeftLeaf == nil ) then
+    if (oldLeftLeaf == nil) then
       warn("[ERROR]<%s:%s> oldLeftLeaf NIL from openSubrec: digest(%s)",
         MOD, meth, oldLeftLeafDigestString );
       error( ldte.ERR_SUBREC_OPEN );
@@ -2242,7 +2243,7 @@ end -- createSearchPath()
 -- (*) keyCount: Number of keys in the list
 -- ======================================================================
 local function
-updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount)
+updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount, totValSize)
   local meth = "updateSearchPath()";
 
   local levelCount = sp.LevelCount;
@@ -2281,6 +2282,10 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount)
     list.append( sp.HasRoom, false );
     GP=F and trace("[HasRoom FALSE]<%s:%s>Level(%d) SP(%s)",
         MOD, meth, levelCount + 1, tostring( sp ));
+  elseif (totValSize >= ldtMap[LS.PageSize]) then 
+    list.append( sp.HasRoom, false );
+    GP=F and trace("[HasRoom FALSE]<%s:%s>Level(%d) SP(%s), size (%s)",
+        MOD, meth, levelCount + 1, tostring( sp ), tostring(totValSize));
   else
     list.append( sp.HasRoom, true );
     GP=F and trace("[HasRoom TRUE ]<%s:%s>Level(%d) SP(%s)",
@@ -2483,7 +2488,7 @@ end -- scanLeaf()
 -- Return: ST.FOUND(0) or ST.NOT_FOUND(-1)
 -- And, implicitly, the updated searchPath Object.
 -- ======================================================================
-local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
+local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
   local meth = "treeSearch()";
   local rc = 0;
 
@@ -2502,7 +2507,17 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
   local keyCount = list.size( keyList );
   local objectList = nil;
   local objectCount = 0;
+  local objectSize  = 0;
   local digestList = ldtMap[LS.RootDigestList];
+  local digestListSize = 0;
+  if (digestList ~= nil) then 
+	digestListSize = ldt_common.getValSize(digestList);
+  end
+  local newValSize  = 0;
+  if (newVal ~= nil) then
+	newValSize = ldt_common.getValSize(newValSize);
+  end
+  local position = 0;
   local position = 0;
   local nodeRec = topRec;
   local nodeCtrlMap;
@@ -2518,7 +2533,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
           tostring(resultMap));
         error( ldte.ERR_INTERNAL );
       end
-      updateSearchPath(sp,propMap,ldtMap,nodeRec,resultMap,keyCount );
+      updateSearchPath(sp, propMap, ldtMap, nodeRec, resultMap, keyCount, digestListSize);
       position = resultMap.Position;
 
       -- Get ready for the next iteration.  If the next level is an inner node,
@@ -2526,6 +2541,9 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
       -- If the next level is a leaf, then populate our ObjectList and LeafMap.
       -- Remember to get the STRING version of the digest in order to
       -- call "open_subrec()" on it.
+      if (#digestList == 0) then
+		break; 
+	  end
       digestString = tostring( digestList[position] );
       -- NOTE: we're looking at the NEXT level (tl - 1) and we must be LESS
       -- than that to be an inner node.
@@ -2544,6 +2562,9 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
         nodeCtrlMap = nodeRec[LSR_CTRL_BIN];
         objectList = nodeRec[LSR_LIST_BIN];
         objectCount = list.size( objectList );
+        if (objectList ~= nil) then
+          objectSize   = ldt_common.getValSize(objectList);
+        end
       end
     else
       -- It's a leaf search -- so search the objects.  Note that objectList
@@ -2551,9 +2572,9 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey )
       resultMap = searchObjectList( ldtMap, objectList, searchKey );
       if( resultMap.Status == 0 ) then
         updateSearchPath( sp, propMap, ldtMap, nodeRec,
-                          resultMap, objectCount );
+                          resultMap, objectCount, objectSize + newValSize);
       end
-      position = resultMap.position;
+      position = resultMap.Position;
     end -- if node else leaf.
   end -- end for each tree level
 
@@ -2725,7 +2746,7 @@ local function getLeafSplitPosition( ldtMap, objList, leafPosition, newValue )
   -- This is only an approximization
   local listSize = list.size( objList );
   local result = (listSize / 2) + 1; -- beginning of 2nd half, or middle
-  return result;
+  return leafPosition; --result;
 end -- getLeafSplitPosition
 
 -- ======================================================================
@@ -2758,7 +2779,13 @@ local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
   -- we insert at that location for both theh new value and the digest.
   -- Move values around, if necessary, to put key and digest in "position"
   ldt_common.listInsert( keyList, key, position );
-  ldt_common.listInsert( digestList, digest, position );
+
+  -- if key gets inserted in the end then passed leaf is right leaf
+  if (position == #keyList) then
+    ldt_common.listInsert( digestList, digest, position + 1 );
+  else 
+    ldt_common.listInsert( digestList, digest, position );
+  end
 end -- nodeInsert()
 
 -- ======================================================================
@@ -3164,7 +3191,8 @@ function insertParentNode(src, topRec, sp, ldtCtrl, key, digest, level)
   local listMax;
   local keyList;
   local digestList;
-  local position = sp.PositionList[level];
+  -- Cannot trust previous search. Search again !!!
+  local position = 0;
   local nodeSubRec = nil;
   if( level == 1 ) then
     -- Get the control and list data from the Root Node
@@ -3366,67 +3394,100 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   -- Calculate the split position and the key to propagate up to parent.
   local splitPosition =
       getLeafSplitPosition( ldtMap, objectList, leafPosition, newValue );
-  local splitKey = getKeyValue( ldtMap, objectList[splitPosition] );
 
-  GP=F and trace("[STATUS]<%s:%s> Got Split Key(%s) at position(%d)",
-    MOD, meth, tostring(splitKey), splitPosition );
+  local splitKey = nil;
+  local splitNewLeafDigest = nil;
 
-  GP=F and trace("[STATUS]<%s:%s> About to Take and Drop:: List(%s)",
-    MOD, meth, tostring(objectList));
+  local newLeafKey = nil;
+  local newLeafDigest = nil;
 
-  -- Our List operators :
-  -- (*) list.take (take the first N elements) 
-  -- (*) list.drop (drop the first N elements, and keep the rest) 
-  -- will let us split the current leaf list into two leaf lists.
-  -- We will always propagate up the new Key and the NEW left page (digest)
-  local leftList  = list.take( objectList, splitPosition - 1 );
-  local rightList = list.drop( objectList, splitPosition - 1 );
-
-  GP=F and trace("\n[STATE]<%s:%s>: LeftList(%s) SplitKey(%s) RightList(%s)",
-    MOD, meth, tostring(leftList), tostring(splitKey), tostring(rightList) );
-
-  local rightLeafRec = leafSubRec; -- our new name for the existing leaf
-  local leftLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
-  local leftLeafDigest = record.digest( leftLeafRec );
-
-  -- Overwrite the leaves with their new object value lists
-  populateLeaf( src, leftLeafRec, leftList );
-  populateLeaf( src, rightLeafRec, rightList );
-
-  -- Update the Page Pointers: Given that they are doubly linked, we can
-  -- easily find the ADDITIONAL page that we have to open so that we can
-  -- update its next-page link.  If we had to go up and down the tree to find
-  -- it (the near LEFT page) that would be a horrible HORRIBLE experience.
-  adjustLeafPointersAfterInsert(src,topRec,ldtMap,leftLeafRec,rightLeafRec);
-
-  -- Now figure out WHICH of the two leaves (original or new) we have to
-  -- insert the new value.
-  -- Compare against the SplitKey -- if less, insert into the left leaf,
-  -- and otherwise insert into the right leaf.
-  local compareResult = keyCompare( newKey, splitKey );
-  if( compareResult == CR.LESS_THAN ) then
-    -- We choose the LEFT Leaf -- but we must search for the location
-    leafInsert(src, topRec, leftLeafRec, ldtMap, newKey, newValue, 0);
-  elseif( compareResult >= CR.EQUAL  ) then -- this works for EQ or GT
-    -- We choose the RIGHT (new) Leaf -- but we must search for the location
-    leafInsert(src, topRec, rightLeafRec, ldtMap, newKey, newValue, 0);
+  if (splitPosition > #objectList) then
+    local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
+    newLeafDigest    = record.digest( newLeafRec );
+    leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec);
+    ldt_common.updateSubRec( src, newLeafRec );
+    newLeafKey = getKeyValue(ldtMap, objectList[#objectList]); 
+  elseif (splitPosition == 0) then
+    local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
+    newLeafDigest  = record.digest( newLeafRec);
+    leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
+    adjustLeafPointersAfterInsert(src,topRec,ldtMap, newLeafRec, leafSubRec);
+    ldt_common.updateSubRec( src, newLeafRec );
+    newLeafKey = newKey;
   else
-    -- We got some sort of goofy error.
-    warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
-    error( ldte.ERR_INTERNAL );
+    splitKey  = getKeyValue(ldtMap, objectList[splitPosition] );
+    local leftList  = list.take( objectList, splitPosition - 1 );
+    local rightList = list.drop( objectList, splitPosition - 1 );
+	local rightLeafRec    = leafSubRec; -- our new name for the existing leaf
+    local leftLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
+    local splitNewLeafRec = leftLeafRec;
+    splitNewLeafDigest = record.digest( leftLeafRec);
+
+    if (leafList ~= nil) then 
+      populateLeaf( src, leftLeafRec, leftList );
+    end
+    if (rightlist ~= nil) then
+      populateLeaf( src, rightLeafRec, rightList );
+    end
+
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leftLeafRec, rightLeafRec);
+
+    -- Now figure out WHICH of the two leaves (original or new) we have to
+    -- insert the new value.
+    -- Compare against the SplitKey -- if less, insert into the left leaf,
+    -- and otherwise insert into the right leaf.
+    local compareResult = keyCompare( newKey, splitKey );
+    if (compareResult == CR.LESS_THAN) then
+      if (ldt_common.getValSize(newValue) + ldt_common.getValSize(leftList) > ldtMap[LS.PageSize]) then
+        local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
+        newLeafDigest  = record.digest( newLeafRec);
+        leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
+        adjustLeafPointersAfterInsert(src,topRec,ldtMap,newLeafRec, leafSubRec);
+        newLeafKey = newKey;
+      else
+        -- We choose the LEFT Leaf -- but we must search for the location
+        leafInsert(src, topRec, leftLeafRec, ldtMap, newKey, newValue, 0);
+      end
+    elseif (compareResult >= CR.EQUAL) then -- this works for EQ or GT
+      if (ldt_common.getValSize(newValue) + ldt_common.getValSize(rightList) > ldtMap[LS.PageSize]) then
+        local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
+        newLeafDigest  = record.digest( newLeafRec);
+        leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
+        adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec);
+        newLeafKey = newKey;
+        ldt_common.updateSubRec( src, newLeafRec );
+      else
+        -- We choose the RIGHT (new) Leaf -- but we must search for the location
+        leafInsert(src, topRec, rightLeafRec, ldtMap, newKey, newValue, 0);
+      end
+    else
+      -- We got some sort of goofy error.
+      warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
+      error( ldte.ERR_INTERNAL );
+    end
+    -- Call update to mark the SubRec as dirty, and to force the write if we
+    -- are in "early update" mode. Close will happen at the end of the Lua call.
+    ldt_common.updateSubRec( src, leftLeafRec );
+    ldt_common.updateSubRec( src, rightLeafRec );
   end
 
-  -- Call update to mark the SubRec as dirty, and to force the write if we
-  -- are in "early update" mode. Close will happen at the end of the Lua call.
-  ldt_common.updateSubRec( src, leftLeafRec );
-  ldt_common.updateSubRec( src, rightLeafRec );
 
   -- Update the parent node with the new leaf information.  It is the job
   -- of this method to either split the parent or do a straight insert.
   GP=F and trace("\n\n CALLING INSERT PARENT FROM SPLIT LEAF: Key(%s)\n",
     tostring(splitKey));
-  insertParentNode(src, topRec, sp, ldtCtrl, splitKey,
-    leftLeafDigest, leafLevel - 1 );
+ 
+  if (splitNewLeafDigest ~= nil) then
+    insertParentNode(src, topRec, sp, ldtCtrl, splitKey,
+      splitNewLeafDigest, leafLevel - 1 );
+  end
+  
+
+  if (newLeafDigest ~= nil) then
+    insertParentNode(src, topRec, sp, ldtCtrl, newLeafKey,
+      newLeafDigest, leafLevel - 1 );
+  end
 
   GP=F and trace("[EXIT]<%s:%s> rc(0)", MOD, meth );
   return 0;
@@ -3626,7 +3687,7 @@ local function treeInsert( src, topRec, ldtCtrl, value, update )
     -- The Search path is a map of values, including lists from root to leaf
     -- showing node/list states, counts, fill factors, etc.
     local sp = createSearchPath(ldtMap);
-    local status = treeSearch( src, topRec, sp, ldtCtrl, key );
+    local status = treeSearch( src, topRec, sp, ldtCtrl, key, value );
     local leafLevel = sp.LevelCount;
     local leafSubRec = sp.RecList[leafLevel];
     local position = sp.PositionList[leafLevel];
@@ -5341,8 +5402,8 @@ local function compute_settings(ldtMap, configMap )
   elseif ((maxObjectSize * minLeafCount ) <= adjustedPageSize) then
     leafListMax = (adjustedPageSize / maxObjectSize) - 1;
   else
-    leafListMax = adjustedPageSize / maxObjectSize;
-    if leafListMax <= 2 then
+    leafListMax = writeBlockSize / maxObjectSize;
+    if leafListMax < 1 then
       warn("[WARN]<%s:%s>MaxObjectSize(%d) too great for PageSize(%d)",
         MOD, meth, maxObjectSize, adjustedPageSize);
       error(ldte.ERR_INPUT_TOO_LARGE);
@@ -5404,6 +5465,7 @@ local function compute_settings(ldtMap, configMap )
 
   -- Apply our computed values.
   ldtMap[LS.Threshold]   = threshold;
+  ldtMap[LS.PageSize]    = configMap.TargetPageSize;
   ldtMap[LS.RootListMax] = rootListMax;
   ldtMap[LS.NodeListMax] = nodeListMax;
   ldtMap[LS.LeafListMax] = leafListMax;

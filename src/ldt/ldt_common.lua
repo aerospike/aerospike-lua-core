@@ -1364,7 +1364,7 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
   local pageTarget    = DEFAULT_TARGET_PAGESIZE;
   local pageMaximum   = writeBlockSize;  -- 128k to 1mb ceiling
 
-  if (maxObjectSize * 4) > writeBlockSize then
+  if maxObjectSize > writeBlockSize then
     error(ldte.ERR_INPUT_TOO_LARGE .. ":Max Object Size (" .. maxObjectSize .. ") Exceeds WriteBlockSize(" .. writeBlockSize .. ")");
   elseif (maxObjectSize * 4) > pageSize then
     if (maxObjectSize * 4) < pageTarget then
