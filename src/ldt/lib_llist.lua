@@ -51,6 +51,7 @@ local D=false; -- Set D (Detail) to get more Detailed Debug Output.
 local S=false; -- Set S (Sanity Check) to turn on extra checks.
 local DEBUG=false; -- turn on for more elaborate state dumps and checks.
 
+local llist = {};
 -- ======================================================================
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- Large List (LLIST) Library Functions
@@ -929,15 +930,21 @@ local function printRoot( topRec, ldtCtrl )
   local ldtBinName    = propMap[PM.BinName];
 
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
-  info("\n RRRRRRRRRRRRRRRRRRRRRR  <Root Start>  RRRRRRRRRRRRRRRRRRRRRRR\n");
-  info("\n ROOT::Bin(%s)", ldtBinName );
-  info("\n ROOT::PropMAP(%s)\n", tostring( propMap ) );
-  info("\n ROOT::LdtMAP(%s)\n", tostring( ldtMap ) );
-  info("\n ROOT::Keys: Size(%d) List(%s)\n", #keyList, tostring( keyList ) );
-  info("\n ROOT::Digest: Size(%d) List(%s)\n", #digestList,
-           tostring( digestList ) );
-  info("\n RRRRRRRRRRRRRRRRRRRRRR  <Root End>  RRRRRRRRRRRRRRRRRRRRRRRRR\n");
+  info("ROOT::Bin(%s)", ldtBinName );
+  info("ROOT::Keys: Size(%d) List(%s)", #keyList, tostring( keyList ) );
 end -- printRoot()
+
+local function getKeyValue
+local function printKey(ldtMap, l)
+    if (l == nil) then
+      return nil;
+    end
+	local keyList = list();
+    for i = 1, #l, 1 do
+       list.append(keyList, getKeyValue(ldtMap, l[i]));
+    end
+	return keyList
+end
 
 -- ======================================================================
 -- printNode()
@@ -957,15 +964,9 @@ local function printNode( nodeSubRec, nodeLevel )
   end
 
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
-  info("\n NNNNNNNNNNNNNNNNNNNNN  <Node Start>  NNNNNNNNNNNNNNNNNNNNNNNN");
-  info("\n NODE::Level(%s)", tostring( nodeLevel ));
-  info("\n NODE::Digest(%s)", tostring(record.digest(nodeSubRec)));
-  info("\n NODE::PropMAP(%s)", tostring( nodePropMap ) );
-  info("\n NODE::LdtMAP(%s)", tostring( nodeLdtMap ) );
-  info("\n NODE::KeyList: Size(%d) List(%s)", #keyList, tostring( keyList ) );
-  info("\n NODE::DigestList: Size(%d) List(%s)",#digestList,
-           tostring( digestList ) );
-  info("\n NNNNNNNNNNNNNNNNNNNNN  <Node End>  NNNNNNNNNNNNNNNNNNNNNNNNNN");
+  info("NODE::Level(%s)", tostring( nodeLevel ));
+  info("NODE::Digest(%s)", tostring(record.digest(nodeSubRec)));
+  info("NODE::KeyList: Size(%d) List(%s)", #keyList, tostring( keyList ) );
 end -- printNode()
 
 -- ======================================================================
@@ -973,7 +974,7 @@ end -- printNode()
 -- ============================================leafP=========================
 -- Dump the Leaf contents for Debugging/Tracing purposes
 -- ======================================================================
-local function printLeaf( leafSubRec )
+local function printLeaf( ldtMap, leafSubRec )
   local leafPropMap     = leafSubRec[SUBREC_PROP_BIN];
   local leafLdtMap     = leafSubRec[LSR_CTRL_BIN];
   local objList  = leafSubRec[LSR_LIST_BIN];
@@ -982,12 +983,7 @@ local function printLeaf( leafSubRec )
   end
 
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
-  info("\n LLLLLLLLLLLLLLLLLLLL <Leaf Start> LLLLLLLLLLLLLLLLLLLLLLLLLLL\n");
-  info("\n LEAF::Digest(%s)", tostring(record.digest(leafSubRec)));
-  info("\n LEAF::PropMAP(%s)\n", tostring( leafPropMap ) );
-  info("\n LEAF::LdtMAP(%s)\n", tostring( leafLdtMap ) );
-  info("\n LEAF::Objects: Size(%d) List(%s)\n", #objList, tostring( objList ) );
-  info("\n LLLLLLLLLLLLLLLLLLLLL <Leaf End > LLLLLLLLLLLLLLLLLLLLLLLLLLL\n");
+  info("LEAF::Objects: Count(%d) Size(%d) Key(%s)", #objList, ldt_common.getValSize(objList), tostring(printKey(ldtMap, objList))); 
   -- end
 end -- printLeaf()
 
@@ -1350,6 +1346,12 @@ local function searchKeyListLinear( ldtMap, keyList, searchKey )
     GP=F and trace("[DEBUG]<%s:%s>searchKey(%s) i(%d) keyList(%s)",
     MOD, meth, tostring(searchKey), i, tostring(keyList));
 
+    if (#keyList == 0) then
+      resultMap.Position = i; -- Left Child Pointer
+      resultMap.Found = false;
+      return resultMap;
+    end
+
     entryKey = keyList[i];
     compareResult = keyCompare( searchKey, entryKey );
     if compareResult == CR.ERROR then
@@ -1367,7 +1369,7 @@ local function searchKeyListLinear( ldtMap, keyList, searchKey )
       -- Found it -- return the "right child" index (right ptr)
       GP=F and trace("[FOUND KEY]: <%s:%s> : SrchValue(%s) Index(%d)",
         MOD, meth, tostring(searchKey), i);
-      resultMap.Position = i + 1;
+      resultMap.Position = i;
       resultMap.Found = true;
       return resultMap;
     end
@@ -1480,7 +1482,7 @@ local function searchKeyListBinary( ldtMap, keyList, searchKey )
           MOD, meth, tostring(searchKey), iMid);
       end
       -- Right Child Pointer that goes with iMid
-      resultMap.Position = iMid + 1;
+      resultMap.Position = iMid;
       resultMap.Found = true;
       return resultMap;
     end -- if found, we've returned.
@@ -1855,6 +1857,7 @@ local function searchObjectList( ldtMap, objectList, searchKey )
   if( searchKey == nil ) then
     local resultMap = {};
     resultMap.Found = true;
+    resultMap.Key = nil;
     resultMap.Position = 1;
     resultMap.Status = ERR.OK;
     return resultMap;
@@ -1899,14 +1902,8 @@ local function printTree( src, topRec, ldtBinName )
 
   -- Remember that "print()" just goes to the console, and does NOT
   -- print out in the log.
-  info("\n<><> ");
-  info("\n===========================================================");
-  info("\n<PT>begin <PT> <PT> :::::::::::::::::::::::: <PT> <PT> <PT>");
-  info("\n<PT> <PT> <PT> :::::   P R I N T   T R E E  ::::: <PT> <PT>");
-  info("\n<PT> <PT> <PT> <PT> :::::::::::::::::::::::: <PT> <PT> <PT>");
-  info("\n===========================================================");
-
-  info("\n======  ROOT SUMMARY ======(%s)", rootNodeSummary( ldtCtrl ));
+  info("<PT> <PT> <PT> :::::   P R I N T   T R E E  ::::: <PT> <PT>");
+  --info("\n======  ROOT SUMMARY ======(%s)", rootNodeSummary( ldtCtrl ));
 
   printRoot( topRec, ldtCtrl );
 
@@ -1930,7 +1927,7 @@ local function printTree( src, topRec, ldtBinName )
           printNode( nodeSubRec, lvl );
       else
         -- This is a leaf node -- just print contents of each leaf
-        printLeaf( nodeSubRec );
+        printLeaf( ldtMap, nodeSubRec );
       end
       end -- if digest is OK.
       GP=F and trace("[SUBREC]<%s:%s> CloseSR(%s)", MOD, meth, digestString );
@@ -2282,14 +2279,14 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount, totValSiz
     list.append( sp.HasRoom, false );
     GP=F and trace("[HasRoom FALSE]<%s:%s>Level(%d) SP(%s)",
         MOD, meth, levelCount + 1, tostring( sp ));
-  elseif (totValSize >= ldtMap[LS.PageSize]) then 
+  elseif (totValSize > ldtMap[LS.PageSize]) then 
     list.append( sp.HasRoom, false );
     GP=F and trace("[HasRoom FALSE]<%s:%s>Level(%d) SP(%s), size (%s)",
         MOD, meth, levelCount + 1, tostring( sp ), tostring(totValSize));
   else
     list.append( sp.HasRoom, true );
     GP=F and trace("[HasRoom TRUE ]<%s:%s>Level(%d) SP(%s)",
-        MOD, meth, levelCount + 1, tostring( sp ));
+        MOD, meth, levelCount + 1, tostring( sp ), tostring(totValSize));
   end
 
   return 0;
@@ -2513,11 +2510,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
   if (digestList ~= nil) then 
 	digestListSize = ldt_common.getValSize(digestList);
   end
-  local newValSize  = 0;
-  if (newVal ~= nil) then
-	newValSize = ldt_common.getValSize(newValSize);
-  end
-  local position = 0;
+  local newValSize = ldt_common.getValSize(newVal);
   local position = 0;
   local nodeRec = topRec;
   local nodeCtrlMap;
@@ -2743,9 +2736,8 @@ end -- getNodeSplitPosition
 -- (*) newValue: The new value to be inserted
 -- ======================================================================
 local function getLeafSplitPosition( ldtMap, objList, leafPosition, newValue )
-  -- This is only an approximization
-  local listSize = list.size( objList );
-  local result = (listSize / 2) + 1; -- beginning of 2nd half, or middle
+  -- local listSize = list.size( objList );
+  -- local result = math.floor(listSize / 2) + 1; -- beginning of 2nd half, or middle
   return leafPosition; --result;
 end -- getLeafSplitPosition
 
@@ -2779,13 +2771,7 @@ local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
   -- we insert at that location for both theh new value and the digest.
   -- Move values around, if necessary, to put key and digest in "position"
   ldt_common.listInsert( keyList, key, position );
-
-  -- if key gets inserted in the end then passed leaf is right leaf
-  if (position == #keyList) then
-    ldt_common.listInsert( digestList, digest, position + 1 );
-  else 
-    ldt_common.listInsert( digestList, digest, position );
-  end
+  ldt_common.listInsert( digestList, digest, position );
 end -- nodeInsert()
 
 -- ======================================================================
@@ -3401,14 +3387,30 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local newLeafKey = nil;
   local newLeafDigest = nil;
 
-  if (splitPosition > #objectList) then
+  if (#objectList == 0) then
+    leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
+  elseif (splitPosition > #objectList) then
+    -- Move current list to left side 
     local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
     newLeafDigest    = record.digest( newLeafRec );
-    leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec);
+    populateLeaf(src, newLeafRec, objectList);
+    newLeafKey       = getKeyValue(ldtMap, objectList[#objectList]); 
+
+    -- Insert new Value into the current leaf
+    -- For unique key if this has happened then
+    -- Parent Key >= newKey > newLeafKey
+    populateLeaf(src, leafSubRec, list()); 
+    leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
+
     ldt_common.updateSubRec( src, newLeafRec );
-    newLeafKey = getKeyValue(ldtMap, objectList[#objectList]); 
-  elseif (splitPosition == 0) then
+    ldt_common.updateSubRec( src, leafSubRec);
+  elseif (splitPosition == 1) then
+
+    -- For unique key if this has happened
+    -- PK-1 < newKey < PK
+    -- So we can simply add new key and leaf on the left of current
+    -- Note: it cannot be equal
     local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
     newLeafDigest  = record.digest( newLeafRec);
     leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
@@ -3419,57 +3421,67 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     splitKey  = getKeyValue(ldtMap, objectList[splitPosition] );
     local leftList  = list.take( objectList, splitPosition - 1 );
     local rightList = list.drop( objectList, splitPosition - 1 );
-	local rightLeafRec    = leafSubRec; -- our new name for the existing leaf
-    local leftLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
-    local splitNewLeafRec = leftLeafRec;
-    splitNewLeafDigest = record.digest( leftLeafRec);
-
-    if (leafList ~= nil) then 
-      populateLeaf( src, leftLeafRec, leftList );
-    end
-    if (rightlist ~= nil) then
-      populateLeaf( src, rightLeafRec, rightList );
-    end
-
-    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leftLeafRec, rightLeafRec);
+    -- info("Split @ %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
 
     -- Now figure out WHICH of the two leaves (original or new) we have to
     -- insert the new value.
     -- Compare against the SplitKey -- if less, insert into the left leaf,
     -- and otherwise insert into the right leaf.
     local compareResult = keyCompare( newKey, splitKey );
+    local newValSize    = ldt_common.getValSize(newValue);
+    local leafListSize  = ldt_common.getValSize(leftList);
+    local pageSize      = ldtMap[LS.PageSize];
+
+    -- Cases
+    -- 1: newKey:(X+newVal), PK:Y
+    -- 2: maxKey:X,  newKey:newVal, PK:Y
+
     if (compareResult == CR.LESS_THAN) then
-      if (ldt_common.getValSize(newValue) + ldt_common.getValSize(leftList) > ldtMap[LS.PageSize]) then
-        local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
-        newLeafDigest  = record.digest( newLeafRec);
-        leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-        adjustLeafPointersAfterInsert(src,topRec,ldtMap,newLeafRec, leafSubRec);
-        newLeafKey = newKey;
-      else
-        -- We choose the LEFT Leaf -- but we must search for the location
-        leafInsert(src, topRec, leftLeafRec, ldtMap, newKey, newValue, 0);
-      end
-    elseif (compareResult >= CR.EQUAL) then -- this works for EQ or GT
-      if (ldt_common.getValSize(newValue) + ldt_common.getValSize(rightList) > ldtMap[LS.PageSize]) then
-        local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
-        newLeafDigest  = record.digest( newLeafRec);
-        leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-        adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec);
-        newLeafKey = newKey;
-        ldt_common.updateSubRec( src, newLeafRec );
-      else
-        -- We choose the RIGHT (new) Leaf -- but we must search for the location
-        leafInsert(src, topRec, rightLeafRec, ldtMap, newKey, newValue, 0);
-      end
+       if (newValSize + leafListSize <= pageSize) then
+          --Case 1   
+          --newKey: (X+newVal)
+          local newLeafRec  = createLeafRec( src, topRec, ldtCtrl, nil );
+          populateLeaf( src, newLeafRec, leftList );
+          leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
+          newLeafDigest = record.digest(newLeafRec);
+          newLeafKey = newKey;
+        
+          -- PK:Y 
+          populateLeaf( src, leafSubRec, rightList );
+
+          ldt_common.updateSubRec( src, newLeafRec);
+          ldt_common.updateSubRec( src, leafSubRec);
+       else
+          -- Case 2  
+          -- maxKey:X
+          local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
+          populateLeaf(src, newLeafRec, leftList );
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
+          splitNewLeafDigest = record.digest(newLeafRec);
+          splitKey = getKeyValue(ldtMap, leftList[#leftList]);
+    
+
+          -- newKey:newVal
+          local newLeafRec1 = createLeafRec(src, topRec, ldtCtrl, nil );
+          populateLeaf(src, newLeafRec1, list());
+          leafInsert(src, topRec, newLeafRec1, ldtMap, newKey, newValue, 0);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec1, leafSubRec);
+          newLeafDigest = record.digest(newLeafRec1);
+          newLeafKey = newKey;
+ 
+          -- PK:Y 
+          populateLeaf( src, leafSubRec, rightList );
+
+          ldt_common.updateSubRec( src, newLeafRec);
+          ldt_common.updateSubRec( src, newLeafRec1);
+          ldt_common.updateSubRec( src, leafSubRec);
+       end
     else
       -- We got some sort of goofy error.
       warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
       error( ldte.ERR_INTERNAL );
     end
-    -- Call update to mark the SubRec as dirty, and to force the write if we
-    -- are in "early update" mode. Close will happen at the end of the Lua call.
-    ldt_common.updateSubRec( src, leftLeafRec );
-    ldt_common.updateSubRec( src, rightLeafRec );
   end
 
 
@@ -3606,10 +3618,14 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue )
   local leftLeafRec = createLeafRec( src, topRec, ldtCtrl, newValue, nil );
   local leftLeafDigest = record.digest( leftLeafRec );
   ldtMap[LS.LeftLeafDigest] = leftLeafDigest; -- Remember Left-Most Leaf
-  ldtMap[LS.RightLeafDigest] = leftLeafDigest; -- Remember Right-Most Leaf
+
+  local rightLeafRec = createLeafRec( src, topRec, ldtCtrl, nil, nil);
+  local rightLeafDigest = record.digest( rightLeafRec );
+  ldtMap[LS.RightLeafDigest] = rightLeafDigest; -- Remember Right-Most Leaf
 
   -- Our leaf pages are doubly linked -- we use digest values as page ptrs.
-  setLeafPagePointers( src, leftLeafRec, 0, 0 );
+  setLeafPagePointers( src, leftLeafRec, 0, rightLeafDigest );
+  setLeafPagePointers( src, rightLeafRec, leftLeafDigest, 0 );
 
   GP=F and trace("[STATE]<%s:%s>Created New Left Leaf(%s)",
     MOD, meth, tostring(leftLeafDigest));
@@ -4667,11 +4683,11 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
   if sp.FoundList[rootLevel] then
     rootPosition = sp.PositionList[rootLevel];
     keyPosition = rootPosition;
-    digestPosition = rootPosition + 1;
+    digestPosition = rootPosition;
   else
     rootPosition = sp.PositionList[rootLevel] - 1;
     keyPosition = (rootPosition < 1) and 1 or rootPosition;
-    digestPosition = (rootPosition < 0) and 1 or rootPosition + 1;
+    digestPosition = keyPosition; 
   end
   local resultKeyList;
   local resultDigestList;
@@ -4782,7 +4798,7 @@ local function releaseNode(src, sp, nodeLevel, topRec, ldtCtrl, candidate)
   else
     nodePosition = sp.PositionList[nodeLevel] - 1;
     keyPosition = (nodePosition < 1) and 1 or nodePosition;
-    digestPosition = (nodePosition < 0) and 1 or nodePosition + 1;
+    digestPosition = keyPosition; -- (nodePosition < 0) and 1 or nodePosition + 1;
   end
 
   GP=S and info("[SANITY CHECK]<%s:%s> F(%s) NodePos(%d) KeyPos(%d) DigPos(%d)",
@@ -4917,11 +4933,11 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   if sp.FoundList[nodeLevel] then
     nodePosition = sp.PositionList[nodeLevel];
     keyPosition = nodePosition;
-    digestPosition = nodePosition + 1;
+    digestPosition = nodePosition;
   else
     nodePosition = sp.PositionList[nodeLevel] - 1;
     keyPosition = (nodePosition < 1) and 1 or nodePosition;
-    digestPosition = (nodePosition < 0) and 1 or nodePosition + 1;
+    digestPosition = keyPosition; 
   end
 
   GP=D and info("[SANITY CHECK]<%s:%s> F(%s) NodePos(%d) KeyPos(%d) DigPos(%d)",
@@ -4983,7 +4999,7 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   -- and release the entry in the parent.  If our parent is a regular node,
   -- then do the usual thing.  However, if it is the root node, then
   -- we have to do something special.  That is all handled by releaseNode();
-  if #resultDigestList == 0 then
+  if #resultKeyList == 0 then
     GP=S and info("[SANITY CHECK]<%s:%s> About to release node(%s)", MOD, meth,
       tostring(record.digest(nodeSubRec)));
     releaseNode(src, sp, nodeLevel, topRec, ldtCtrl, nodeSubRec)
@@ -5229,7 +5245,7 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
   end
 
   GP=D and trace("[DUMP]After delete: Key(%s) Result: Sz(%d) ObjectList(%s)",
-    tostring(key), list.size(resultList), tostring(resultList));
+    tostring(key), list.size(resultList), tostring(printKey(resultList)));
 
   GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) key(%s) rc(%s)",
     MOD, meth, ldtSummaryString(ldtCtrl), tostring(key), tostring(rc));
@@ -5276,7 +5292,7 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   local sp = createSearchPath(ldtMap);
-  local status = treeSearch( src, topRec, sp, ldtCtrl, key );
+  local status = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
 
   if( status == ST.FOUND ) then
     -- leafDelete() always returns zero.
@@ -5465,7 +5481,7 @@ local function compute_settings(ldtMap, configMap )
 
   -- Apply our computed values.
   ldtMap[LS.Threshold]   = threshold;
-  ldtMap[LS.PageSize]    = configMap.TargetPageSize;
+  ldtMap[LS.PageSize]    = adjustedPageSize;
   ldtMap[LS.RootListMax] = rootListMax;
   ldtMap[LS.NodeListMax] = nodeListMax;
   ldtMap[LS.LeafListMax] = leafListMax;
@@ -5626,7 +5642,7 @@ local function treeMin( topRec,ldtBinName, take )
     -- the value from our Search Path (sp) Object.
     GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
-    treeSearch( src, topRec, sp, ldtCtrl, nil );
+    treeSearch( src, topRec, sp, ldtCtrl, nil, nil );
     -- We're just going to assume there's a MIN found, given that there's a
     -- non-zero tree present.  Any other error will kick out of Lua.
     resultObject = treeMinGet( sp, ldtCtrl, take );
@@ -5683,7 +5699,8 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update, co
   -- Threshold is zero), then we convert our compact list, empty or
   -- not, into a tree.
   if(( ldtMap[LS.StoreState] == SS_COMPACT ) and
-     ( itemCount > ldtMap[LS.Threshold] )) 
+     ( (itemCount > ldtMap[LS.Threshold] )
+       or (ldt_common.getValSize(ldtMap[LS.CompactList]) + ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) )) 
   then
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
@@ -5777,7 +5794,6 @@ end -- function localWrite()
 -- We define a table of functions that are visible to both INTERNAL UDF
 -- calls and to the EXTERNAL LDT functions.  We define this table, "lmap",
 -- which contains the functions that will be visible to the module.
-local llist = {};
 
 -- ======================================================================
 -- llist.create()
@@ -6261,7 +6277,7 @@ function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
     -- Do the TREE Search
     GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
-    rc = treeSearch( src, topRec, sp, ldtCtrl, key );
+    rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
     if( rc == ST.FOUND ) then
       rc = treeScan( src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
       if( rc < 0 or list.size( resultList ) == 0 ) then
@@ -6411,7 +6427,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
     -- Do the <><><> TREE Search <><><>
     GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
-    rc = treeSearch( src, topRec, sp, ldtCtrl, minKey );
+    rc = treeSearch( src, topRec, sp, ldtCtrl, minKey, nil );
     -- Recall that we don't need to find the first element for a Range Scan.
     -- The search ONLY finds the place where we start the scan.
     if( rc == ST.FOUND ) then
