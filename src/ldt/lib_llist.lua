@@ -1,7 +1,7 @@
 -- Large Ordered List (llist.lua)
 --
 -- ======================================================================
--- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- Copyright [2015] Aerospike, Inc.. Portions may be licensed
 -- to Aerospike, Inc. under one or more contributor license agreements.
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
@@ -63,9 +63,6 @@ local llist = {};
 -- (*) Status = llist.update_all(topRec, ldtBinName, valueList, src)
 -- (*) List   = llist.find(topRec,ldtBinName,val,filterModule,filter,fargs, src)
 -- ( ) Number = llist.exists(topRec, ldtBinName, val, src)
--- ( ) List   = llist.take(topRec,ldtBinName,val,filterModule,filter,fargs, src)
--- ( ) Object = llist.take_min(topRec,ldtBinName, src)
--- ( ) Object = llist.take_max(topRec,ldtBinName, src)
 -- (*) List   = llist.range(tr,bin,loVal,hiVal, filterModule,filter,fargs,src)
 -- (*) List   = llist.filter(topRec,ldtBinName,filterModule,filter,fargs,src)
 -- (*) List   = llist.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
@@ -88,27 +85,20 @@ local llist = {};
 -- Large List Design/Architecture
 --
 -- The Large Ordered List is a sorted list, organized according to a Key
--- value.  It is assumed that the stored object is more complex than just an
--- atomic key value -- otherwise one of the other Large Object mechanisms
--- (e.g. Large Stack, Large Set) would be used.  The cannonical form of a
--- LLIST object is a map, which includes a KEY field and other data fields.
+-- value. Large Ordered List is implemented as B+tree with unbounded size
+-- and can be used in following variants
+-- Store: Key -> Value 
+-- Store: Key  [This would be set implementation ]
 --
--- In this first version, we may choose to use a FUNCTION to derrive the 
--- key value from the complex object (e.g. Map).
--- In the first iteration, we will use atomic values and the fixed KEY field
--- for comparisons.
---
--- Compared to Large Stack and Large Set, the Large Ordered List is managed
--- continuously (i.e. it is kept sorted), so there is some additional
--- overhead in the storage operation (to do the insertion sort), but there
--- is reduced overhead for the retieval operation, since it is doing a
--- binary search (order log(N)) rather than scan (order N).
--- ======================================================================
--- >> Please refer to ldt/doc_llist.md for architecture and design notes.
+-- Large Ordered List is managed continuously (i.e. it is kept sorted), so 
+-- there is some additional overhead in the storage operation (to do the 
+-- insertion sort), but should be fast for near sorted data like data 
+-- arriving with time (Timeseries). 
+-- But this prices paid at the insert comes handly for the retieval operation, 
+-- since it is doing a binary search (order log(N)) rather than scan (order N).
 -- ======================================================================
 
 
--- ======================================================================
 -- FORWARD Function DECLARATIONS
 -- ======================================================================
 -- We have some circular (recursive) function calls, so to make that work
@@ -122,13 +112,13 @@ local nodeDelete;
 -- them by prefixing them with "ldte.XXXX", so for example, an internal error
 -- return looks like this:
 -- error( ldte.ERR_INTERNAL );
-local ldte = require('ldt/ldt_errors');
+local ldte       = require('ldt/ldt_errors');
 local ldt_common = require('ldt/ldt_common');
 
 -- These values should be "built-in" for our Lua, but it is either missing
 -- or inconsistent, so we define it here.  We use this when we check to see
 -- if a value is a LIST or a MAP.
-local Map = getmetatable( map() );
+local Map  = getmetatable( map() );
 local List = getmetatable( list() );
 
 -- ===========================================
@@ -176,13 +166,7 @@ local LSR_LIST_BIN        = 'B';
 -- The Existence Sub-Records (ESRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above (and that might be all)
 
--- ++==================++
--- || MODULE CONSTANTS ||
--- ++==================++
--- Each LDT defines its type in string form.
-local LDT_TYPE = "LLIST";
-
--- For Map objects, we may look for a special KEY FIELD
+local LDT_TYPE   = "LLIST";
 local KEY_FIELD  = "key";
 
 -- ======================= << DEFAULT VALUES >> ========================
@@ -208,7 +192,7 @@ local DEFAULT = {
 
 -- Conventional Wisdom says that lists smaller than 20 are searched faster
 -- with LINEAR SEARCH, and larger lists are searched faster with
--- BINARY SEARCH.   Experiment with this value.
+-- BINARY SEARCH. Experiment with this value.
 local LINEAR_SEARCH_CUTOFF = 20;
 
 -- Use this to test for LdtMap Integrity.  Every map should have one.
@@ -850,7 +834,7 @@ local function validateRecBinAndMap( topRec, ldtBinName, mustExist )
 
   if mustExist then
     -- Check Top Record Existence.
-    if( not aerospike:exists( topRec ) ) then
+    if (not aerospike:exists(topRec)) then
       debug("[ERROR EXIT]:<%s:%s>:Missing Top Record. Exit", MOD, meth );
       error( ldte.ERR_TOP_REC_NOT_FOUND );
     end
@@ -5171,9 +5155,6 @@ end -- nodeDelete()
 -- ======================================================================
 -- releaseLeaf()
 -- ======================================================================
--- If this leaf CAN borrow any items from its neighbors, then we will hang
--- onto it and not release it.  Look Left And/or Right to see if we can
--- borrow items from a neighbor.  If not, then ...
 -- Release this leaf and remove the entry in the parent node.
 -- The caller has already verified that this Sub-Rec Leaf is empty.
 -- Notice that we will NOT reclaim this leaf it is one of the last two
@@ -5188,17 +5169,6 @@ local function releaseLeaf(src, sp, topRec, ldtCtrl)
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  -- NOTE: Near Future Work:
-  -- Do the Search for Left or Right Leaves that might have items that we
-  -- can borrow.  Notice that this is not worth doing if the object size
-  -- is over a certain size (e.g. 100kb).  At that point, we shouldn't even
-  -- try -- just remove this leaf.
-  -- Also -- if this is the LEFT-MOST Leaf, then it is likely that we're
-  -- doing a Time-Series delete, which will not benefit from a Leaf Borrow.
-  GP=D and info("[NOTICE]<%s:%s> Leaf Borrow not yet activated", MOD, meth);
-
-  GP=D and info("[DEBUG]<%s:%s> Using SearchPath(%s)", MOD, meth, tostring(sp));
-
   -- The Search Path (sp) from root to leaf shows how we will bubble up
   -- if this leaf delete propagates up to the parent node.
   local leafLevel = sp.LevelCount;
@@ -5210,40 +5180,23 @@ local function releaseLeaf(src, sp, topRec, ldtCtrl)
     warn("[INTERNAL ERROR]<%s:%s> LeafSubRec is NIL: Dig(%s)",
       MOD, meth, leafSubRecDigest);
     error(ldte.ERR_INTERNAL);
-  else
-    GP=D and info("[DEBUG]<%s:%s> LeafSubRec Summary(%s)", MOD, meth,
-      leafSummaryString(leafSubRec)); 
   end
 
   if (leafLevel == 2) then
-    -- Special root case.  Note that the caller has already checked that
-    -- we have more than 2 leaves, so we can certainly remove one.
-    GP=D and info("[DEBUG]<%s:%s> Calling Root Delete", MOD, meth );
     rootDelete( src, sp, topRec, ldtCtrl );
   else
-    GP=D and info("[DEBUG]<%s:%s> Calling Node Delete", MOD, meth );
     nodeDelete( src, sp, (leafLevel - 1), topRec, ldtCtrl );
   end
 
-  -- Since Leaf Nodes are doubly-linked, when we remove a leaf we have to
-  -- adjust the Prev/Next pointers in the neighboring leaves.  Also, if
-  -- this leaf is either the LeftMost Leaf or the RightMost Leaf, then
-  -- we have to take some additional steps (we have to adjust the Leaf Ptrs
-  -- in the Main control block.
   adjustLeafPointersAfterDelete( src, topRec, ldtMap, leafSubRec )
 
   -- Release this leaf
   local digestString = tostring(leafSubRecDigest);
-  GP=D and info("[DEBUG]<%s:%s> About to Release Leaf(%s)",
-    MOD, meth, digestString);
   ldt_common.removeSubRec( src, topRec, propMap, digestString );
 
   -- We now have one LESS Leaf.  Update the count.
   local leafCount = ldtMap[LS.LeafCount];
   ldtMap[LS.LeafCount] = leafCount - 1;
-
-  GP=DEBUG and ldtDebugDump(ldtCtrl);
-
 end -- releaseLeaf()
 
 -- ======================================================================
@@ -5285,8 +5238,6 @@ local function releaseTree( src, topRec, ldtCtrl )
   -- Reset the Tree Node and Leaft stats.
   ldtMap[LS.NodeCount] = 0;
   ldtMap[LS.LeafCount] = 0;
-
-
 end -- releaseTree()
 
 -- ======================================================================
@@ -5321,10 +5272,6 @@ local function collapseToCompact( src, topRec, ldtCtrl )
   -- Erase the old tree.  Null out the Root list in the main record, and
   -- release all of the subrecs.
   releaseTree( src, topRec, ldtCtrl );
-  
-  GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) rc(0)",
-    MOD, meth, ldtSummaryString(ldtCtrl));
-
 end -- collapseToCompact()
 
 -- ======================================================================
@@ -5357,9 +5304,6 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
   local endPos = sp.LeafEndPosition;
   local resultList;
   
-  GP=F and trace("[DUMP]<%s:%s> Before delete: ObjList(%s) Key(%s) Pos(%d)",
-    MOD, meth, tostring(objectList), tostring(key), position);
-
   -- Delete is easy if it's a single value -- more difficult if MANY items
   -- (with the same value) are deleted.
   local numRemoved;
@@ -5396,11 +5340,6 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
     end
   end
 
-  GP=D and trace("[DUMP]After delete: Key(%s) Result: Sz(%d) ObjectList(%s)",
-    tostring(key), list.size(resultList), tostring(printKey(resultList)));
-
-  GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) key(%s) rc(%s)",
-    MOD, meth, ldtSummaryString(ldtCtrl), tostring(key), tostring(rc));
   return rc;
 end -- leafDelete()
 
@@ -5452,10 +5391,6 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   else
     rc = ERR.NOT_FOUND;
   end
-
-  -- NOTE: The caller will take care of updating the parent Record (topRec).
-  GP=F and trace("[EXIT]<%s:%s>LdtSummary(%s) key(%s) rc(%s)",
-    MOD, meth, ldtSummaryString(ldtCtrl), tostring(key), tostring(rc));
   return rc;
 end -- treeDelete()
 
@@ -5749,8 +5684,6 @@ end -- treeMinGet()
 -- =======================================================================
 local function treeMin( topRec,ldtBinName, take )
   local meth = "treeMin()";
-  GP=E and trace("[ENTER]<%s:%s> bin(%s) take(%s)",
-    MOD, meth, tostring( ldtBinName), tostring(take));
 
   -- Define our return value;
   local resultObject;
@@ -5792,7 +5725,6 @@ local function treeMin( topRec,ldtBinName, take )
     -- Note that "Left-Most" is a special case, where by using a nil key
     -- we automatically go to the "minimal" position.  We can pull
     -- the value from our Search Path (sp) Object.
-    GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
     treeSearch( src, topRec, sp, ldtCtrl, nil, nil );
     -- We're just going to assume there's a MIN found, given that there's a
@@ -5800,9 +5732,6 @@ local function treeMin( topRec,ldtBinName, take )
     resultObject = treeMinGet( sp, ldtCtrl, take );
   end -- tree extract
 
-  GP=F and trace("[EXIT]<%s:%s>: ReturnObj(%s)",
-    MOD, meth, tostring(resultObject));
-  
   -- We have either jumped out of here via error() function call, or if
   -- we got this far, then we are supposed to have a valid resultObject.
   return resultObject;
@@ -5852,7 +5781,8 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update, co
   -- not, into a tree.
   if(( ldtMap[LS.StoreState] == SS_COMPACT ) and
      ( (itemCount > ldtMap[LS.Threshold] )
-       or (ldt_common.getValSize(ldtMap[LS.CompactList]) + ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) )) 
+       or (ldt_common.getValSize(ldtMap[LS.CompactList]) 
+				+ ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) )) 
   then
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
@@ -5924,15 +5854,12 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update, co
   if (commit == true) then
     -- With recent changes, we know that the record is now already created
     -- so all we need to do is perform the update (no create needed).
-    GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
     rc = aerospike:update( topRec );
     if ( rc and rc ~= 0 ) then
       warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
       error( ldte.ERR_TOPREC_UPDATE );
     end 
   end
-
-  GP=E and trace("[EXIT]:<%s:%s> rc(0)", MOD, meth);
   return 0;
 end -- function localWrite()
 
@@ -5977,20 +5904,8 @@ function llist.create( topRec, ldtBinName, createSpec )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-  if createSpec == nil then
-    GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s) NULL createSpec",
-      MOD, meth, tostring(ldtBinName));
-  else
-    GP=E and trace("[ENTER2]: <%s:%s> ldtBinName(%s) createSpec(%s) ",
-    MOD, meth, tostring( ldtBinName), tostring( createSpec ));
-  end
-
-  -- Validate the BinName -- this will kick out if there's anything wrong
-  -- with the bin name.
   ldt_common.validateBinName( ldtBinName );
 
-  -- Check to see if LDT Structure (or anything) is already there,
-  -- and if so, error
   if topRec[ldtBinName] ~= nil  then
     warn("[ERROR EXIT]: <%s:%s> LDT BIN(%s) Already Exists",
       MOD, meth, tostring(ldtBinName) );
@@ -6000,19 +5915,12 @@ function llist.create( topRec, ldtBinName, createSpec )
   -- Set up a new LDT Bin
   local ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec, nil);
 
-  GP=DEBUG and ldtDebugDump( ldtCtrl );
-
-  -- All done, store the record
-  -- With recent changes, we know that the record is now already created
-  -- so all we need to do is perform the update (no create needed).
   GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
   rc = aerospike:update( topRec );
   if ( rc ~= 0 ) then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
-
-  GP=F and trace("[EXIT]: <%s:%s> : Done.  RC(%d)", MOD, meth, rc );
   return rc;
 end -- function llist.create()
 
@@ -6066,7 +5974,6 @@ function llist.add( topRec, ldtBinName, newValue, createSpec, src )
 
   -- call localWrite() with UPDATE flag turned OFF.
   return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false, true);
-
 end -- function llist.add()
 
 -- =======================================================================
@@ -6100,11 +6007,6 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   local valListSize = #valueList;
   local firstValue = valueList[1];
 
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  -- This function does not build, save or update.  It only checks.
-  -- Check to see if LDT Structure (or anything) is already there.  If there
-  -- is an LDT BIN present, then it MUST be valid.
   validateRecBinAndMap( topRec, ldtBinName, false );
 
   -- If the record does not exist, or the BIN does not exist, then we must
@@ -6119,8 +6021,6 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
   
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
@@ -6129,11 +6029,9 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   local successCount = 0;
   for i = 1, valListSize, 1 do
     rc = localWrite(src, topRec, ldtBinName, ldtCtrl, valueList[i], false, false);
-    if( rc < 0 ) then
+    if (rc < 0) then
       info("[ERROR]<%s:%s> Problem Inserting Item #(%d) [%s] rc=%d", MOD, meth, i,
         tostring( valueList[i] ), rc);
-      -- Skip the errors for now -- just report them, don't die.
-      -- error(ldte.ERR_INSERT);
     else
       successCount = successCount + 1;
     end
@@ -6169,51 +6067,30 @@ end -- llist.add_all()
 -- =======================================================================
 function llist.update( topRec, ldtBinName, newValue, createSpec, src )
   local meth = "llist.add()";
-  GP=E and trace("[ENTER]<%s:%s>LLIST BIN(%s) NwVal(%s) createSpec(%s) src(%s)",
-    MOD, meth, tostring(ldtBinName), tostring( newValue ),
-    tostring(createSpec), tostring(src));
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  -- This function does not build, save or update.  It only checks.
-  -- Check to see if LDT Structure (or anything) is already there.  If there
-  -- is an LDT BIN present, then it MUST be valid.
   validateRecBinAndMap( topRec, ldtBinName, false );
 
-  -- If the record does not exist, or the BIN does not exist, then we must
-  -- create it and initialize the LDT map. Otherwise, use it.
   if( topRec[ldtBinName] == nil ) then
-    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
-         MOD, meth );
-
-    -- set up our new LDT Bin
     setupLdtBin( topRec, ldtBinName, createSpec, newValue );
   end
+
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
 
   local ldtCtrl = topRec[ ldtBinName ];
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
-    ldtSummaryString(ldtCtrl));
-
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
   
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- call localWrite() with UPDATE flag turned ON.
   return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true, true);
-
 end -- function llist.update()
 
 -- =======================================================================
@@ -6235,8 +6112,6 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   end
 
   local meth = "llist.update_all()";
-  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueList(%s) createSpec(%s)",
-  MOD, meth, tostring(ldtBinName), tostring(valueList), tostring(createSpec));
   
   if valueList == nil or getmetatable(valueList) ~= List or #valueList == 0 then
     info("[ERROR]<%s:%s> Input Parameter <valueList> is bad", MOD, meth);
@@ -6247,23 +6122,14 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   local valListSize = #valueList;
   local firstValue = valueList[1];
 
-  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueListSize(%d) createSpec(%s)",
-  MOD, meth, tostring(ldtBinName), valListSize, tostring(createSpec));
-
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
-  -- This function does not build, save or update.  It only checks.
-  -- Check to see if LDT Structure (or anything) is already there.  If there
-  -- is an LDT BIN present, then it MUST be valid.
   validateRecBinAndMap( topRec, ldtBinName, false );
 
-  -- If the record does not exist, or the BIN does not exist, then we must
-  -- create it and initialize the LDT map. Otherwise, use it.
-  if( topRec[ldtBinName] == nil ) then
-    GP=F and trace("[INFO]<%s:%s>LLIST CONTROL BIN does not Exist:Creating",
-         MOD, meth );
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
 
-    -- set up our new LDT Bin
+
+  if( topRec[ldtBinName] == nil ) then
     setupLdtBin( topRec, ldtBinName, createSpec, firstValue );
   end
 
@@ -6271,23 +6137,8 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  GP=D and trace("[DEBUG]<%s:%s> LDT Summary(%s)", MOD, meth,
-    ldtSummaryString(ldtCtrl));
-
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
   
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
   local rc = 0;
   local successCount = 0;
   if( valueList ~= nil and list.size(valueList) > 0 ) then
@@ -6342,17 +6193,12 @@ end -- llist.update_all()
 -- =======================================================================
 function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
   local meth = "llist.find()";
-  GP=E and trace("[ENTER]<%s:%s> bin(%s) Value(%s) UM(%s) Fltr(%s) Fgs(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(value), tostring(filterModule),
-    tostring(filter), tostring(fargs));
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   
   -- Extract the property map and control map from the ldt bin list.
@@ -6361,25 +6207,19 @@ function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   -- Nothing to find in an empty tree
-  if( propMap[PM.ItemCount] == 0 ) then
-    debug("[NOTICE]<%s:%s> EMPTY LIST: Not Found: value(%s)", MOD, meth,
-      tostring( value ) );
+  if (propMap[PM.ItemCount] == 0) then
     error( ldte.ERR_NOT_FOUND );
   end
 
-  -- Define our return list.  If the search value is NIL, then we will
-  -- return the whole thing.  When that is the case, we want to be sure
-  -- to define our resultList IN ADVANCE to be large.
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
   local resultList;
   
-  -- Set up our resultList and populate the read functions.
-  -- If search value is null, we don't need to set up a key function, since
-  -- everything will qualify.
   if value ~= nil then
-    -- Regular (probably small) resultList.
     resultList = list();
   else
-    -- Full Size ResultList -- probably the size of the entire LDT.
     resultList = list.new(propMap[PM.ItemCount]);
   end
 
@@ -6387,77 +6227,49 @@ function llist.find(topRec,ldtBinName,value,filterModule,filter,fargs, src)
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
 
-  -- We expect the user to pass in a KEY to search for, but if they pass in
-  -- an OBJECT, then we can still deal with that.  If the input value is an
-  -- object, we'll extract a key from it.  Otherwise, we'll pass it thru.
   local key = getKeyValue(ldtMap, value);
-  GP=D and trace("[DEBUG]<%s:%s> Key(%s) from Value(%s)", MOD, meth,
-    tostring(key), tostring(value));
 
   local resultA;
   local resultB;
 
-  -- If our state is "compact", do a simple list search, otherwise do a
-  -- full tree search.
-  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
-    -- Do the COMPACT LIST SEARCH
-    local objectList = ldtMap[LS.CompactList];
-    local resultMap = searchObjectList( ldtMap, objectList, key );
-    if( resultMap.Status == ERR.OK and resultMap.Found ) then
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
+    local objectList    = ldtMap[LS.CompactList];
+    local resultMap     = searchObjectList( ldtMap, objectList, key );
+    if (resultMap.Status == ERR.OK and resultMap.Found) then
       local position = resultMap.Position;
       resultA, resultB = 
           listScan(objectList, position, ldtMap, resultList, key, CR.EQUAL);
-      GP=F and trace("[DEBUG]<%s:%s> Scan Compact List:Res(%s) A(%s) B(%s)",
-        MOD, meth, tostring(resultList), tostring(resultA), tostring(resultB));
-      if( resultB < 0 ) then
+      if (resultB < 0) then
         warn("[ERROR]<%s:%s> Problems with Scan: Key(%s), List(%s)", MOD, meth,
           tostring( key ), tostring( objectList ) );
-        error( ldte.ERR_INTERNAL );
+        error (ldte.ERR_INTERNAL);
       end
     else
-      debug("[NOTICE]<%s:%s> Search Not Found: Key(%s), List(%s)", MOD, meth,
-        tostring( key ), tostring( objectList ) );
-      error( ldte.ERR_NOT_FOUND );
+      error (ldte.ERR_NOT_FOUND);
     end
   else
     -- Do the TREE Search
-    GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
     rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
-    if( rc == ST.FOUND ) then
-      rc = treeScan( src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
-      if( rc < 0 or list.size( resultList ) == 0 ) then
+    if (rc == ST.FOUND) then
+      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
+      if (rc < 0 or list.size(resultList) == 0) then
           warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
             MOD, meth, rc );
       end
     else
-      debug("[NOTICE]<%s:%s> Tree Search Not Found: Key(%s)", MOD, meth,
-        tostring( key ) );
-      error( ldte.ERR_NOT_FOUND );
+      error(ldte.ERR_NOT_FOUND);
     end
   end -- tree search
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
-  if( rc < 0 ) then
+  if (rc < 0) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
-  GP=D and trace("[EXIT]: <%s:%s>: Search Key(%s) Result: Sz(%d) List(%s)",
-    MOD, meth, tostring(key), list.size(resultList), tostring(resultList));
-  
-  GP=F and trace("[EXIT]: <%s:%s>: Search Key(%s) Result: Sz(%d) List(%s)",
-    MOD, meth, tostring(key), list.size(resultList), tostring(resultList));
-  
-  -- We have either jumped out of here via error() function call, or if
-  -- we got this far, then we are supposed to have a valid resultList.
   return resultList;
 end -- function llist.find() 
 
@@ -6476,20 +6288,13 @@ end -- function llist.find()
 -- (*) Error:   error() function is called to jump out of Lua.
 -- =======================================================================
 function llist.exists(topRec,ldtBinName,value,src)
-  local meth = "llist.exists()";
-  GP=E and trace("[ENTER]<%s:%s> bin(%s) Value(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(value));
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
-  warn("[ERROR]<%s:%s> Function Under Construction", MOD, meth);
   error(ldte.ERR_INTERNAL);
-
   return 0;
-
 end -- llist.exists()
 
 -- =======================================================================
@@ -6515,21 +6320,14 @@ end -- llist.exists()
 function
 llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
   local meth = "llist.range()";
-  GP=E and trace("[ENTER]<%s:%s> bin(%s) minKey(%s) maxKey(%s)", MOD, meth,
-      tostring( ldtBinName), tostring(minKey), tostring(maxKey));
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-  -- Define our return list.  Note that this is an unknown size, but
-  -- we want to handle reasonable growth.  Go with an initial size of 50
-  -- and a growth of 100.
   local resultList = list.new(50, 100);
   
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   
   -- Extract the property map and control map from the ldt bin list.
@@ -6550,63 +6348,35 @@ llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
   local resultB; -- Result: 0: ok,  < 0: error.
   local position;-- location where the item would be (found or not)
 
-  -- If our state is "compact", do a simple list search, otherwise do a
-  -- full tree search.
-  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
-    -- Do the <><><> COMPACT LIST SEARCH <><><>
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     local objectList = ldtMap[LS.CompactList];
-    -- This search only finds the place to start the scan (range scan), it does
-    -- NOT need to find the first element.
-    local resultMap = searchObjectList( ldtMap, objectList, minKey );
-    position = resultMap.Position;
-
-    if( resultMap.Status == ERR.OK and resultMap.Found ) then
-      GP=F and trace("[FOUND]<%s:%s> CL: Found first element at (%d)",
-        MOD, meth, position);
-    end
+    local resultMap  = searchObjectList( ldtMap, objectList, minKey );
+    position         = resultMap.Position;
 
     resultA, resultB = 
         listScan(objectList,position,ldtMap,resultList,maxKey,CR.GREATER_THAN);
-    GP=F and trace("[DEBUG]<%s:%s> Scan Compact List:Res(%s) A(%s) B(%s)",
-      MOD, meth, tostring(resultList), tostring(resultA), tostring(resultB));
-    if( resultB < 0 ) then
+    if (resultB < 0) then
       warn("[ERROR]<%s:%s> Problems with Scan: MaxKey(%s), List(%s)", MOD,
         meth, tostring( maxKey ), tostring( objectList ) );
       error( ldte.ERR_INTERNAL );
     end
 
   else
-    -- Do the <><><> TREE Search <><><>
-    GP=F and trace("[DEBUG]<%s:%s> Searching Tree", MOD, meth );
     local sp = createSearchPath(ldtMap);
     rc = treeSearch( src, topRec, sp, ldtCtrl, minKey, nil );
-    -- Recall that we don't need to find the first element for a Range Scan.
-    -- The search ONLY finds the place where we start the scan.
-    if( rc == ST.FOUND ) then
-      GP=F and trace("[FOUND]<%s:%s> TS: Found: SearchPath(%s)", MOD, meth,
-        tostring( sp ));
-    end
-
     rc = treeScan(src,resultList,topRec,sp,ldtCtrl,maxKey,CR.GREATER_THAN);
-    if( rc < 0 or list.size( resultList ) == 0 ) then
+    if (rc < 0 or list.size( resultList ) == 0) then
         warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
           MOD, meth, rc );
     end
   end -- tree search
 
-  -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
-  if( rc < 0 ) then
+  if (rc < 0) then
     warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
-  GP=F and trace("[EXIT]<%s:%s>Range: MnKey(%s) MxKey(%s) ==> Sz(%d) List(%s)",
-    MOD, meth, tostring(minKey), tostring(maxKey), list.size(resultList),
-    tostring(resultList));
-  
-  -- We have either jumped out of here via error() function call, or if
-  -- we got this far, then we are supposed to have a valid resultList.
   return resultList;
 end -- function llist.range() 
 
@@ -6618,14 +6388,10 @@ end -- function llist.range()
 -- Error: Error String to outer Lua Caller (long jump)
 -- =======================================================================
 function llist.scan( topRec, ldtBinName, src )
-  local meth = "scan()";
-  GP=E and trace("[ENTER]<%s:%s> BIN(%s)", MOD, meth, tostring(ldtBinName) );
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-
-
   return llist.find( topRec, ldtBinName,nil, nil, nil, nil, src );
 end -- llist.scan()
 
@@ -6643,13 +6409,6 @@ function llist.filter( topRec, ldtBinName, filterModule, filter, fargs, src )
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-
-
-  local meth = "filter()";
-  GP=E and trace("[ENTER]<%s:%s> BIN(%s) module(%s) func(%s) fargs(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(filterModule),
-    tostring(filter), tostring(fargs));
-
   return llist.find( topRec, ldtBinName, nil, filterModule, filter, fargs, src );
 end -- llist.filter()
 
@@ -6666,19 +6425,17 @@ end -- llist.filter()
 -- (4) src: Sub-Rec Context - Needed for repeated calls from caller
 -- ======================================================================
 function llist.remove( topRec, ldtBinName, value, src )
-  GP=F and trace("\n\n  >>>>>>>>>>>> API[ REMOVE ]<<<<<<<<<<< \n");
   local meth = "llist.remove()";
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-  GP=E and trace("[ENTER]<%s:%s>ldtBinName(%s) value(%s)",
-      MOD, meth, tostring(ldtBinName), tostring(value));
-
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
   
   -- Extract the property map and control map from the ldt bin list.
   ldtCtrl = topRec[ ldtBinName ];
@@ -6687,81 +6444,51 @@ function llist.remove( topRec, ldtBinName, value, src )
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
 
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  if ( src == nil ) then
-    src = ldt_common.createSubRecContext();
-  end
-
-  -- This must be turned OFF in production.
-  -- GP=DEBUG and printTree( src, topRec, ldtBinName );
-  
-  -- We expect the user to pass in a KEY to search for, but if they pass in
-  -- an OBJECT, then we can still deal with that.  If the input value is an
-  -- object, we'll extract a key from it.  Otherwise, we'll pass it thru.
   local key = getKeyValue(ldtMap, value);
-  GP=D and trace("[DEBUG]<%s:%s> Key(%s) from Value(%s)", MOD, meth,
-    tostring(key), tostring(value));
 
   -- If our state is "compact", do a simple list delete, otherwise do a
   -- real tree delete.
-  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
-    -- Search the compact list, find the location, then delete it.
-    GP=D and trace("[NOTICE]<%s:%s> Using COMPACT DELETE", MOD, meth);
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     local objectList = ldtMap[LS.CompactList];
-    local resultMap = searchObjectList( ldtMap, objectList, key );
-    if( resultMap.Status == ERR.OK and resultMap.Found ) then
+    local resultMap  = searchObjectList( ldtMap, objectList, key );
+    if (resultMap.Status == ERR.OK and resultMap.Found) then
       ldtMap[LS.CompactList] =
         ldt_common.listDelete(objectList, resultMap.Position);
     else
       error( ldte.ERR_NOT_FOUND );
     end
   else
-    GP=D and trace("[NOTICE]<%s:%s> Using >>>  TREE DELETE  <<<", MOD, meth);
     rc = treeDelete(src, topRec, ldtCtrl, key );
   end
 
   -- update our count statistics if successful
-  if( rc >= 0 ) then 
+  if (rc >= 0) then 
     local itemCount = propMap[PM.ItemCount];
-    -- local totalCount = ldtMap[LS.TotalCount];
     propMap[PM.ItemCount] = itemCount - 1; 
-    -- ldtMap[LS.TotalCount] = totalCount - 1;
-    GP=F and trace("[DEBUG]: <%s:%s> itemCount(%d)", MOD, meth, itemCount );
     rc = 0;
   end
 
-  -- Validate results -- if anything bad happened, then the record
-  -- probably did not change -- we don't need to update.
-  if( rc == 0 ) then
-    -- Close ALL of the subrecs that might have been opened
+  if (rc == 0) then
     rc = ldt_common.closeAllSubRecs( src );
-    if( rc < 0 ) then
+    if (rc < 0) then
       warn("[ERROR]<%s:%s> Problems closing subrecs in delete", MOD, meth );
       error( ldte.ERR_SUBREC_CLOSE );
     end
 
-    -- All done, Update and store the record
-    topRec[ ldtBinName ] = ldtCtrl;
+    topRec[ldtBinName] = ldtCtrl;
     record.set_flags(topRec, ldtBinName, BF.LDT_BIN );--Must set every time
-    GP=F and trace("[DEBUG]:<%s:%s>:Update Record()", MOD, meth );
     rc = aerospike:update( topRec );
     if  rc ~= 0 then
       warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
-      error( ldte.ERR_TOPREC_UPDATE );
+      error(ldte.ERR_TOPREC_UPDATE);
     end 
-
-    GP=F and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
     return 0;
   elseif (rc == -2) then
-    ldt_common.closeAllSubRecs( src );
-    debug("[ITEM NOT FOUND]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
+    ldt_common.closeAllSubRecs(src);
     return -2;
   else
     warn("[ERROR EXIT]:<%s:%s> Return(%s)", MOD, meth,tostring(rc));
-    error( ldte.ERR_DELETE );
+    error(ldte.ERR_DELETE);
   end
 end -- function llist.remove()
 
@@ -6781,14 +6508,9 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
   local meth = "remove_all()";
   local valListSize = valueList ~= nil and #valueList or 0;
-  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) valueListSize(%d)",
-  MOD, meth, tostring(ldtBinName), valListSize);
   
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
@@ -6799,12 +6521,7 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
       rc = llist.remove( topRec, ldtBinName, valueList[i], src );
-      if( rc < 0 ) then
-        debug("[ERROR]<%s:%s> Problem Removing Item #(%d) [%s]", MOD, meth, i,
-          tostring( valueList[i] ));
-        -- Not a Error
-        -- error(ldte.ERR_DELETE);
-      else
+      if (rc >= 0) then
         itemRemoved = itemRemoved + 1;
       end
     end -- for each value in the list
@@ -6837,17 +6554,12 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
   local meth = "remove_range()";
-  GP=E and trace("[ENTER]:<%s:%s>BIN(%s) minKey(%s) maxKey(%s)",
-  MOD, meth, tostring(ldtBinName), tostring(minKey), tostring(maxKey));
   
   if (minKey > maxKey) then 
     error(ldte.ERR_INPUT_PARM);
   end 
 
-  -- Create our subrecContext, which tracks all open SubRecords during
-  -- the call.  Then, allows us to close them all at the end.
   if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
@@ -6861,11 +6573,7 @@ function llist.remove_range( topRec, ldtBinName, minKey, maxKey, src )
     local listSize = list.size( valueList );
     for i = 1, listSize, 1 do
       rc = llist.remove( topRec, ldtBinName, valueList[i], src );
-      if( rc < 0 ) then
-        warn("[ERROR]<%s:%s> Problem Removing Item #(%d) [%s]", MOD, meth, i,
-          tostring( valueList[i] ));
-        -- error(ldte.ERR_DELETE);
-      else
+      if (rc >= 0) then
         deleteCount = deleteCount + 1;
       end
     end -- for each value in the list
@@ -6900,7 +6608,6 @@ end -- llist.remove_range()
 -- ========================================================================
 function llist.destroy( topRec, ldtBinName, src)
   local meth = "llist.destroy()";
-  GP=E and trace("[ENTER]: <%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
@@ -6910,17 +6617,11 @@ function llist.destroy( topRec, ldtBinName, src)
   -- Validate the BinName before moving forward
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  -- Init our subrecContext, if necessary.  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
   if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
 
   ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl );
-
-  GP=E and trace("[Normal EXIT]:<%s:%s> Return(0)", MOD, meth );
   return 0;
 end -- llist.destroy()
 
@@ -6936,28 +6637,16 @@ end -- llist.destroy()
 -- ========================================================================
 function llist.size( topRec, ldtBinName )
   local meth = "llist.size()";
-  GP=E and trace("[ENTER1]<%s:%s> Bin(%s)", MOD, meth, tostring(ldtBinName));
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
---  COMMENTED OUT BECAUSE QAA/JETPACK has problems with this.
---  return ldt_common.size( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
-
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  -- Extract the property map and control map from the ldt bin list.
-  -- local ldtCtrl = topRec[ ldtBinName ];
   local propMap = ldtCtrl[LDT_PROP_MAP];
-  local itemCount = propMap[PM.ItemCount];
-
-  GP=F and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, itemCount );
-
-  return itemCount;
+  return propMap[PM.ItemCount];
 end -- llist.size()
 
 -- ========================================================================
@@ -6975,19 +6664,8 @@ function llist.config( topRec, ldtBinName )
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-
-
-  local meth = "llist.config()";
-  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
-
-  -- Validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
-
   local config = ldtSummary( ldtCtrl );
-
-  GP=F and trace("[EXIT]<%s:%s> config(%s)", MOD, meth, tostring(config) );
 
   return config;
 end -- function llist.config()
@@ -7009,27 +6687,15 @@ function llist.get_capacity( topRec, ldtBinName )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
-  -- Note that we could use the common get_capacity() function.
---return ldt_common.get_capacity( topRec, ldtBinName, LDT_TYPE, G_LDT_VERSION);
-
-  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
-
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
-  local ldtCtrl = topRec[ ldtBinName ];
+  local ldtCtrl = topRec[ldtBinName];
   -- Extract the property map and LDT control map from the LDT bin list.
   local ldtMap = ldtCtrl[LDT_CTRL_MAP];
   local capacity = ldtMap[LC.StoreLimit];
   if( capacity == nil ) then
     capacity = 0;
   end
-
-  GP=E and trace("[EXIT]: <%s:%s> : size(%d)", MOD, meth, capacity );
-
   return capacity;
 end -- function llist.get_capacity()
 
@@ -7051,27 +6717,19 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-
-
-  GP=E and trace("[ENTER]: <%s:%s> ldtBinName(%s) newCapacity(%s)",
-    MOD, meth, tostring(ldtBinName), tostring(capacity));
-
-  -- validate the topRec, the bin and the map.  If anything is weird, then
-  -- this will kick out with a long jump error() call.
+  
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
   local ldtCtrl = topRec[ ldtBinName ];
-  -- Extract the property map and LDT control map from the LDT bin list.
-  local ldtMap = ldtCtrl[LDT_CTRL_MAP];
-  if( capacity ~= nil and type(capacity) == "number" and capacity >= 0 ) then
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  if (capacity ~= nil and type(capacity) == "number" and capacity >= 0) then
     ldtMap[LC.StoreLimit] = capacity;
   else
     warn("[ERROR]<%s:%s> Bad Capacity Value(%s)",MOD,meth,tostring(capacity));
     error( ldte.ERR_INTERNAL );
   end
 
-  -- All done, store the record
-  -- Update the Top Record with the new control info
   topRec[ldtBinName] = ldtCtrl;
   record.set_flags(topRec, ldtBinName, BF.LDT_BIN );--Must set every time
   rc = aerospike:update( topRec );
@@ -7079,8 +6737,6 @@ function llist.set_capacity( topRec, ldtBinName, capacity )
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
   end 
-
-  GP=E and trace("[EXIT]: <%s:%s> : new size(%d)", MOD, meth, capacity );
   return 0;
 end -- function llist.set_capacity()
 
@@ -7102,16 +6758,9 @@ function llist.ldt_exists( topRec, ldtBinName )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-
-  local meth = "llist.ldt_exists()";
-  GP=E and trace("[ENTER1]: <%s:%s> ldtBinName(%s)",
-    MOD, meth, tostring(ldtBinName));
-
   if ldt_common.ldt_exists(topRec, ldtBinName, LDT_TYPE ) then
-    GP=F and trace("[EXIT]<%s:%s> Exists", MOD, meth);
     return 1
   else
-    GP=F and trace("[EXIT]<%s:%s> Does NOT Exist", MOD, meth);
     return 0
   end
 end -- function llist.ldt_exists()
@@ -7125,7 +6774,6 @@ function llist.dump( topRec, ldtBinName, src )
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-
 
   if( src == nil ) then
     src = ldt_common.createSubRecContext();
@@ -7141,13 +6789,3 @@ end -- llist.dump()
 -- ======================================================================
 return llist;
 
--- ========================================================================
---   _      _     _____ _____ _____ 
---  | |    | |   |_   _/  ___|_   _|
---  | |    | |     | | \ `--.  | |  
---  | |    | |     | |  `--. \ | |  
---  | |____| |_____| |_/\__/ / | |  
---  \_____/\_____/\___/\____/  \_/   (LIB)
---                                  
--- ========================================================================
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --

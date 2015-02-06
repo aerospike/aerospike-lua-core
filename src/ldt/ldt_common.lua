@@ -1100,8 +1100,6 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
     -- This is not a serious error.
     if (not topRec[ldtBinName]) then
-      info("[ERROR]<%s:%s> LDT BIN(%s) Does Not Exist",
-            MOD, meth, tostring(ldtBinName));
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
