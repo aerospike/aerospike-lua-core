@@ -556,6 +556,14 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
 
   -- NOTE: We have to make sure that the TopRec propMap also gets saved.
   esrRec[SUBREC_PROP_BIN] = esrPropMap;
+  
+  rc = aerospike:update_subrec( esrRec );
+  --  Note that update_subrec() returns nil on success
+  if rc then
+    warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+      tostring(esrDigest), tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
 
   -- Add this open ESR SubRec to our SubRec Context, which implicitly 
   -- marks it as dirty.
@@ -610,7 +618,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we should try a "CLEAN" to free up some slots.  If that fails, then
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
-  if( itemCount >= cleanThreshold ) then
+  if (itemCount >= cleanThreshold) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
 
     -- Reset the local var after clean
@@ -658,6 +666,16 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   subRecPropMap[PM.EsrDigest]    = esrDigest;
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
+
+  -- Create a immediate commit. This won't be rolled back in case of 
+  -- failure 
+  rc = aerospike:update_subrec( newSubRec );
+  --  Note that update_subrec() returns nil on success
+  if rc then
+    warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+      subRecDigestString, tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
 
   -- Update the LDT sub-rec count.  Remember that any changes to a record
   -- are remembered until the final Lua Close, then the record(s) will be
@@ -911,6 +929,10 @@ end -- markSubRecDirty()
 function ldt_common.closeAllSubRecs( srcCtrl )
   local meth = "closeAllSubRecs()";
 
+  if (srcCtrl == nil) then
+    return 0;
+  end
+  
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
 
@@ -1859,6 +1881,33 @@ function ldt_common.validateList( valList )
     return true;
 end -- ldt_common.validateList()
 
+local function updateTop(topRec)
+  local meth = "updateTop()";
+  -- Now that we've changed the top rec, do the update to make sure the
+  -- changes are saved.
+  local rc = 0;
+  local is_create = false;
+
+  if (not aerospike:exists(topRec)) then
+    is_create = true;
+    rc = aerospike:create(topRec);
+  else 
+    rc = aerospike:update(topRec);
+  end
+ 
+  if (rc ~= 0) then
+    if (is_create) then
+      warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
+      error(ldte.ERR_TOPREC_CREATE);
+    else
+      warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
+      error(ldte.ERR_TOPREC_UPDATE);
+    end
+  end
+  return rc;
+end
+
+
 -- ======================================================================
 -- When we create the initial LDT Control Bin for the entire record (the
 -- first time ANY LDT is initialized in a record), we create a property
@@ -1875,14 +1924,6 @@ function ldt_common.setLdtRecordType( topRec )
   -- set the topRec record type (to LDT) and we praise the lord for yet
   -- another miracle LDT birth.
   if (topRec[REC_LDT_CTRL_BIN] == nil) then
-    if (not aerospike:exists(topRec)) then
-      rc = aerospike:create( topRec );
-      if( rc ~= 0 ) then
-        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
-        error( ldte.ERR_TOPREC_CREATE );
-      end
-    end
-
     record.set_type( topRec, RT_LDT );
     recPropMap = map();
     -- vinfo will be a 5 byte value, but it will be easier for us to store
@@ -1903,13 +1944,8 @@ function ldt_common.setLdtRecordType( topRec )
   -- Set this control bin as HIDDEN
   record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
 
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update(topRec);
-  if( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
-    error( ldte.ERR_TOPREC_UPDATE );
-  end
+  rc = updateTop(topRec)
+
   return rc;
 end -- setLdtRecordType()
 
@@ -2019,7 +2055,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
     record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
   end
   
-  rc = aerospike:update( topRec );
+  rc = aerospike:update(topRec);
   if rc ~= nil and rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
@@ -2231,6 +2267,31 @@ function ldt_common.ldt_exists( topRec, ldtBinName, ldtType )
   local result = ldt_common.checkBin(topRec, ldtBinName, ldtType);
   return result;
 end -- function ldt_common.ldt_exists()
+
+
+function ldt_common.commit(topRec, ldtBinName, src, rc)
+  if (rc == 0) then
+    rc = ldt_common.closeAllSubRecs(src);
+    if (rc < 0) then
+      warn("[ERROR] Problems closing subrecs in delete");
+      error( ldte.ERR_SUBREC_CLOSE );
+    end
+
+    rc = updateTop(topRec);
+ 
+    if rc and rc ~= 0 then
+      warn("[ERROR] TopRec Update Error rc(%s)", tostring(rc));
+      error(ldte.ERR_TOPREC_UPDATE);
+    end 
+    return 0;
+  elseif (rc == -2) then
+    ldt_common.closeAllSubRecs(src);
+    return -2;
+  else
+    warn("[ERROR EXIT]: Return(%s)", tostring(rc));
+    error(ldte.ERR_DELETE);
+  end
+end
 
 
 -- ======================================================================
