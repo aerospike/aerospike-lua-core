@@ -912,16 +912,14 @@ local function getKeyValue( ldtMap, value )
       -- Use the default action of using the object's KEY field
       keyValue = value[KEY_FIELD];
     else
-      warn("[WARNING]<%s:%s> LLIST requires a Key for Objects",
-        MOD, meth );
-      error( ldte.ERR_KEY_FIELD_NOT_FOUND );
+      keyValue = value;
     end
   else
     keyValue = value;
   end
-  if (type(keyValue) ~= "number" and type(keyValue) ~= "string") then
-    error(tostring(ldte.ERR_KEY_BAD) .. "(".. type(keyValue) ..")");
-  end
+--  if (type(keyValue) ~= "number" and type(keyValue) ~= "string") then
+  --  keyValue = tostring(keyValue);
+ -- end
   return keyValue;
 end -- getKeyValue();
 
@@ -1147,20 +1145,22 @@ end -- showRecSummary()
 -- Return CR.ERROR (-2) if either of the values is null (or other error)
 -- Return CR.INTERNAL_ERROR(-3) if there is some (weird) internal error
 -- ======================================================================
-local function keyCompare( searchKey, dataKey )
+local function keyCompare(searchKey, dataKey)
   local meth = "keyCompare()";
   local result = CR.INTERNAL_ERROR; -- we should never be here.
   -- First check
-  if ( dataKey == nil ) then
+  if (dataKey == nil) then
     warn("[WARNING]<%s:%s> DataKey is nil", MOD, meth );
     result = CR.ERROR;
-  elseif( searchKey == nil ) then
+  elseif (searchKey == nil) then
     -- a nil search key is always LESS THAN everything.
     result = CR.LESS_THAN;
   else
-    if searchKey == dataKey then
+    local k1 = tostring(searchKey);
+    local k2 = tostring(dataKey);
+    if k1 == k2 then
       result = CR.EQUAL;
-    elseif searchKey < dataKey then
+    elseif k1 < k2 then
       result = CR.LESS_THAN;
     else
       result = CR.GREATER_THAN;
@@ -1191,17 +1191,16 @@ local function objectCompare( ldtMap, searchKey, objectValue )
   local result = CR.INTERNAL_ERROR; -- Expect result to be reassigned.
 
   -- First check
-  if ( objectValue == nil ) then
+  if (objectValue == nil) then
     warn("[WARNING]<%s:%s> ObjectValue is nil", MOD, meth );
     result = CR.ERROR;
   elseif( searchKey == nil ) then
     result = CR.EQUAL;
   else
-    -- Get the key value for the object -- this could either be the object 
-    -- itself (if atomic), or the result of a function that computes the
-    -- key from the object.
-    local objectKey = getKeyValue( ldtMap, objectValue );
-    if( type(objectKey) ~= type(searchKey) ) then
+    local objectKey = getKeyValue(ldtMap, objectValue);
+    local k1 = tostring(searchKey)
+    local k2 = tostring(objectKey)
+    if( type(k1) ~= type(k2) ) then
       warn("[INFO]<%s:%s> ObjectValue::SearchKey TYPE Mismatch", MOD, meth );
       warn("[INFO] TYPE ObjectValue(%s) TYPE SearchKey(%s)",
         type(objectKey), type(searchKey) );
@@ -1209,9 +1208,9 @@ local function objectCompare( ldtMap, searchKey, objectValue )
       error(ldte.ERR_TYPE_MISMATCH);
     end
 
-    if searchKey == objectKey then
+    if k1 == k2 then
       result = CR.EQUAL;
-    elseif searchKey < objectKey then
+    elseif k1 < k2 then
       result = CR.LESS_THAN;
     else
       result = CR.GREATER_THAN;
@@ -1485,7 +1484,7 @@ local function searchKeyList( ldtMap, keyList, searchKey )
   -- Also, if the keyList is empty (which is the case when a node has been
   -- deleted down to a single child, but has not yet been merged), then we
   -- implicitly search the left child (also index 1).
-  if( searchKey == nil or #keyList == 0 ) then
+  if (searchKey == nil or #keyList == 0) then
     local resultMap = {};
     resultMap.Position = 1;
     resultMap.Found = false;
@@ -1498,7 +1497,7 @@ local function searchKeyList( ldtMap, keyList, searchKey )
   -- Rule of thumb is that linear is the better search for lists shorter than
   -- 20, and after that binary search is better.  However, that does ignore
   -- the size of the key and the costs of the Compare.
-  if( #keyList <= LINEAR_SEARCH_CUTOFF ) then
+  if (#keyList <= LINEAR_SEARCH_CUTOFF) then
     return searchKeyListLinear( ldtMap, keyList, searchKey );
   else
     return searchKeyListBinary( ldtMap, keyList, searchKey );
@@ -1567,7 +1566,7 @@ local function searchObjectListLinear( ldtMap, objectList, searchKey )
   for i = 1, listSize, 1 do
     liveObject = objectList[i];
 
-    compareResult = objectCompare( ldtMap, searchKey, liveObject );
+    compareResult = objectCompare(ldtMap, searchKey, liveObject);
     if compareResult == CR.ERROR then
       resultMap.Status = ERR.GENERAL;
       return resultMap;
@@ -2380,7 +2379,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
   local digestString;
 
   for i = 1, treeLevels, 1 do
-    if( i < treeLevels ) then
+    if (i < treeLevels) then
       -- It's a root or node search -- so search the keys
       resultMap = searchKeyList( ldtMap, keyList, searchKey );
       if (resultMap.Status < 0 or resultMap.Position <= 0) then
@@ -2579,7 +2578,7 @@ local function getNodeSplitPosition( ldtMap, keyList, nodePosition, newKey )
   local meth = "getNodeSplitPosition()";
   -- This is only an approximization
   local listSize = list.size( keyList );
-  local result = (listSize / 2) + 1; -- beginning of 2nd half, or middle
+  local result = listSize * 2 / 3 ; -- beginning of 2nd half, or middle
   return result;
 end -- getNodeSplitPosition
 
@@ -2619,21 +2618,13 @@ end -- getLeafSplitPosition
 -- ======================================================================
 local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
 
-  -- If the position is ZERO, then that means we'll have to do another search
-  -- here to find the right spot.  Usually, position == 0 means we have
-  -- to find the new spot after a split.  Sure, that could be calculated,
-  -- but this (a new search) is safer -- for now.
-  if( position == 0 ) then
+  if (position == 0) then
     local resultMap = searchKeyList( ldtMap, keyList, key );
     position = resultMap.Position;
   end
 
-  -- Note that searchKeyList() returns either the index of the item searched
-  -- for, OR the "insert location" of the searched-for item.  Either way,
-  -- we insert at that location for both theh new value and the digest.
-  -- Move values around, if necessary, to put key and digest in "position"
-  ldt_common.listInsert( keyList, key, position );
-  ldt_common.listInsert( digestList, digest, position );
+  ldt_common.listInsert(keyList, key, position);
+  ldt_common.listInsert(digestList, digest, position);
 end -- nodeInsert()
 
 -- ======================================================================
@@ -3044,16 +3035,13 @@ function insertParentNode(src, topRec, sp, ldtCtrl, iKeyList, iDigestList, level
   if (sp.HasRoom[level]) then
     -- Regular node insert
     for i = 1, #iKeyList do
-      nodeInsert( ldtMap, keyList, digestList, iKeyList[i], iDigestList[i], position );
+      nodeInsert(ldtMap, keyList, digestList, iKeyList[i], iDigestList[i], position);
     end
     -- If it's a node, then we have to re-assign the list to the subrec
     -- fields -- otherwise, the change may not take effect.
-    if( level > 1 ) then
+    if (level > 1) then
       nodeSubRec[NSR_KEY_LIST_BIN] = keyList;
       nodeSubRec[NSR_DIGEST_BIN]   = digestList;
-      -- Call update to mark the SubRec as dirty, and to force the write
-      -- if we are in "early update" mode. Close will happen at the end
-      -- of the Lua call.
       ldt_common.updateSubRec( src, nodeSubRec );
     end
   else
@@ -3312,44 +3300,10 @@ local function
 splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local meth = "splitLeafInsert()";
 
-  -- Splitting a leaf works as follows.  It is slightly different than a
-  -- node split.  The leaf is split into a left piece and a right piece. 
-  --
-  -- The first element if the right leaf becomes the new key that gets
-  -- propagated up to the parent.  This is the main difference between a Leaf
-  -- split and a node split.  The leaf split uses a COPY of the key, whereas
-  -- the node split removes that key from the node and moves it to the parent.
-  --
-  --  Inner Node   +---+---+
-  --  Key List     |111|888|
-  --               +---+---+
-  --  Digest List  A   B   C
-  --
-  -- +---+---+    +---+---+---+---+---+    +---+---+
-  -- | 50| 88|    |111|222|333|444|555|    |888|999|
-  -- +---+---+    +---+---+---+---+---+    +---+---+
-  -- Leaf A       Leaf B                   Leaf C
-  --
-  --                      +---+
-  -- Copy of key element  |333|
-  -- moves up to parent   +---+
-  -- node.                ^ ^ ^ 
-  --              +---+---+   +---+---+---+
-  --              |111|222|   |333|444|555|
-  --              +---+---+   +---+---+---+
-  --              Leaf B1     Leaf B2
-  --
-  --  Inner Node   +---+---+---+
-  --  Key List     |111|333|888|
-  --               +---+---+---+
-  --  Digest List  A   B1  B2  C
-  --
-  -- +---+---+    +---+---+   +---+---+---+    +---+---+
-  -- | 50| 88|    |111|222|   |333|444|555|    |888|999|
-  -- +---+---+    +---+---+   +---+---+---+    +---+---+
-  -- Leaf A       Leaf B1     Leaf B2          Leaf C
-  --
-  -- Extract the property map and control map from the ldt bin list.
+  -- B+tree all the values <= key is left tree. Split pick up the point 
+  -- where the key would get inserted and breaks list in two. In case 
+  -- the value cannot be accomodated in user defined PageSize. That value
+  -- becomes a individual node in itself. 
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
   local ldtBinName = propMap[PM.BinName];
@@ -3371,14 +3325,17 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local iCount = 0;
 
   if (#objectList == 0) then
+    -- Case 1: PK:newValue
     leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
+    ldt_common.updateSubRec(src, leafSubRec);
   elseif (splitPosition > #objectList) then
-    -- Move current list to left side 
+    -- Case 2:
+    -- maxKey:CurList, PK:newVal  [Move current list to left side]
     local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
     populateLeaf(src, newLeafRec, objectList);
     iCount = iCount + 1;
     iKeyList[iCount] = getKeyValue(ldtMap, objectList[#objectList]); 
-    iDigestList[iCount] = record.digest( newLeafRec );
+    iDigestList[iCount] = record.digest(newLeafRec);
 
     -- Insert new Value into the current leaf
     -- For unique key if this has happened then
@@ -3387,32 +3344,25 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
     adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
 
-    ldt_common.updateSubRec( src, newLeafRec );
-    ldt_common.updateSubRec( src, leafSubRec);
+    ldt_common.updateSubRec(src, newLeafRec);
+    ldt_common.updateSubRec(src, leafSubRec);
   elseif (splitPosition == 1) then
-
-    -- For unique key if this has happened
-    -- PK-1 < newKey < PK
-    -- So we can simply add new key and leaf on the left of current
-    -- Note: it cannot be equal
-    local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
+    -- Case 2:
+    -- newKey:newval, PK:CurList [PK-1 < newKey < PK]
+    local newLeafRec     = createLeafRec(src, topRec, ldtCtrl, nil);
     leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-    adjustLeafPointersAfterInsert(src,topRec,ldtMap, newLeafRec, leafSubRec);
-    ldt_common.updateSubRec( src, newLeafRec );
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
+    ldt_common.updateSubRec(src, newLeafRec);
 
     iCount = iCount + 1;
     iKeyList[iCount] = newKey;
     iDigestList[iCount] = record.digest( newLeafRec);
   else
     local splitKey  = getKeyValue(ldtMap, objectList[splitPosition] );
-    local leftList  = list.take( objectList, splitPosition - 1 );
-    local rightList = list.drop( objectList, splitPosition - 1 );
+    local leftList  = list.take(objectList, splitPosition - 1);
+    local rightList = list.drop(objectList, splitPosition - 1);
     -- info("Split @ %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
 
-    -- Now figure out WHICH of the two leaves (original or new) we have to
-    -- insert the new value.
-    -- Compare against the SplitKey -- if less, insert into the left leaf,
-    -- and otherwise insert into the right leaf.
     local compareResult = keyCompare( newKey, splitKey );
     local newValSize    = ldt_common.getValSize(newValue);
     local leafListSize  = ldt_common.getValSize(leftList);
@@ -3421,10 +3371,9 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     -- Cases
     -- 1: newKey:(X+newVal), PK:Y
     -- 2: maxKey:X,  newKey:newVal, PK:Y
-
     if (compareResult == CR.LESS_THAN) then
        if (newValSize + leafListSize <= pageSize) then
-          --Case 1   
+          --Case 3   
           --newKey: (X+newVal)
           local newLeafRec  = createLeafRec( src, topRec, ldtCtrl, nil );
           populateLeaf( src, newLeafRec, leftList );
@@ -3436,10 +3385,10 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
           iDigestList[iCount] = record.digest( newLeafRec);
         
           -- PK:Y 
-          populateLeaf( src, leafSubRec, rightList );
+          populateLeaf(src, leafSubRec, rightList);
 
-          ldt_common.updateSubRec( src, newLeafRec);
-          ldt_common.updateSubRec( src, leafSubRec);
+          ldt_common.updateSubRec(src, newLeafRec);
+          ldt_common.updateSubRec(src, leafSubRec);
        else
           -- Case 2  
           -- maxKey:X
@@ -3463,11 +3412,11 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
           iDigestList[iCount] = record.digest( newLeafRec1);
  
           -- PK:Y 
-          populateLeaf( src, leafSubRec, rightList );
+          populateLeaf(src, leafSubRec, rightList);
 
-          ldt_common.updateSubRec( src, newLeafRec);
-          ldt_common.updateSubRec( src, newLeafRec1);
-          ldt_common.updateSubRec( src, leafSubRec);
+          ldt_common.updateSubRec(src, newLeafRec);
+          ldt_common.updateSubRec(src, newLeafRec1);
+          ldt_common.updateSubRec(src, leafSubRec);
        end
     else
       -- We got some sort of goofy error.
@@ -3476,8 +3425,6 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     end
   end
 
-
- 
   if (iCount > 0) then
     insertParentNode(src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
       leafLevel - 1 );
@@ -3649,30 +3596,24 @@ local function treeInsert (src, topRec, ldtCtrl, value, update)
 
   local key = getKeyValue( ldtMap, value );
 
-  -- For the VERY FIRST INSERT, we don't need to search.  We just put the
-  -- first key in the root, and we allocate TWO leaves: the left leaf for
-  -- values LESS THAN the first value, and the right leaf for values
-  -- GREATER THAN OR EQUAL to the first value.
-  -- Note: now that we're doing a batch insert after the conversion from
-  -- "CompactList Mode" to Tree Mode, we no longer insert a single
-  -- value as the first entry -- we instead start with a whole compact list.
-  if( ldtMap[LS.TreeLevel] == 1 ) then
+  -- For the VERY FIRST INSERT, we don't need to search.
+  if (ldtMap[LS.TreeLevel] == 1) then
     firstTreeInsert( src, topRec, ldtCtrl, value );
   else
     -- It's a real insert -- so, Search first, then insert
     -- Map: Path from root to leaf, with indexes
     -- The Search path is a map of values, including lists from root to leaf
     -- showing node/list states, counts, fill factors, etc.
-    local sp = createSearchPath(ldtMap);
-    local status = treeSearch( src, topRec, sp, ldtCtrl, key, value );
-    local leafLevel = sp.LevelCount;
+    local sp         = createSearchPath(ldtMap);
+    local status     = treeSearch( src, topRec, sp, ldtCtrl, key, value );
+    local leafLevel  = sp.LevelCount;
     local leafSubRec = sp.RecList[leafLevel];
-    local position = sp.PositionList[leafLevel];
+    local position   = sp.PositionList[leafLevel];
 
     -- If FOUND, then if UNIQUE, it's either an ERROR, or we are doing
     -- an Update (overwrite in place).
     -- Otherwise, if not UNIQUE, do the insert.
-    if( status == ST.FOUND and ldtMap[LS.KeyUnique] == AS_TRUE ) then
+    if (status == ST.FOUND and ldtMap[LS.KeyUnique] == AS_TRUE) then
       if update then
         if (sp.HasRoom[leafLevel]) then
           -- Regular Leaf Insert
@@ -3867,7 +3808,7 @@ local function convertList(src, topRec, ldtBinName, ldtCtrl )
   local leftLeafList;
   local rightLeafList;
   if ( ldtMap[LS.KeyUnique] == AS_TRUE ) then
-    splitPosition = math.floor(list.size(compactList) / 2);
+    splitPosition = math.floor(list.size(compactList) * 2/3);
     splitValue = compactList[splitPosition + 1];
   -- Our List operators :
   -- (*) list.take (take the first N elements)
@@ -4574,7 +4515,7 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
 
   -- If it's a unique Index, then the delete is simple.  Release the child
   -- sub-rec, then remove the entries from the Key and Digest Lists.
-  if( ldtMap[LS.KeyUnique] == AS_TRUE ) then
+  if (ldtMap[LS.KeyUnique] == AS_TRUE) then
     -- Check for the minimal node cases:
     -- (*) ZERO Keys, and only a Left Child Pointer (one digest)
     -- (*) 1 key, two digest pointers.
@@ -4635,23 +4576,19 @@ end -- rootDelete()
 -- ======================================================================
 local function releaseNode(src, sp, nodeLevel, topRec, ldtCtrl, candidate)
   local meth = "releaseNode()";
-  -- The Search Path (sp) from root to leaf shows how we will bubble up
-  -- if this node delete propagates up to the root node.
-  -- If we found the key directly in the list, we use THAT index as the
-  -- place to remove.  If we did NOT find it, then we move back one spot.
   local nodeSubRecDigest = sp.DigestList[nodeLevel];
-  local nodeSubRec = sp.RecList[nodeLevel];
+  local nodeSubRec       = sp.RecList[nodeLevel];
 
   local nodePosition;
   local digestPosition;
   local keyPosition;
-  if sp.FoundList[nodeLevel] then
-    nodePosition = sp.PositionList[nodeLevel];
-    keyPosition = nodePosition;
+  if (sp.FoundList[nodeLevel]) then
+    nodePosition   = sp.PositionList[nodeLevel];
+    keyPosition    = nodePosition;
     digestPosition = nodePosition + 1;
   else
-    nodePosition = sp.PositionList[nodeLevel] - 1;
-    keyPosition = (nodePosition < 1) and 1 or nodePosition;
+    nodePosition   = sp.PositionList[nodeLevel] - 1;
+    keyPosition    = (nodePosition < 1) and 1 or nodePosition;
     digestPosition = keyPosition; -- (nodePosition < 0) and 1 or nodePosition + 1;
   end
 
@@ -4676,8 +4613,8 @@ local function releaseNode(src, sp, nodeLevel, topRec, ldtCtrl, candidate)
   ldt_common.removeSubRec( src, topRec, ldtCtrl[LDT_PROP_MAP], digestString );
 
   -- We now have one LESS node.  Update the global count.
-  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
-  local nodeCount = ldtMap[LS.NodeCount];
+  local ldtMap         = ldtCtrl[LDT_CTRL_MAP];
+  local nodeCount      = ldtMap[LS.NodeCount];
   ldtMap[LS.NodeCount] = nodeCount - 1;
 
 end -- releasenode()
@@ -4741,52 +4678,39 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   -- The Search Path (sp) object shows the search path from root to leaf.
-  local keyList     = ldtMap[LS.RootKeyList];
-  local digestList  = ldtMap[LS.RootDigestList];
+  local keyList       = ldtMap[LS.RootKeyList];
+  local digestList    = ldtMap[LS.RootDigestList];
   local resultKeyList = list();
   local resultDigestList;
 
-  -- The Search Path (sp) from root to leaf shows how we will bubble up
-  -- if this node delete propagates up to the parent (or root).
-  -- If we found the key directly in the list, we use THAT index as the
-  -- place to remove.  If we did NOT find it, then we move back one spot.
-  -- The Key Index is one less than the Digest Index.
-  -- Note that in some cases, NOT FOUND may return a position of ZERO,
-  -- which means we do NOT try to remove a key (it's not there), and we
-  -- just remove the 
   local nodePosition;
   local digestPosition;
   local keyPosition;
-  if sp.FoundList[nodeLevel] then
-    nodePosition = sp.PositionList[nodeLevel];
-    keyPosition = nodePosition;
+  if (sp.FoundList[nodeLevel]) then
+    nodePosition   = sp.PositionList[nodeLevel];
+    keyPosition    = nodePosition;
     digestPosition = nodePosition;
   else
-    nodePosition = sp.PositionList[nodeLevel] - 1;
-    keyPosition = (nodePosition < 1) and 1 or nodePosition;
+    nodePosition   = sp.PositionList[nodeLevel] - 1;
+    keyPosition    = (nodePosition < 1) and 1 or nodePosition;
     digestPosition = keyPosition; 
   end
 
-  local nodeSubRec = sp.RecList[nodeLevel];
+  local nodeSubRec       = sp.RecList[nodeLevel];
   local nodeSubRecDigest = sp.DigestList[nodeLevel];
-
-  local keyList = nodeSubRec[NSR_KEY_LIST_BIN];
-  local digestList = nodeSubRec[NSR_DIGEST_BIN];
-
+  local keyList          = nodeSubRec[NSR_KEY_LIST_BIN];
+  local digestList       = nodeSubRec[NSR_DIGEST_BIN];
   local removedDigestString = tostring(digestList[digestPosition]);
 
   -- If we allow duplicates, then we treat deletes quite a bit differently
   -- than we treat unique value deletes. Do the unique value case first.
-  if( ldtMap[LS.KeyUnique] == AS_TRUE ) then
-    -- Check for the minimal node cases:
-    -- (*) ZERO Keys, and only a Left Child Pointer (one digest)
-    -- (*) 1 key, two digest pointers.
-    if #keyList == 0 then
+  if (ldtMap[LS.KeyUnique] == AS_TRUE) then
+    if (#keyList == 0) then
       -- KeyList is already empty.  Remove the last Digest Entry.
       resultDigestList = list(); -- Set this for safety down below.
       resultKeyList = list();
       nodeSubRec[NSR_DIGEST_BIN] = resultDigestList;
-    elseif #keyList == 1 then
+    elseif (#keyList == 1) then
       -- Remove the last KeyList entry.  Remove the Right or Left child
       -- digest based on position.
       resultKeyList = list();
@@ -4815,7 +4739,6 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
     -- Mark this page as dirty and possibly write it out if needed.
     ldt_common.updateSubRec( src, nodeSubRec );
   end
-
 
   return rc;
 end -- nodeDelete()
@@ -4962,17 +4885,17 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  local leafLevel = sp.LevelCount;
+  local leafLevel  = sp.LevelCount;
   local leafSubRec = sp.RecList[leafLevel];
   local objectList = leafSubRec[LSR_LIST_BIN];
-  local position = sp.PositionList[leafLevel];
-  local endPos = sp.LeafEndPosition;
+  local position   = sp.PositionList[leafLevel];
+  local endPos     = sp.LeafEndPosition;
   local resultList;
   
   -- Delete is easy if it's a single value -- more difficult if MANY items
   -- (with the same value) are deleted.
   local numRemoved;
-  if( ldtMap[LS.KeyUnique] == AS_TRUE ) then
+  if (ldtMap[LS.KeyUnique] == AS_TRUE) then
     resultList = ldt_common.listDelete(objectList, position )
     leafSubRec[LSR_LIST_BIN] = resultList;
     numRemoved = 1;
@@ -5050,7 +4973,7 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   local sp = createSearchPath(ldtMap);
   local status = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
 
-  if( status == ST.FOUND ) then
+  if (status == ST.FOUND) then
     -- leafDelete() always returns zero.
     leafDelete( src, sp, topRec, ldtCtrl, key );
   else
@@ -5313,7 +5236,7 @@ local function localDelete(topRec, ldtBinName, key, src)
       error( ldte.ERR_NOT_FOUND );
     end
   else
-    rc = treeDelete(src, topRec, ldtCtrl, key );
+    rc = treeDelete(src, topRec, ldtCtrl, key);
   end
 
   -- update our count statistics if successful
@@ -5328,13 +5251,6 @@ end
 -- ======================================================================
 -- localWrite() -- Write a new value into the Ordered List.
 -- ======================================================================
--- This function does the work of both calls:
--- (1) Regular LLIST add(), which either adds a new value, or complains
---     if an existing value would violate the unique property (when turned on)
--- (2) LLIST update(), which either adds a new value, or OVERWRITES an
---     existing value with a new value, when UNIQUE is true and a value
---     is found.
---
 -- Insert a value into the list (into the B+ Tree).  We will have both a
 -- COMPACT storage mode and a TREE storage mode.  When in COMPACT mode,
 -- the root node holds the list directly (Ordered search and insert).
@@ -5358,20 +5274,12 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to turn our single list into a tree.
-  local itemCount = propMap[PM.ItemCount];
-
-  -- This is an expensive operation that takes apart the value (if it is
-  -- map or list) and prints out each component.  Always OFF in production.
-  -- GP=DEBUG and ldt_common.dumpValue(newValue);
-
-  -- If we're in "compact mode", but we've accumulated enough inserts (or if
-  -- Threshold is zero), then we convert our compact list, empty or
-  -- not, into a tree.
   if ( ( ldtMap[LS.StoreState] == SS_COMPACT ) and
-       ( (itemCount > ldtMap[LS.Threshold] )
-         or (ldt_common.getValSize(ldtMap[LS.CompactList]) 
-				+ ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) )) 
+         (ldt_common.getValSize(ldtMap[LS.CompactList]) 
+			+ ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) ) 
   then
+    info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
+            + ldt_common.getValSize(newValue), ldtMap[LS.PageSize]);
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
  
@@ -5381,41 +5289,34 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
   local resultMap;
   local position = 0;
 
-  -- If our state is "compact", do a simple list insert, otherwise do a
-  -- real tree insert.
   local insertResult = 0;
-  if( ldtMap[LS.StoreState] == SS_COMPACT ) then 
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     -- Do the COMPACT LIST INSERT
     local objectList = ldtMap[LS.CompactList];
-    key = getKeyValue( ldtMap, newValue );
-    local resultMap = searchObjectList( ldtMap, objectList, key );
+    key = getKeyValue (ldtMap, newValue);
+    local resultMap = searchObjectList(ldtMap, objectList, key);
     local position = resultMap.Position;
-    if (resultMap.Status == ERR.OK) then
-      -- If FOUND, then if UNIQUE, it's either an ERROR, or we are doing
-      -- an Update (overwrite in place).
-      -- Otherwise, if not UNIQUE, do the insert.
-      if (resultMap.Found and ldtMap[LS.KeyUnique] == AS_TRUE) then
-        if update then
-          ldt_common.listUpdate(objectList, newValue, position);
-          update_done = true;
-        else
-          debug("[ERROR]<%s:%s> Unique Key Violation", MOD, meth );
-          error( ldte.ERR_UNIQUE_KEY );
-        end
-      else
-        ldt_common.listInsert(objectList, newValue, position);
-        if( rc < 0 ) then
-          warn("[ERROR]<%s:%s> Problems with Insert: RC(%d)", MOD, meth, rc );
-          error( ldte.ERR_INTERNAL );
-        end
-      end
-    else
+    if (resultMap.Status ~= ERR.OK) then
       warn("[Internal ERROR]<%s:%s> Key(%s), List(%s)", MOD, meth,
         tostring( key ), tostring( objectList ) );
       error( ldte.ERR_INTERNAL );
     end
+    if (resultMap.Found and ldtMap[LS.KeyUnique] == AS_TRUE) then
+      if update then
+        ldt_common.listUpdate(objectList, newValue, position);
+        update_done = true;
+      else
+        debug("[ERROR]<%s:%s> Unique Key Violation", MOD, meth );
+        error( ldte.ERR_UNIQUE_KEY );
+      end
+    else
+      ldt_common.listInsert(objectList, newValue, position);
+      if (rc < 0) then
+        warn("[ERROR]<%s:%s> Problems with Insert: RC(%d)", MOD, meth, rc );
+        error( ldte.ERR_INTERNAL );
+      end
+    end
   else
-    -- Do the TREE INSERT
     insertResult = treeInsert(src, topRec, ldtCtrl, newValue, update);
     update_done = insertResult == 1;
   end
