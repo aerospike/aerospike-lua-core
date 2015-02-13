@@ -2640,6 +2640,8 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
     src = ldt_common.createSubRecContext();
   end
 
+  local itemCount = propMap[PM.ItemCount];
+  local totalCount = ldtMap[LS.TotalCount];
   local newCount = 0;
   for name, value in map.pairs( nameValMap ) do
     if name and value then
@@ -2656,6 +2658,8 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
       -- on error!!
       if( rc == 0 ) then
         newCount = newCount + 1;
+        propMap[PM.ItemCount] = itemCount + newCount; -- number of valid items goes up
+        ldtMap[LS.TotalCount] = totalCount + newCount; -- Total number of items goes up
         GP=F and trace("[DEBUG]<%s:%s> lmap insertion for N(%s) V(%s) RC(%d)",
           MOD, meth, tostring(name), tostring(value), rc );
       elseif ( rc == 1 ) then
@@ -2670,14 +2674,6 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
         tostring(name), tostring(value));
     end
   end -- for each new value in the map
-
-  -- Update the counts.  If there were any errors, the code would have
-  -- jumped out of the Lua code entirely.  So, if we're here, the insert
-  -- was successful.
-  local itemCount = propMap[PM.ItemCount];
-  local totalCount = ldtMap[LS.TotalCount];
-  propMap[PM.ItemCount] = itemCount + newCount; -- number of valid items goes up
-  ldtMap[LS.TotalCount] = totalCount + newCount; -- Total number of items goes up
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
