@@ -38,8 +38,6 @@ local MOD="ext_lmap_2014_12_03.A";
 -- Status = destroy( topRec, ldtBinName )
 -- Number = size( topRec, ldtBinName )
 -- Map    = get_config( topRec, ldtBinName )
--- Status = set_capacity( topRec, ldtBinName, new_capacity)
--- Status = get_capacity( topRec, ldtBinName )
 -- Status = ldt_exists( topRec, ldtBinName )
 -- Status = ldt_validate( topRec, ldtBinName )
 -- ======================================================================
@@ -235,33 +233,6 @@ function get_config( topRec, ldtBinName )
     return llist.config( topRec, ldtBinName );
   end
 end -- get_config()
-
--- ========================================================================
--- get_capacity() -- return the current capacity setting for this LDT.
--- set_capacity() -- set the current capacity setting for this LDT.
--- ========================================================================
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- Result:
---   rc >= 0  (the current capacity)
---   rc < 0: Aerospike Errors
--- ========================================================================
-function get_capacity( topRec, ldtBinName )
-  if (IS_LIST == false) then
-    return lmap.get_capacity( topRec, ldtBinName );
-  else
-    return llist.get_capacity( topRec, ldtBinName );
-  end
-end
-
-function set_capacity( topRec, ldtBinName, capacity )
-  if (IS_LIST == false) then
-    return lmap.set_capacity( topRec, ldtBinName, capacity );
-  else
-    return llist.set_capacity( topRec, ldtBinName, capacity );
-  end
-end
 
 -- ========================================================================
 -- ldt_exists() -- return 1 if LDT (with the right shape and size) exists

@@ -38,8 +38,6 @@ local MOD="ext_lset_2014_12_03.A";
 -- (*) Status = destroy( topRec, ldtBinName )
 -- (*) Number = size( topRec, ldtBinName )
 -- (*) Map    = get_config( topRec, ldtBinName )
--- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
--- (*) Status = get_capacity( topRec, ldtBinName )
 -- (*) Number = ldt_exists( topRec, ldtBinName )
 -- (*) Number = ldt_validate( topRec, ldtBinName )
 -- ======================================================================
@@ -271,25 +269,6 @@ end
 
 function lset_config( topRec, ldtBinName )
   return lset.config( topRec, ldtBinName );
-end
-
--- ========================================================================
--- get_capacity() -- return the current capacity setting for this LDT.
--- set_capacity() -- set the current capacity setting for this LDT.
--- ========================================================================
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- Result:
---   rc >= 0  (the current capacity)
---   rc < 0: Aerospike Errors
--- ========================================================================
-function get_capacity( topRec, ldtBinName )
-  return lset.get_capacity( topRec, ldtBinName );
-end
-
-function set_capacity( topRec, ldtBinName, capacity )
-  return lset.set_capacity( topRec, ldtBinName, capacity );
 end
 
 -- ========================================================================

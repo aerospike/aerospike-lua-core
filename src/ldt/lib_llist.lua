@@ -4707,7 +4707,6 @@ end -- releasenode()
 -- ======================================================================
 function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   local meth = "nodeDelete()";
-  info("nodeDelete");
 
   local rc = 0;
 
@@ -5310,8 +5309,8 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
          (ldt_common.getValSize(ldtMap[LS.CompactList]) 
 			+ ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) ) 
   then
-    info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
-            + ldt_common.getValSize(newValue), ldtMap[LS.PageSize]);
+    -- info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
+    --        + ldt_common.getValSize(newValue), ldtMap[LS.PageSize]);
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
  

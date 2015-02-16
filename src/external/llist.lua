@@ -280,25 +280,6 @@ function get_config( topRec, ldtBinName )
 end
 
 -- ========================================================================
--- get_capacity() -- return the current capacity setting for this LDT.
--- set_capacity() -- set the current capacity setting for this LDT.
--- ========================================================================
--- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- Result:
---   rc >= 0  (the current capacity)
---   rc < 0: Aerospike Errors
--- ========================================================================
-function get_capacity( topRec, ldtBinName )
-  return llist.get_capacity( topRec, ldtBinName );
-end
-
-function set_capacity( topRec, ldtBinName, capacity )
-  return llist.set_capacity( topRec, ldtBinName, capacity );
-end
-
--- ========================================================================
 -- ldt_exists() -- return 1 if LDT (with the right shape and size) exists
 -- ========================================================================
 -- Parms 
