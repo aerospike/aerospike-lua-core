@@ -1146,7 +1146,7 @@ local function cellAnchorEmpty( cellAnchor )
 
   return
     (not cellAnchor ) or
-    type(cellAnchor) == "number" and cellAnchor == C_STATE_EMPTY or
+    type(cellAnchor) == "string" and cellAnchor == C_STATE_EMPTY or
     type(cellAnchor) == "userdata" and cellAnchor[C_CellState] == C_STATE_EMPTY
 end --cellAnchorEmpty()
 

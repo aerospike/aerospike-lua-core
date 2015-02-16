@@ -1334,7 +1334,7 @@ local function  ldrSubRecSummary( subRec )
     return "NULL LDR PROPERTY BIN";
   end;
 
-  local resultMap = {};
+  local resultMap = map();
   local subRecCtrlMap = subRec[LDR_CTRL_BIN];
   local subRecPropMap = subRec[SUBREC_PROP_BIN];
 
@@ -1366,7 +1366,7 @@ local function cellAnchorEmpty( cellAnchor )
 
   return
     (not cellAnchor ) or
-    type(cellAnchor) == "number" and cellAnchor == C_STATE_EMPTY or
+    type(cellAnchor) == "string" and cellAnchor == C_STATE_EMPTY or
     type(cellAnchor) == "userdata" and cellAnchor[C_CellState] == C_STATE_EMPTY
 end
 
@@ -3081,7 +3081,7 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   end
 
   local exists = 0;
-  if resultMap and #resultMap > 0 then
+  if resultMap[searchName] ~= nil then
     exists = 1;
   end
 
