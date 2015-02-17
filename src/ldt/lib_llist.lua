@@ -2816,7 +2816,7 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList)
   -- digest. Insert the new value.
   -- Compare against the SplitKey -- if less, insert into the left node,
   -- and otherwise insert into the right node.
-  if (ikeyList) then
+  if (iKeyList) then
     for i = 1, #iKeyList do
       local compareResult = keyCompare( iKeyList[i], splitKey );
       if (compareResult == CR.LESS_THAN) then
@@ -2954,7 +2954,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
     -- digest. Insert the new value.
     -- Compare against the SplitKey -- if less, insert into the left node,
     -- and otherwise insert into the right node.
-    if (ikeyList) then
+    if (iKeyList) then
       for i = 1, #iKeyList do
         local compareResult = keyCompare( iKeyList[i], splitKey );
         if( compareResult == CR.LESS_THAN ) then
@@ -4415,8 +4415,8 @@ local function mergeRoot(src, sp, topRec, ldtCtrl)
     rightDigestList = rightSubRec[NSR_DIGEST_BIN];
 
     if ((ldt_common.getValSize(leftDigestList) 
-			+ ldt_common.getValSize(rightDigestList) 
-			+ 1) < ldtMap[LS.PageSize]) then
+           + ldt_common.getValSize(rightDigestList) + 1) 
+             < ldtMap[LS.PageSize]) then
       collapseTree(src, topRec, ldtCtrl);
     end -- Otherwise, DO NOTHING.
   end
@@ -4536,13 +4536,15 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
   local keyPosition;
   -- If we found the key directly in the list, we use THAT index as the
   -- place to remove.  If we did NOT find it, then we move back one spot.
-  if (sp.FoundList[nodeLevel]) then
-    keyPosition    = sp.PositionList[nodeLevel];
+  if (sp.FoundList[rootLevel]) then
+    keyPosition    = sp.PositionList[rootLevel];
     digestPosition = keyPosition;
   else
-    keyPosition    = sp.PositionList[nodeLevel];
+    keyPosition    = sp.PositionList[rootLevel];
     digestPosition = keyPosition;
   end
+
+  info("delete from keylist %s @ position %d", tostring(keyList), keyPosition);
   if (keyPosition > #keyList) then
     keyPosition = #keyList;
   end
@@ -4719,7 +4721,6 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   local nodeSubRecDigest = sp.DigestList[nodeLevel];
   local keyList          = nodeSubRec[NSR_KEY_LIST_BIN];
   local digestList       = nodeSubRec[NSR_DIGEST_BIN];
-  local removedDigestString = tostring(digestList[digestPosition]);
 
   local digestPosition;
   local keyPosition;
@@ -4733,7 +4734,10 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   if (keyPosition > #keyList) then
     keyPosition = #keyList;
   end
+  local removedDigestString = tostring(digestList[digestPosition]);
 
+  local resultDigestList;
+  local resultKeyList;
   -- If we allow duplicates, then we treat deletes quite a bit differently
   -- than we treat unique value deletes. Do the unique value case first.
   if (ldtMap[LS.KeyUnique] == AS_TRUE) then
@@ -5307,7 +5311,7 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
   -- it's time to turn our single list into a tree.
   if ( ( ldtMap[LS.StoreState] == SS_COMPACT ) and
          (ldt_common.getValSize(ldtMap[LS.CompactList]) 
-			+ ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) ) 
+          + ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) ) 
   then
     -- info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
     --        + ldt_common.getValSize(newValue), ldtMap[LS.PageSize]);
@@ -5515,7 +5519,7 @@ end -- llist.add_all()
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
 -- =======================================================================
 function llist.update( topRec, ldtBinName, newValue, createSpec, src )
-  local meth = "llist.add()";
+  local meth = "llist.update()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
@@ -5539,7 +5543,15 @@ function llist.update( topRec, ldtBinName, newValue, createSpec, src )
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
   
-  return localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true);
+  rc = localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true);
+
+  if (rc == 0) then
+    topRec[ldtBinName] = ldtCtrl;
+    record.set_flags(topRec, ldtBinName, BF.LDT_BIN) --Must set every time
+    rc = ldt_common.commit(topRec, ldtBinName, src, rc);
+  end
+
+  return rc;
 end -- function llist.update()
 
 -- =======================================================================
