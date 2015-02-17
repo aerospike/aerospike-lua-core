@@ -3184,9 +3184,12 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
   local iKeyList = {};
   local iDigestList = {};
   local iCount = 0;
-  -- info("Split @ %s for %s in %s level=%d", tostring(splitPosition), tostring(key), tostring(printKey(ldtMap, objectList)), leafLevel);
+  --info("Split @ %s for %s in %s level=%d", tostring(splitPosition), tostring(key), tostring(printKey(ldtMap, objectList)), leafLevel);
 
-  if (splitPosition == 1) then
+  if (#objectList == 1) then
+    leafUpdate(src, topRec, leafSubRec, ldtMap, newValue, splitPosition);
+    ldt_common.updateSubRec( src, leafSubRec );
+  elseif (splitPosition == 1) then
 
     -- key:newVal, 
     local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
@@ -3214,7 +3217,7 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
 
     -- PK:newVal
     populateLeaf (src, leafSubRec, list());
-    leafInsert(src, topRec, newLeafRec, ldtMap, key, newValue, 0);
+    leafInsert(src, topRec, leafSubRec, ldtMap, key, newValue, 0);
 
     adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
     ldt_common.updateSubRec( src, newLeafRec );
@@ -4600,10 +4603,11 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
   -- So, this is valid ONLY when we have trees of a level >= 3.
   local treeLevel = ldtMap[LS.TreeLevel];
 
-  if #resultDigestList <= 2 and treeLevel >= 3 then
+  -- Todo enable root merge
+  --if #resultDigestList <= 2 and treeLevel >= 3 then
     -- This function will CHECK for merge, and then merge if needed.
-    mergeRoot(src, sp, topRec, ldtCtrl);
-  end
+  --  mergeRoot(src, sp, topRec, ldtCtrl);
+  --end
 
   return 0;
 end -- rootDelete()
