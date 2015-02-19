@@ -189,7 +189,9 @@ function apply_stream(f, scope, istream, ostream, ...)
         -- then pipe it to the ostream
         for value in values do
             -- info("value = %s", tostring(value))
-            stream.write(ostream, value)
+            if stream.write(ostream, value) ~= 0 then
+                break
+            end
         end
 
         -- Write NIL to indicate the end of the stream

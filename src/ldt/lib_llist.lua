@@ -3877,7 +3877,7 @@ local function convertList(src, topRec, ldtBinName, ldtCtrl )
     -- value (e.g. "7,7,7,7 ... 7,7,7"), in which case we have to treat the
     -- "split" specially.  In fact, the entire compact list would go into
     -- the RIGHT leaf, and the left leaf would remain empty.
-    splitPosition = computeDuplicateSplit(compactList);
+    splitPosition = computeDuplicateSplit(ldtMap, compactList);
     if splitPosition > 0 then
       splitValue = compactList[splitPosition + 1];
       leftLeafList  =  list.take( compactList, splitPosition );
