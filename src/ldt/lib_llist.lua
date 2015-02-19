@@ -156,20 +156,28 @@ local SUBREC_PROP_BIN     = "SR_PROP_BIN";
 -- The Node SubRecords (NSRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above, plus 3 of 4 bins
 -- >> (14 char name limit) >>12345678901234<<<<<<<<<<<<<<<<<<<<<<<<<
-local NSR_CTRL_BIN        = 'C';
-local NSR_KEY_LIST_BIN    = 'K'; -- For Var Length Keys
-local NSR_DIGEST_BIN      = 'D'; -- Digest List
+local NSR_CTRL_BIN        = "NsrControlBin";
+local NSR_KEY_LIST_BIN    = "NsrKeyListBin"; -- For Var Length Keys
+local NSR_KEY_BINARY_BIN  = "NsrBinaryBin";-- For Fixed Length Keys
+local NSR_DIGEST_BIN      = "NsrDigestBin"; -- Digest List
 
 -- The Leaf SubRecords (LSRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above, plus
 -- >> (14 char name limit) >>12345678901234<<<<<<<<<<<<<<<<<<<<<<<<<
-local LSR_CTRL_BIN        = 'C';
-local LSR_LIST_BIN        = 'B';
+local LSR_CTRL_BIN        = "LsrControlBin";
+local LSR_LIST_BIN        = "LsrListBin";
+local LSR_BINARY_BIN      = "LsrBinaryBin";
 
 -- The Existence Sub-Records (ESRs) use the following bins:
 -- The SUBREC_PROP_BIN mentioned above (and that might be all)
 
-local LDT_TYPE   = "LLIST";
+-- ++==================++
+-- || MODULE CONSTANTS ||
+-- ++==================++
+-- Each LDT defines its type in string form.
+local LDT_TYPE = "LLIST";
+
+-- For Map objects, we may look for a special KEY FIELD
 local KEY_FIELD  = "key";
 
 -- ======================= << DEFAULT VALUES >> ========================
@@ -364,7 +372,7 @@ local LS = {
   RevThreshold        = 'V',-- Drop back into Compact Mode at this pt.
   KeyField            = 'f',-- Key Field to use as key
   -- Top Node Tree Root Directory
-  PageSize            = 'P', -- Split Page Size
+  PageSize            = 'p', -- Split Page Size
   RootKeyList         = 'K',-- Root Key List, when in List Mode
   RootDigestList      = 'D',-- Digest List, when in List Mode
   CompactList         = 'Q',--Simple Compact List -- before "tree mode"
@@ -1749,7 +1757,6 @@ local function searchObjectList( ldtMap, objectList, searchKey )
   if( searchKey == nil ) then
     local resultMap = {};
     resultMap.Found = true;
-    resultMap.Key = nil;
     resultMap.Position = 1;
     resultMap.Status = ERR.OK;
     return resultMap;
@@ -2797,6 +2804,12 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList)
   -- shorter than the DigestList.
   local leftKeyList  = list.take( keyList, splitPosition - 1 );
   local rightKeyList = list.drop( keyList, splitPosition  );
+  if (leftKeyList == nil) then
+    leftKeyList = list();
+  end
+  if (rightKeyList == nil) then
+    rightKeyList = list();
+  end
 
   local leftDigestList  = list.take( digestList, splitPosition );
   local rightDigestList = list.drop( digestList, splitPosition );
@@ -2939,6 +2952,12 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
     -- We will always propagate up the new Key and the NEW left page (digest)
     local leftKeyList  = list.take( keyList, splitPosition - 1);
     local rightKeyList = list.drop( keyList, splitPosition );
+    if (leftKeyList == nil) then
+      leftKeyList = list();
+    end
+    if (rightKeyList == nil) then
+      rightKeyList = list();
+    end
 
     local leftDigestList  = list.take( digestList, splitPosition );
     local rightDigestList = list.drop( digestList, splitPosition );
@@ -4547,7 +4566,6 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
     digestPosition = keyPosition;
   end
 
-  info("delete from keylist %s @ position %d", tostring(keyList), keyPosition);
   if (keyPosition > #keyList) then
     keyPosition = #keyList;
   end

@@ -67,14 +67,6 @@ local AS_BIN_NAME_LIMIT = 14;
 local AS_TRUE='T';    
 local AS_FALSE='F';
 
--- The LDT Control Structure is a LIST of Objects:
--- (*) A Common Property Map
--- (*) An LDT-Specific Map
--- (*) A Storage Format Value (or Object).
-local LDT_PROP_MAP  = 1;
-local LDT_CTRL_MAP  = 2;
-local LDT_SF_VAL    = 3;
-
 -- Record Types -- Must be numbers, even though we are eventually passing
 -- in just a "char" (and int8_t).
 -- NOTE: We are using these vars for TWO purposes -- and I hope that doesn't
