@@ -97,7 +97,7 @@ function put_all( topRec, ldtBinName, nameValMap, createSpec )
     return lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, nil);
   else
     local valList = list();
-    local newValMap = map.new(1);
+    local newValMap = map.new(#nameValMap);
     for name, value in map.pairs( nameValMap ) do
       newValMap['key'] = name;
       newValMap['value'] = value;
@@ -197,9 +197,9 @@ end -- remove()
 -- ========================================================================
 function destroy( topRec, ldtBinName )
   if (IS_LIST == false) then
---  return lmap.destroy( topRec, ldtBinName, nil );
+    return lmap.destroy( topRec, ldtBinName, nil );
   else
-  return llist.destroy( topRec, ldtBinName, nil );
+    return llist.destroy( topRec, ldtBinName, nil );
   end
 end -- destroy()
 
