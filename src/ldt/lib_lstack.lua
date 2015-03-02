@@ -995,6 +995,7 @@ local function readEntryList( resultList, ldtCtrl, entryList, count )
 
     if( resultValue ~= nil ) then
       list.append( resultList, readValue );
+      numRead = numRead + 1;
     end
 
     --  This is REALLY HIGH debug output.  Turn this on ONLY if there's
@@ -1002,7 +1003,6 @@ local function readEntryList( resultList, ldtCtrl, entryList, count )
     --  GP=F and trace("[DEBUG]:<%s:%s>Appended Val(%s) to ResultList(%s)",
     --    MOD, meth, tostring( readValue ), tostring(resultList) );
     
-    numRead = numRead + 1;
     if numRead >= numToRead then
       GP=E and trace("[Early EXIT]: <%s:%s> NumRead(%d) resultListSummary(%s)",
         MOD, meth, numRead, ldt_common.summarizeList( resultList ));
