@@ -369,8 +369,6 @@ local LS = {
   KeyUnique           = 'U',-- Are Keys Unique? (AS_TRUE or AS_FALSE))
   StoreState          = 'S',-- Compact or Regular Storage
   Threshold           = 'H',-- After this#:Move from compact to tree mode
-  RevThreshold        = 'V',-- Drop back into Compact Mode at this pt.
-  KeyField            = 'f',-- Key Field to use as key
   -- Top Node Tree Root Directory
   PageSize            = 'p', -- Split Page Size
   RootKeyList         = 'K',-- Root Key List, when in List Mode
@@ -655,7 +653,6 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   -- We switch from compact list to tree when we cross LS.Threshold, and we
   -- switch from tree to compact list when we drop below LS.RevThreshold.
   ldtMap[LS.Threshold] = DEFAULT.THRESHOLD;
-  ldtMap[LS.RevThreshold] = DEFAULT.REV_THRESHOLD;
 
 
   -- Top Node Tree Root Directory
@@ -963,8 +960,9 @@ local function printRoot( topRec, ldtCtrl )
   info("ROOT::Bin(%s)", ldtBinName );
   info("ROOT::Keys: Size(%d) List(%s)", #keyList, tostring( keyList ) );
   if (ldtMap[LS.CompactList]) then
-    info("ROOT: CompactList (%s)", printKey(ldtMap, ldtMap[LS.CompactList]));
+    info("ROOT: size (%d), CompactList (%s)", #ldtMap[LS.CompactList], printKey(ldtMap, ldtMap[LS.CompactList]));
   end
+  info("ROOT:: Left Leaf %s Right Leaf %s", tostring(ldtMap[LS.LeftLeafDigest]), tostring(ldtMap[LS.RightLeafDigest]));
 end -- printRoot()
 
 
@@ -3414,7 +3412,7 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     local splitKey  = getKeyValue(ldtMap, objectList[splitPosition] );
     local leftList  = list.take(objectList, splitPosition - 1);
     local rightList = list.drop(objectList, splitPosition - 1);
-    --info("Split @ %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
+    --info("Split @ %s of %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(#objectList), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
 
     local compareResult = keyCompare( newKey, splitKey );
     local newValSize    = ldt_common.getValSize(newValue);
@@ -4895,7 +4893,7 @@ end -- releaseTree()
 -- the compact list threshold.  So, we're going to scan the tree and place
 -- the contents into the compact list.
 -- RETURN:
--- void on success, error() if problems
+-- true on success, false if fail. error() if problems
 -- ======================================================================
 local function collapseToCompact( src, topRec, ldtCtrl )
   local meth = "collapseToCompact()";
@@ -4911,12 +4909,16 @@ local function collapseToCompact( src, topRec, ldtCtrl )
   end
 
   -- scanList is the new Compact List.  Change the state back to Compact.
+  if (ldt_common.getValSize(scanList) > ldtMap[LS.PageSize]) then
+    return false; 
+  end 
   ldtMap[LS.CompactList] = scanList;
   ldtMap[LS.StoreState] = SS_COMPACT;
 
   -- Erase the old tree.  Null out the Root list in the main record, and
   -- release all of the subrecs.
   releaseTree( src, topRec, ldtCtrl );
+  return true;
 end -- collapseToCompact()
 
 -- ======================================================================
@@ -4970,19 +4972,19 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
   -- handle the EMPTY tree case (which will probably be rare).
   local currentCount = propMap[PM.ItemCount] - numRemoved;
 
-  -- Change BACK to check against RevThreshold once RevThreshold has
-  -- been correctly set by Config.
-  if currentCount < ldtMap[LS.Threshold] then
-    collapseToCompact( src, topRec, ldtCtrl );
+
+  -- ok -- regular delete processing.  if we're left with NOTHING in the
+  -- leaf then collapse this leaf and release the entry in the parent.
+  if (resultList == nil or #resultList == 0) and ldtMap[LS.LeafCount] > 2 then
+    releaseLeaf(src, sp, topRec, ldtCtrl)
   else
-    -- ok -- regular delete processing.  if we're left with NOTHING in the
-    -- leaf then collapse this leaf and release the entry in the parent.
-    if #resultList == 0 and ldtMap[LS.LeafCount] > 2 then
-      releaseLeaf(src, sp, topRec, ldtCtrl)
-    else
-      -- Mark this page as dirty and possibly write it out if needed.
-      ldt_common.updateSubRec( src, leafSubRec );
-    end
+    -- Mark this page as dirty and possibly write it out if needed.
+    ldt_common.updateSubRec( src, leafSubRec );
+  end
+
+  --if count < threshold attempt a collapse
+  if currentCount < ldtMap[LS.Threshold] then
+    collapsed = collapseToCompact( src, topRec, ldtCtrl );
   end
 
   return rc;
@@ -5105,8 +5107,6 @@ local function compute_settings(ldtMap, configMap )
   local threshold = 100;
   ldtMap[LS.StoreState] = SS_COMPACT; -- start in "compact mode"
 
-  -- Apply our computed values.
-  ldtMap[LS.Threshold]   = 100;
   ldtMap[LS.PageSize]    = pageSize;
 
   return 0;
