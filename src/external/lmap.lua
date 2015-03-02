@@ -170,7 +170,7 @@ function filter( topRec, ldtBinName, filterModule, filter, fargs )
     return lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, nil);
   else 
     local resultList = llist.scan(topRec, ldtBinName, nil, filterModule, filter, fargs, nil);
-    local resultMap = map.new(resultList);
+    local resultMap = map.new(#resultList);
     for i = 1, #resultList, 1 do
       local l = resultList[i];
       resultMap[l['key']] = l['value'];
