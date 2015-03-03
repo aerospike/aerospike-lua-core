@@ -64,6 +64,8 @@ local llist = {};
 -- (*) Status = llist.add_all(topRec, ldtBinName, valueList, createSpec, src)
 -- (*) Status = llist.update(topRec, ldtBinName, newValue, src)
 -- (*) Status = llist.update_all(topRec, ldtBinName, valueList, src)
+-- (*) List   = llist.find_first(topRec,ldtBinName, src, count)
+-- (*) List   = llist.find_last(topRec,ldtBinName, src, count)
 -- (*) Status = llist.remove(topRec, ldtBinName, searchValue  src) 
 -- (*) Status = llist.remove_all(topRec, ldtBinName, valueList  src) 
 -- (*) Status = llist.remove_range(topRec, ldtBinName, minKey, maxKey, src)
@@ -355,8 +357,6 @@ local ND_ByteEntryCount       = 'B';-- # current bytes used
 local LC = {
   UserModule          = 'P',-- User's Lua file for overrides
   StoreLimit          = 'L',-- Storage Capacity Limit
-  OverWrite           = 'o',-- Allow Overwrite (AS_TRUE or AS_FALSE)
-                            -- Implicitly true for LLIST
 };
 
 -- Fields Specific to LLIST LDTs (Ldt Specific --> LS)
@@ -661,6 +661,9 @@ local function initializeLdtCtrl( topRec, ldtBinName )
   ldtMap[LS.RootKeyList] = list();    -- Key List, when in List Mode
   ldtMap[LS.RootDigestList] = list(); -- Digest List, when in List Mode
   ldtMap[LS.CompactList] = list();-- Simple Compact List -- before "tree mode"
+  ldtMap[LS.LeftLeafDigest] = nil;
+  ldtMap[LS.RightLeafDigest] = nil;
+  ldtMap[LC.UserModule] = nil;
 
   -- If the topRec already has an LDT CONTROL BIN (with a valid map in it),
   -- then we know that the main LDT record type has already been set.
@@ -2161,6 +2164,106 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount, totValSiz
 end -- updateSearchPath()
 
 -- ======================================================================
+-- doListScan(): Scan a List.  ALL (if count == 0) or count items.
+-- ======================================================================
+-- Process the contents of the list, applying any UnTransform function,
+-- and appending the results to the resultList.
+--
+-- Parms:
+-- (*) objectList
+-- (*) ldtMap:
+-- (*) resultList:
+-- (*) count: Scan up to this amount, or ALL if zero
+-- (*) leftScan: true means Scan is left->right, false is right->left
+-- Return:
+-- Success:  Return the number of items read.
+-- Error:    Call error() function.
+-- ======================================================================
+local function doListScan( objectList, ldtMap, resultList, count, leftScan)
+  local meth = "doListScan()";
+  GP=E and trace("[ENTER]<%s:%s>", MOD, meth);
+
+  local storeObject; -- the transformed User Object (what's stored).
+  local liveObject; -- the untransformed storeObject.
+
+  local readAmount;
+  local listSize = #objectList;
+  if count ~= nil and count > 0 then
+    if count > listSize then
+      readAmount = listSize;
+    else
+      readAmount = count;
+    end
+  else
+    readAmount = listSize;
+  end
+
+  local start;
+  local finish;
+  local incr;
+  if leftScan then
+    start = 1;
+    finish = readAmount;
+    incr = 1;
+  else
+    start = listSize;
+    finish = listSize - readAmount + 1;
+    incr = -1;
+  end
+
+  GP=F and trace("[LIST SCAN]<%s:%s>", MOD, meth);
+  for i = start, finish, incr do
+    list.append(resultList, objectList[i]);
+  end -- for each item in the list
+
+  GP=E and trace("[EXIT]<%s:%s> rc(0) Result: ReadAmount(%d) Sz(%d) List(%s)",
+    MOD, meth, readAmount, #resultList, tostring(resultList));
+
+  return readAmount;
+end -- doListScan()
+
+
+-- ======================================================================
+-- leftListScan(): Scan a List left to right.
+-- Scan ALL (if count == 0) or count items.
+-- ======================================================================
+-- Process the contents of the list, applying any UnTransform function,
+-- and appending the results to the resultList.
+--
+-- Parms:
+-- (*) objectList
+-- (*) ldtMap:
+-- (*) resultList:
+-- (*) count: Scan up to this amount, or ALL if zero
+-- Return:
+-- Success:  Return the number of items read.
+-- Error:    Call error() function.
+-- ======================================================================
+local function leftListScan( objectList, ldtMap, resultList, count )
+  return doListScan( objectList, ldtMap, resultList, count, true);
+end -- leftListScan()
+
+-- ======================================================================
+-- rightListScan(): Scan a List right to left (from the end towards the front).
+-- Scan ALL (if count == 0) or count items.
+-- ======================================================================
+-- Process the contents of the list, applying any UnTransform function,
+-- and appending the results to the resultList.
+--
+-- Parms:
+-- (*) objectList
+-- (*) ldtMap:
+-- (*) resultList:
+-- (*) count: Scan up to this amount, or ALL if zero
+-- Return:
+-- Success:  Return the number of items read.
+-- Error:    Call error() function.
+-- ======================================================================
+local function rightListScan( objectList, ldtMap, resultList, count )
+  return doListScan( objectList, ldtMap, resultList, count, false);
+end -- rightListScan()
+
+-- ======================================================================
 -- fullListScan(): Scan a List.  ALL of the list.
 -- ======================================================================
 -- Process the FULL contents of the list, and appending the results to the resultList.
@@ -2281,6 +2384,53 @@ local function fullScanLeaf(topRec, leafSubRec, ldtMap, resultList)
   fullListScan( objectList, ldtMap, resultList );
   return 0;
 end -- fullScanLeaf()
+
+-- ======================================================================
+-- rightScanLeaf():
+-- ======================================================================
+-- Scan ALL of a Leaf Node from right to left, or COUNT if it is specified,
+-- then and append the results in the resultList.
+-- Parms:
+-- (*) topRec: 
+-- (*) leafSubRec:
+-- (*) ldtMap:
+-- (*) resultList:
+-- (*) count: Number of items (or bytes) to read
+-- Return:
+-- Success:  Number of Items Read
+-- Error:    error() function
+-- ======================================================================
+local function rightScanLeaf(topRec, leafSubRec, ldtMap, resultList, count)
+  local meth = "rightScanLeaf()";
+  local numRead = 0;
+  local objectList = leafSubRec[LSR_LIST_BIN];
+  numRead = rightListScan( objectList, ldtMap, resultList, count );
+  return numRead;
+end -- rightScanLeaf()
+
+
+-- ======================================================================
+-- leftScanLeaf():
+-- ======================================================================
+-- Scan ALL of a Leaf Node, or COUNT if it is specified, then
+-- and append the results in the resultList.
+-- Parms:
+-- (*) topRec: 
+-- (*) leafSubRec:
+-- (*) ldtMap:
+-- (*) resultList:
+-- (*) count: Number of items (or bytes) to read
+-- Return:
+-- Success:  Number of Items Read
+-- Error:    error() function
+-- ======================================================================
+local function leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, count)
+  local meth = "leftScanLeaf()";
+  local numRead = 0;
+  local objectList = leafSubRec[LSR_LIST_BIN];
+  numRead = leftListScan( objectList, ldtMap, resultList, count );
+  return numRead;
+end -- leftScanLeaf()
 
 -- ======================================================================
 -- scanLeaf(): Scan a Leaf Node, gathering up all of the the matching
@@ -3716,15 +3866,18 @@ local function treeInsert (src, topRec, ldtCtrl, value, update)
 end -- treeInsert
 
 -- ======================================================================
--- getNextLeaf( src, topRec, leafSubRec  )
+-- getNextLeaf( src, topRec, leafSubRec, forward  )
 -- Our Tree Leaves are doubly linked -- so from any leaf we can move 
 -- right or left.  Get the next leaf (right neighbor) in the chain.
 -- This is called primarily by scan(), so the pages should be clean.
 -- ======================================================================
-local function getNextLeaf( src, topRec, leafSubRec  )
+local function getNextLeaf( src, topRec, leafSubRec, forward)
   local meth = "getNextLeaf()";
   local leafSubRecMap = leafSubRec[LSR_CTRL_BIN];
   local nextLeafDigest = leafSubRecMap[LF_NextPage];
+  if forward == false then
+    nextLeafDigest = leafSubRecMap[LF_PrevPage];
+  end
 
   local nextLeaf = nil;
   local nextLeafDigestString;
@@ -3901,6 +4054,109 @@ local function convertList(src, topRec, ldtBinName, ldtCtrl )
 end -- convertList()
 
 -- ======================================================================
+-- Starting from the right-most leaf, scan all the way to the left-most
+-- leaf.  This function does not filter, but it does UnTransform.
+-- Parms:
+-- (*) src: subrecContext
+-- (*) resultList: stash the results here
+-- (*) topRec: Top DB Record
+-- (*) ldtCtrl: The main LDT Control Structure
+-- (*) count: Get the rightmost "COUNT" elements, or ALL if 0.
+-- Return: void
+-- ======================================================================
+local function rightToLeftTreeScan( src, resultList, topRec, ldtCtrl, count)
+  local meth = "rightToLeftTreeScan()";
+  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth);
+
+  -- Extract the property map and control map from the ldt bin list.
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  -- Scan all of the leaves.
+  local leafDigest = ldtMap[LS.RightLeafDigest];
+  if leafDigest == nil or leafDigest == 0 then
+    debug("[DETAIL]<%s:%s> Right Leaf Digest is NIL", MOD, meth);
+    error(ldte.ERR_INTERNAL);
+  end
+
+  local leafDigestString = tostring(leafDigest);
+  local leafRead;
+  -- We read either COUNT or ALL (if count is zero)
+  local readTotal;
+  if count == 0 then
+    readTotal = propMap[PM.ItemCount];
+  else
+    readTotal = count;
+  end
+  local amountLeft = readTotal;
+
+  GP=D and info("[DETAIL]<%s:%s> Opening Next Leaf(%s)",
+    MOD, meth, leafDigestString);
+  local leafSubRec = ldt_common.openSubRec(src, topRec, leafDigestString);
+  while leafSubRec ~= nil and leafSubRec ~= 0 and amountLeft > 0 do
+    leafRead = rightScanLeaf(topRec, leafSubRec, ldtMap, resultList,amountLeft);
+    leafSubRec = getNextLeaf( src, topRec, leafSubRec, false);
+    amountLeft = amountLeft - leafRead;
+  end -- loop thru each subrec
+
+  GP=F and trace("[EXIT]<%s:%s>ResultListSize(%d) ResultList(%s)",
+      MOD, meth, #resultList, tostring(resultList));
+
+end -- rightToLeftTreeScan()
+
+-- ======================================================================
+-- Starting from the left-most leaf, scan towards the right most leaf
+-- until N items (or ALL, if count == 0) have been processed.
+-- This function does not filter, but it does UnTransform.
+-- Parms:
+-- (*) src: subrecContext
+-- (*) resultList: stash the results here
+-- (*) topRec: Top DB Record
+-- (*) ldtCtrl: The main LDT Control Structure
+-- (*) count: Get the leftmost "COUNT" elements, or ALL if 0.
+-- Return: void
+-- ======================================================================
+local function leftToRightTreeScan( src, resultList, topRec, ldtCtrl, count)
+  local meth = "leftToRightTreeScan()";
+  GP=E and trace("[ENTER]<%s:%s> ", MOD, meth);
+
+  -- Extract the property map and control map from the ldt bin list.
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  -- Scan all of the leaves.
+  local leafDigest = ldtMap[LS.LeftLeafDigest];
+  if leafDigest == nil or leafDigest == 0 then
+    debug("[DETAIL]<%s:%s> Left Leaf Digest is NIL", MOD, meth);
+    error(ldte.ERR_INTERNAL);
+  end
+
+  local leafDigestString = tostring(leafDigest);
+  local leafRead = 0;
+  -- We read either COUNT or ALL (if count is zero)
+  local readTotal;
+  if count == 0 then
+    readTotal = propMap[PM.ItemCount];
+  else
+    readTotal = count;
+  end
+  local amountLeft = readTotal;
+
+  GP=D and info("[DETAIL]<%s:%s> Opening Next Leaf(%s)",
+    MOD, meth, leafDigestString);
+  local leafSubRec = ldt_common.openSubRec(src, topRec, leafDigestString);
+  while leafSubRec ~= nil and leafSubRec ~= 0 and amountLeft > 0 do
+    leafRead = leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, amountLeft);
+    leafSubRec = getNextLeaf( src, topRec, leafSubRec, true);
+    amountLeft = amountLeft - leafRead;
+  end -- loop thru each subrec
+
+  GP=F and trace("[EXIT]<%s:%s>ResultListSize(%d) ResultList(%s)",
+      MOD, meth, #resultList, tostring(resultList));
+
+end -- leftToRightTreeScan()
+
+-- ======================================================================
 -- Starting from the left-most leaf, scan all the way to the right-most
 -- leaf.  This function does not filter.
 -- Parms:
@@ -3929,7 +4185,7 @@ local function fullTreeScan( src, resultList, topRec, ldtCtrl )
   local leafSubRec = ldt_common.openSubRec(src, topRec, leafDigestString);
   while leafSubRec ~= nil and leafSubRec ~= 0 do
     fullScanLeaf(topRec, leafSubRec, ldtMap, resultList);
-    leafSubRec = getNextLeaf( src, topRec, leafSubRec );
+    leafSubRec = getNextLeaf( src, topRec, leafSubRec, true);
   end -- loop thru each subrec
 
 end -- fullTreeScan()
@@ -3982,7 +4238,7 @@ local function treeScan( src, resultList, topRec, sp, ldtCtrl, key, flag )
       
     if( scan_A == SCAN.CONTINUE ) then
       startPosition = 1; -- start of next leaf
-      leafSubRec = getNextLeaf( src, topRec, leafSubRec );
+      leafSubRec = getNextLeaf( src, topRec, leafSubRec, true );
       if( leafSubRec == nil ) then
         done = true;
       end
@@ -4984,7 +5240,7 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
 
   --if count < threshold attempt a collapse
   if currentCount < ldtMap[LS.Threshold] then
-    collapsed = collapseToCompact( src, topRec, ldtCtrl );
+    local collapsed = collapseToCompact( src, topRec, ldtCtrl );
   end
 
   return rc;
@@ -5089,12 +5345,12 @@ local function compute_settings(ldtMap, configMap )
 
   if (configMap.KeyUnique ~= nil) then
     if (configMap.KeyUnique == true) then
-      ldtMap[LC.KeyUnique]  = AS_TRUE;
+      ldtMap[LS.KeyUnique]  = AS_TRUE;
     else
-      ldtMap[LC.KeyUnique]  = AS_FALSE;
+      ldtMap[LS.KeyUnique]  = AS_FALSE;
     end
   else 
-      ldtMap[LC.KeyUnique]  = AS_TRUE;
+      ldtMap[LS.KeyUnique]  = AS_TRUE;
   end
 
   -- These are the values we're going to set.
@@ -5106,8 +5362,7 @@ local function compute_settings(ldtMap, configMap )
 
   local threshold = 100;
   ldtMap[LS.StoreState] = SS_COMPACT; -- start in "compact mode"
-
-  ldtMap[LS.PageSize]    = pageSize;
+  ldtMap[LS.PageSize]   = pageSize;
 
   return 0;
 
@@ -5420,6 +5675,12 @@ function llist.add (topRec, ldtBinName, newValue, createSpec, src)
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
+
+  if newValue == nil then
+    info("[ERROR]<%s:%s> Input Parameter <value> is bad", MOD, meth);
+    error(ldte.ERR_INPUT_PARM);
+  end
+
   validateRecBinAndMap( topRec, ldtBinName, false );
 
   -- If the record does not exist, or the BIN does not exist, then we must
@@ -5437,6 +5698,7 @@ function llist.add (topRec, ldtBinName, newValue, createSpec, src)
   if (src == nil) then
     src = ldt_common.createSubRecContext();
   end
+  info("Size at start %s %s", ldt_common.getValSize(ldtCtrl), tostring(ldtCtrl));
 
   -- call localWrite() with UPDATE flag turned OFF.
   rc = localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false);
@@ -5754,6 +6016,164 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
 end -- function llist.find() 
 
 -- =======================================================================
+-- llist.find_first(topRec,ldtBinName, count, src)
+-- =======================================================================
+-- Find the FIRST N elements of the ordered List.
+--
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName:
+-- (*) count
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- Result:
+-- (*) Success: resultList
+-- (*) Error:   error() function is called to jump out of Lua.
+-- =======================================================================
+function llist.find_first( topRec, ldtBinName, count, filterModule, filter, fargs, src )
+  local meth = "llist.find_first()";
+
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
+  -- validate the "count" parameter, and make sure it is within range.  If it
+  -- is greater than the LDT ItemCount, then adjust.
+  if count == nil or type(count) ~= "number" then
+    warn("[PARM ERROR]<%s:%s> invalid count parameter(%s)", MOD, meth,
+      tostring(count));
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+ 
+  -- Extract the property map and control map from the ldt bin list.
+  local ldtCtrl = topRec[ldtBinName];
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  -- Nothing to find in an empty tree
+  if (propMap[PM.ItemCount] == 0) then
+    debug("[NOTICE]<%s:%s> EMPTY LLIST: Result is EMPTY LIST", MOD, meth);
+    return list();
+  end
+
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  local itemCount = propMap[PM.ItemCount];
+  local readAmount;
+  if count > itemCount or count <= 0 then
+    readAmount = itemCount;
+  else
+    readAmount = count;
+  end
+
+  -- Define our return (result) list to match the expected amount.
+  local resultList = list.new(readAmount);
+  
+  -- Set up the read functions (transform/untransform) if present.
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_FunctionArgs = fargs;
+
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
+    local objectList = ldtMap[LS.CompactList];
+    leftListScan( objectList, ldtMap, resultList, readAmount );
+  else
+    leftToRightTreeScan( src, resultList, topRec, ldtCtrl, count);
+  end
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if (rc < 0) then
+    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
+
+  return resultList;
+end -- function llist.find_first() 
+
+-- =======================================================================
+-- llist.find_last(topRec,ldtBinName, count, src)
+-- =======================================================================
+-- Find the LAST N elements of the ordered List.
+--
+-- Parms:
+-- (*) topRec:
+-- (*) ldtBinName:
+-- (*) count
+-- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- Result:
+-- (*) Success: resultList
+-- (*) Error:   error() function is called to jump out of Lua.
+-- =======================================================================
+function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs, src)
+  local meth = "llist.find_last()";
+
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
+  -- validate the "count" parameter, and make sure it is within range.  If it
+  -- is greater than the LDT ItemCount, then adjust.
+  if count == nil or type(count) ~= "number" then
+    warn("[PARM ERROR]<%s:%s> invalid count parameter(%s)", MOD, meth,
+      tostring(count));
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
+ 
+  -- Extract the property map and control map from the ldt bin list.
+  local ldtCtrl = topRec[ldtBinName];
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  -- Nothing to find in an empty tree
+  if (propMap[PM.ItemCount] == 0) then
+    debug("[NOTICE]<%s:%s> EMPTY LLIST: Result is EMPTY LIST", MOD, meth);
+    return list();
+  end
+
+  if ( src == nil ) then
+    src = ldt_common.createSubRecContext();
+  end
+
+  local itemCount = propMap[PM.ItemCount];
+  local readAmount;
+  if count > itemCount or count <= 0 then
+    readAmount = itemCount;
+  else
+    readAmount = count;
+  end
+
+  -- Define our return (result) list to match the expected amount.
+  local resultList = list.new(readAmount);
+  
+  -- Set up the read functions (transform/untransform) if present.
+  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_FunctionArgs = fargs;
+
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
+    local objectList = ldtMap[LS.CompactList];
+    rightListScan( objectList, ldtMap, resultList, readAmount );
+  else
+    rightToLeftTreeScan( src, resultList, topRec, ldtCtrl, count);
+  end
+
+  -- Close ALL of the subrecs that might have been opened
+  rc = ldt_common.closeAllSubRecs( src );
+  if (rc < 0) then
+    warn("[EARLY EXIT]<%s:%s> Problem closing subrec in search", MOD, meth );
+    error( ldte.ERR_SUBREC_CLOSE );
+  end
+
+  return resultList;
+end -- function llist.find_last() 
+
+-- =======================================================================
 -- llist.exists()
 -- =======================================================================
 -- Return 1 if the value (object/key) exists, otherwise return 0.
@@ -5918,7 +6338,7 @@ function llist.scan( topRec, ldtBinName, src )
   if (rc ~= 0) then
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
-  return llist.find( topRec, ldtBinName,nil, nil, nil, nil, src );
+  return llist.find( topRec, ldtBinName, nil, nil, nil, nil, src );
 end -- llist.scan()
 
 -- =======================================================================

@@ -1282,7 +1282,7 @@ end -- ldt_common.validateLdtBin()
 local DEFAULT_MAX_OBJ_SIZE     =     200;
 local DEFAULT_MAX_KEY_SIZE     =      22;
 local DEFAULT_MINIMUM_PAGESIZE =    4000;
-local DEFAULT_TARGET_PAGESIZE  =    8000;
+local DEFAULT_TARGET_PAGESIZE  =    8192;
 local DEFAULT_WRITE_BLOCK_SIZE = 1000000;
 local DEFAULT_RECORD_OVERHEAD  =     500;
 

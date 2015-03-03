@@ -142,6 +142,30 @@ function find( topRec, ldtBinName, searchKey )
 end
 
 -- =======================================================================
+-- find_first() -- Return the first "count" objects in the large list.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) count: The Number of elements to return from the front of the LLIST.
+-- =======================================================================
+function find_first(topRec, ldtBinName, count, filterModule, filter, fargs)
+  return llist.find_first(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
+end
+
+-- =======================================================================
+-- find_last() -- Return the last "count" objects in the large list.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) count: The Number of elements to return from the end of the LLIST.
+-- =======================================================================
+function find_last( topRec, ldtBinName, count, filterModule, filter, fargs )
+  return llist.find_last(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
+end
+
+-- =======================================================================
 -- range() -- Locate the object(s) between minKey and maxKey
 -- =======================================================================
 -- Parms:
