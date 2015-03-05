@@ -5912,6 +5912,46 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   return successCount;
 end -- llist.update_all()
 
+local function localFind(topRec, ldtCtrl, key, src, resultList)
+
+  local meth = "localFind()";
+
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+  local rc = 0;
+  local resultA;
+  local resultB;
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
+    local objectList    = ldtMap[LS.CompactList];
+    local resultMap     = searchObjectList( ldtMap, objectList, key );
+    if (resultMap.Status == ERR.OK and resultMap.Found) then
+      local position = resultMap.Position;
+      resultA, resultB = 
+          listScan(objectList, position, ldtMap, resultList, key, CR.EQUAL);
+      if (resultB < 0) then
+        warn("[ERROR]<%s:%s> Problems with Scan: Key(%s), List(%s)", MOD, meth,
+          tostring( key ), tostring( objectList ) );
+        error (ldte.ERR_INTERNAL);
+      end
+    else
+      error (ldte.ERR_NOT_FOUND);
+    end
+  else
+    -- Do the TREE Search
+    local sp = createSearchPath(ldtMap);
+    rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
+    if (rc == ST.FOUND) then
+      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
+      if (rc < 0 or list.size(resultList) == 0) then
+          warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
+            MOD, meth, rc );
+      end
+    else
+      error(ldte.ERR_NOT_FOUND);
+    end
+  end -- tree search
+
+end
+
 -- =======================================================================
 -- llist.find() - Locate all items corresponding to searchKey
 -- =======================================================================
@@ -5950,7 +5990,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
 
   -- Nothing to find in an empty tree
   if (propMap[PM.ItemCount] == 0) then
-    error( ldte.ERR_NOT_FOUND );
+    return list.new(1);
   end
 
   if ( src == nil ) then
@@ -5960,7 +6000,12 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
   local resultList;
   
   if value ~= nil then
-    resultList = list();
+    if (getmetatable(value) == List) then
+      resultList = list.new(#value)
+    else
+      -- Todo change it when non-unique key is supported
+      resultList = list.new(1);
+    end
   else
     resultList = list.new(propMap[PM.ItemCount]);
   end
@@ -5969,41 +6014,22 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
 
-
-  local key = getKeyValue(ldtMap, value);
-
-  local resultA;
-  local resultB;
-
-  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
-    local objectList    = ldtMap[LS.CompactList];
-    local resultMap     = searchObjectList( ldtMap, objectList, key );
-    if (resultMap.Status == ERR.OK and resultMap.Found) then
-      local position = resultMap.Position;
-      resultA, resultB = 
-          listScan(objectList, position, ldtMap, resultList, key, CR.EQUAL);
-      if (resultB < 0) then
-        warn("[ERROR]<%s:%s> Problems with Scan: Key(%s), List(%s)", MOD, meth,
-          tostring( key ), tostring( objectList ) );
-        error (ldte.ERR_INTERNAL);
-      end
+  if getmetatable(value) == List then
+    if (list.size(value) > 0) then
+      local listSize = list.size(value)
+      for i = 1, listSize, 1 do
+         local key = getKeyValue(ldtMap, value[i]);
+         localFind(topRec, ldtCtrl, key, src, resultList)
+      end -- tree search
     else
-      error (ldte.ERR_NOT_FOUND);
+      warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
+        MOD, meth, tostring(value));
+      error(ldte.ERR_INPUT_PARM);
     end
   else
-    -- Do the TREE Search
-    local sp = createSearchPath(ldtMap);
-    rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
-    if (rc == ST.FOUND) then
-      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
-      if (rc < 0 or list.size(resultList) == 0) then
-          warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
-            MOD, meth, rc );
-      end
-    else
-      error(ldte.ERR_NOT_FOUND);
-    end
-  end -- tree search
+    local key = getKeyValue(ldtMap, value);
+    localFind(topRec, ldtCtrl, key, src, resultList)
+  end
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
@@ -6173,6 +6199,29 @@ function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs
   return resultList;
 end -- function llist.find_last() 
 
+local function localExists(topRec, ldtCtrl, key, src)
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+  local found = false;
+  local rc = 0;
+  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
+    local objectList    = ldtMap[LS.CompactList];
+    local resultMap     = searchObjectList( ldtMap, objectList, key );
+    if (resultMap.Status == ERR.OK and resultMap.Found) then
+      found = true;
+    else
+      found = false;
+    end
+  else
+    local sp = createSearchPath(ldtMap);
+    rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
+    if (rc == ST.FOUND) then
+      found = true;
+    else
+      found = false;
+    end
+  end 
+  return found;
+end
 -- =======================================================================
 -- llist.exists()
 -- =======================================================================
@@ -6187,7 +6236,7 @@ end -- function llist.find_last()
 -- (*) 1 if value exists, 0 if it does not.
 -- (*) Error:   error() function is called to jump out of Lua.
 -- =======================================================================
-function llist.exists(topRec, ldtBinName, key, src)
+function llist.exists(topRec, ldtBinName, value, src)
   local meth = "llist.exists()";
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
   if (rc ~= 0) then
@@ -6210,24 +6259,32 @@ function llist.exists(topRec, ldtBinName, key, src)
     src = ldt_common.createSubRecContext();
   end
 
-  local found = false;
-  if (ldtMap[LS.StoreState] == SS_COMPACT) then 
-    local objectList    = ldtMap[LS.CompactList];
-    local resultMap     = searchObjectList( ldtMap, objectList, key );
-    if (resultMap.Status == ERR.OK and resultMap.Found) then
-      found = true;
+  local res;
+  if (getmetatable(value) == List) then
+    if (list.size(value) > 0) then
+      res = list.new(#value);
+      local listSize = list.size(value)
+      for i = 1, listSize, 1 do
+         local key = getKeyValue(ldtMap, value[i]);
+         if (localExists(topRec, ldtCtrl, key, src)) then
+           list.append(res, 1)  
+         else
+           list.append(res, 0)  
+         end
+      end -- tree search
     else
-      found = false;
+      warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
+        MOD, meth, tostring(value));
+      error(ldte.ERR_INPUT_PARM);
     end
   else
-    local sp = createSearchPath(ldtMap);
-    rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
-    if (rc == ST.FOUND) then
-      found = true;
+    res = list.new(1);
+    if (localExists(topRec, ldtCtrl, value, src)) then
+      list.append(res, 1);
     else
-      found = false;
+      list.append(res, 0);
     end
-  end 
+  end
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
@@ -6236,11 +6293,7 @@ function llist.exists(topRec, ldtBinName, key, src)
     error( ldte.ERR_SUBREC_CLOSE );
   end
 
-  if (found) then
-    return 1;
-  else 
-    return 0;
-  end
+  return res;
 end -- llist.exists()
 
 -- =======================================================================
