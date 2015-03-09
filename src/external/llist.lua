@@ -90,6 +90,18 @@ function update( topRec, ldtBinName, newValue, createSpec )
 end
 
 -- =======================================================================
+-- exist() -- Check if the object(s) associated with searchKey. 0/1
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) searchKey: The key value for the objects to be found
+-- =======================================================================
+function exists(topRec, ldtBinName, searchKeyList)
+  return llist.exists(topRec, ldtBinName, searchKeyList, nil);
+end
+
+-- =======================================================================
 -- find() -- Locate the object(s) associated with searchKey.
 -- =======================================================================
 -- Parms:
@@ -102,15 +114,20 @@ function find(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
 end
 
 -- =======================================================================
--- exist() -- Check if the object(s) associated with searchKey. true/false
+-- find_from() -- Locate the object(s) between minKey and minKey+count
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) searchKey: The key value for the objects to be found
+-- (*) from: The key value for the beginning of the search
+-- (*) count: count number of values from key
+-- (*) filterModule: The User's UDF that contains filter functions
+-- (*) filter: User Defined Function (UDF) that returns passing values
+-- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
-function exist(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
-  return llist.exist(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs, nil);
+function find_from( topRec, ldtBinName, fromKey, count, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, fromKey, nil, count, filterModule,
+                      filter, fargs, nil);
 end
 
 
@@ -151,20 +168,24 @@ end
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
 function find_range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
-  return llist.range( topRec, ldtBinName, minKey, maxKey, filterModule,
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
                       filter, fargs, nil);
 end
 
--- ========================================================================
--- exists() -- return 1 if key exists but 0 otherwise
--- ========================================================================
--- Parms 
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- (3) valueList: value or list of values
--- ========================================================================
-function exists( topRec, ldtBinName, value)
-  return llist.exists( topRec, ldtBinName, value);
+-- =======================================================================
+-- find_range_lim() -- Locate the object(s) between minKey and minKey+count
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) minKey: The key value for the beginning of the range search
+-- (*) count:  count number of values from minKey
+-- (*) filterModule: The User's UDF that contains filter functions
+-- (*) filter: User Defined Function (UDF) that returns passing values
+-- (*) fargs: Arguments passed in to the filter function.
+-- =======================================================================
+function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
+  return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil);
 end
 
 
@@ -336,7 +357,7 @@ end
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
 function range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
-  return llist.range( topRec, ldtBinName, minKey, maxKey, filterModule,
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
                       filter, fargs, nil);
 end
 

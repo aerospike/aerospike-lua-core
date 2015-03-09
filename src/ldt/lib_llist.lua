@@ -2309,12 +2309,12 @@ end -- fullListScan()
 -- B: Error Code: B==0 ok.   B < 0 Error.
 -- ======================================================================
 local function
-listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
+listScan(objectList, startPosition, ldtMap, resultList, searchKey, count, flag)
   local meth = "listScan()";
 
   -- Start at the specified location, then scan from there.  For every
   -- element that matches, add it to the resultList.
-  local compareResult = 0;
+  local compareResult = flag;
   local uniqueKey = ldtMap[LS.KeyUnique]; -- AS_TRUE or AS_FALSE.
   local scanStatus = SCAN.CONTINUE;
   local storeObject; 
@@ -2328,11 +2328,17 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
   -- next compare.
   for i = startPosition, listSize, 1 do
     liveObject = objectList[i];
+ 
+    if (searchKey ~= nil) then
+      compareResult = objectCompare( ldtMap, searchKey, liveObject );
+      if compareResult == CR.ERROR then
+        info("[WARNING]<%s:%s> Compare Error", MOD, meth );
+        return 0, CR.ERROR; -- error result.
+      end
+    end
 
-    compareResult = objectCompare( ldtMap, searchKey, liveObject );
-    if compareResult == CR.ERROR then
-      debug("[WARNING]<%s:%s> Compare Error", MOD, meth );
-      return 0, CR.ERROR; -- error result.
+    if (count ~= nil and count == 0) then
+      break;
     end
 
     if((compareResult == CR.EQUAL)or(compareResult == flag)) then
@@ -2343,6 +2349,9 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, flag)
       end
       if( filterResult ~= nil ) then
         list.append( resultList, filterResult);
+        if (count ~= nil) then
+           count = count - 1;
+        end
       end
 
       -- If we're doing a RANGE scan, then we don't want to jump out, but
@@ -2467,7 +2476,7 @@ end -- leftScanLeaf()
 -- NOTE: Need to pass in leaf Rec and Start Position -- because the
 -- searchPath will be WRONG if we continue the search on a second page.
 local function scanLeaf(topRec, leafSubRec, startPosition, ldtMap, resultList,
-                          searchKey, flag)
+                          searchKey, count, flag)
   local meth = "scanLeaf()";
   local rc = 0;
   -- Linear scan of the Leaf Node (binary search will come later), for each
@@ -2482,7 +2491,7 @@ local function scanLeaf(topRec, leafSubRec, startPosition, ldtMap, resultList,
   -- Later: Split the loop search into two -- atomic and map objects
   local objectList = leafSubRec[LSR_LIST_BIN];
   resultA, resultB = listScan(objectList, startPosition, ldtMap,
-                resultList, searchKey, flag);
+                resultList, searchKey, count, flag);
   return resultA, resultB;
 end -- scanLeaf()
 
@@ -4202,7 +4211,7 @@ end -- fullTreeScan()
 -- (*) key: the end marker: 
 -- (*) flag: Either Scan while equal to end, or Scan until val > end.
 -- ======================================================================
-local function treeScan( src, resultList, topRec, sp, ldtCtrl, key, flag )
+local function treeScan( src, resultList, topRec, sp, ldtCtrl, maxKey, getCount, flag )
   local meth = "treeScan()";
   local scan_A = 0;
   local scan_B = 0;
@@ -4222,8 +4231,13 @@ local function treeScan( src, resultList, topRec, sp, ldtCtrl, key, flag )
     -- the scan instruction (stop=0, continue=1) and the second is the error
     -- return code.  So, if scan_B is "ok" (0), then we look to scan_A to see
     -- if we should continue the scan.
-    scan_A, scan_B  = scanLeaf(topRec, leafSubRec, startPosition, ldtMap,
-                              resultList, key, flag)
+    if (getCount ~= nil) then
+      scan_A, scan_B  = scanLeaf(topRec, leafSubRec, startPosition, ldtMap,
+                              resultList, maxKey, getCount - #resultList, flag)
+    else
+      scan_A, scan_B  = scanLeaf(topRec, leafSubRec, startPosition, ldtMap,
+                              resultList, maxKey, nil, flag)
+    end
 
     -- Uncomment this next line to see the "LEAF BOUNDARIES" in the data.
     -- list.append(resultList, 999999 );
@@ -5926,7 +5940,7 @@ local function localFind(topRec, ldtCtrl, key, src, resultList)
     if (resultMap.Status == ERR.OK and resultMap.Found) then
       local position = resultMap.Position;
       resultA, resultB = 
-          listScan(objectList, position, ldtMap, resultList, key, CR.EQUAL);
+          listScan(objectList, position, ldtMap, resultList, key, nil, CR.EQUAL);
       if (resultB < 0) then
         warn("[ERROR]<%s:%s> Problems with Scan: Key(%s), List(%s)", MOD, meth,
           tostring( key ), tostring( objectList ) );
@@ -5940,7 +5954,7 @@ local function localFind(topRec, ldtCtrl, key, src, resultList)
     local sp = createSearchPath(ldtMap);
     rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
     if (rc == ST.FOUND) then
-      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, CR.EQUAL);
+      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, nil, CR.EQUAL);
       if (rc < 0 or list.size(resultList) == 0) then
           warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
             MOD, meth, rc );
@@ -6317,7 +6331,7 @@ end -- llist.exists()
 -- Error: Error string to outside Lua caller.
 -- =======================================================================
 function
-llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
+llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, src)
   local meth = "llist.range()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6353,7 +6367,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
     position         = resultMap.Position;
 
     resultA, resultB = 
-        listScan(objectList,position,ldtMap,resultList,maxKey,CR.GREATER_THAN);
+        listScan(objectList, position, ldtMap, resultList, maxKey, count, CR.GREATER_THAN);
     if (resultB < 0) then
       warn("[ERROR]<%s:%s> Problems with Scan: MaxKey(%s), List(%s)", MOD,
         meth, tostring( maxKey ), tostring( objectList ) );
@@ -6363,7 +6377,7 @@ llist.range(topRec, ldtBinName,minKey,maxKey,filterModule,filter,fargs,src)
   else
     local sp = createSearchPath(ldtMap);
     rc = treeSearch(src, topRec, sp, ldtCtrl, minKey, nil);
-    rc = treeScan(src, resultList, topRec, sp, ldtCtrl, maxKey, CR.GREATER_THAN);
+    rc = treeScan(src, resultList, topRec, sp, ldtCtrl, maxKey, count, CR.GREATER_THAN);
     if (rc < 0 or list.size( resultList ) == 0) then
         warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
           MOD, meth, rc );
@@ -6536,7 +6550,7 @@ function llist.remove_range (topRec, ldtBinName, minKey, maxKey, src)
   end
 
   local valueList  = llist.range( topRec, ldtBinName, minKey, maxKey,
-                                  nil, nil, nil, src);
+                                  nil, nil, nil, nil, src);
   local deleteCount = 0;
   
   local ldtCtrl = topRec[ ldtBinName ];
