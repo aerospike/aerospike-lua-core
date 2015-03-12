@@ -942,6 +942,8 @@ local function printKey(ldtMap, l)
     local keyList = list();
     for i = 1, #l, 1 do
        list.append(keyList, getKeyValue(ldtMap, l[i]));
+       -- key = getKeyValue(ldtMap, l[i])
+       -- list.append(keyList, string.sub(key, 8, 13));
     end
     return keyList
 end
@@ -961,7 +963,7 @@ local function printRoot( topRec, ldtCtrl )
 
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
   info("ROOT::Bin(%s)", ldtBinName );
-  info("ROOT::Keys: Size(%d) List(%s)", #keyList, tostring( keyList ) );
+  info("ROOT::Keys: Size(%d) List(%s)", #keyList, tostring( printKey (ldtMap, keyList) ) );
   if (ldtMap[LS.CompactList]) then
     info("ROOT: size (%d), CompactList (%s)", #ldtMap[LS.CompactList], printKey(ldtMap, ldtMap[LS.CompactList]));
   end
@@ -974,7 +976,7 @@ end -- printRoot()
 -- ======================================================================
 -- Dump the Node contents for Debugging/Tracing purposes
 -- ======================================================================
-local function printNode( nodeSubRec, nodeLevel )
+local function printNode(ldtMap, nodeSubRec, nodeLevel )
   local nodePropMap        = nodeSubRec[SUBREC_PROP_BIN];
   local nodeLdtMap        = nodeSubRec[NSR_CTRL_BIN];
   local keyList     = nodeSubRec[NSR_KEY_LIST_BIN];
@@ -989,7 +991,7 @@ local function printNode( nodeSubRec, nodeLevel )
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
   info("NODE::Level(%s)", tostring( nodeLevel ));
   info("NODE::Digest(%s)", tostring(record.digest(nodeSubRec)));
-  info("NODE::KeyList: Size(%d) List(%s)", #keyList, tostring( keyList ) );
+  info("NODE::KeyList: Size(%d) List(%s)", #keyList, tostring( printKey(ldtMap, keyList) ) );
 end -- printNode()
 
 -- ======================================================================
@@ -1823,7 +1825,7 @@ local function printTree( src, topRec, ldtBinName )
         for d = 1, digestListSize, 1 do
           list.append( childList, digestList[d] );
         end -- end for each digest in the node
-          printNode( nodeSubRec, lvl );
+          printNode( ldtMap, nodeSubRec, lvl );
       else
         -- This is a leaf node -- just print contents of each leaf
         printLeaf( ldtMap, nodeSubRec );
@@ -3846,7 +3848,7 @@ local function treeInsert (src, topRec, ldtCtrl, value, update)
           insertResult = 1; -- Special UPDATE (no count stats increase).
         end
       else
-        debug("[User ERROR]<%s:%s> Unique Key(%s) Violation",
+        info("[User ERROR]<%s:%s> Unique Key(%s) Violation",
           MOD, meth, tostring(value ));
         error( ldte.ERR_UNIQUE_KEY );
       end
@@ -5059,7 +5061,7 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
   -- and release the entry in the parent.  If our parent is a regular node,
   -- then do the usual thing.  However, if it is the root node, then
   -- we have to do something special.  That is all handled by releaseNode();
-  if #resultKeyList == 0 then
+  if #resultDigestList == 0 then
     releaseNode(src, sp, nodeLevel, topRec, ldtCtrl, nodeSubRec)
   else
     -- Mark this page as dirty and possibly write it out if needed.
@@ -5712,7 +5714,7 @@ function llist.add (topRec, ldtBinName, newValue, createSpec, src)
   if (src == nil) then
     src = ldt_common.createSubRecContext();
   end
-  info("Size at start %s %s", ldt_common.getValSize(ldtCtrl), tostring(ldtCtrl));
+  --info("Size at start %s %s", ldt_common.getValSize(ldtCtrl), tostring(ldtCtrl));
 
   -- call localWrite() with UPDATE flag turned OFF.
   rc = localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, false);
@@ -6379,8 +6381,7 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
     rc = treeSearch(src, topRec, sp, ldtCtrl, minKey, nil);
     rc = treeScan(src, resultList, topRec, sp, ldtCtrl, maxKey, count, CR.GREATER_THAN);
     if (rc < 0 or list.size( resultList ) == 0) then
-        warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
-          MOD, meth, rc );
+        -- it's ok to find nothing
     end
   end -- tree search
 

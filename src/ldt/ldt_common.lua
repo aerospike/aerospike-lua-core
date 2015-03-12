@@ -456,7 +456,7 @@ local function cleanSRC( srcCtrl )
           end
         end -- else we have something to close
       end -- it's the right type for a Digest Field.
-    else
+    elseif (not name or not value) then
       warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
         tostring(name), tostring(value));
     end -- if both name and value NOT NIL
