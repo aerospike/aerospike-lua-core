@@ -303,6 +303,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   return L_Filter;
 end -- setReadFunctions()
 
+
 -- ======================================================================
 -- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
 -- ======================================================================
@@ -685,7 +686,7 @@ end --  createSubRec()
 -- ======================================================================
 -- Return a ptr to the Open Sub-Rec.  We either find the Sub-Rec in our
 -- table of open Sub-Recs, or we Open a new one.  If we reach the limit
--- of open Sub-Recs (last known size of the limit was 20), then we try
+-- of open Sub-Recs (last known size of the limit was 4000), then we try
 -- to find a CLEAN Sub-Rec and close it.  Note that we cannot close
 -- a dirty Sub-Rec -- that is an error.  Also, it is an error to try
 -- to open an existing open Sub-Rec, so that's why we have this pool
@@ -804,10 +805,15 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
 
   if (not dirtyStatus) then
     rc = aerospike:close_subrec( subRec );
-    -- Now erase this subrec from the SRC maps.
-    recMap[digestString] = nil;
-    dirtyMap[digestString] = nil;
-    recMap.ItemCount = itemCount - 1;
+    if( rc ~= nil and rc < 0 ) then
+      warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
+          MOD, meth, tostring(rc), tostring( digestString ));
+    else 
+      -- Now erase this subrec from the SRC maps.
+      recMap[digestString] = nil;
+      dirtyMap[digestString] = nil;
+      recMap.ItemCount = itemCount - 1;
+    end
   end
   return 0;
 end -- closeSubRecDigestString()
@@ -1285,6 +1291,23 @@ local DEFAULT_MINIMUM_PAGESIZE =    4000;
 local DEFAULT_TARGET_PAGESIZE  =    8192;
 local DEFAULT_WRITE_BLOCK_SIZE = 1000000;
 local DEFAULT_RECORD_OVERHEAD  =     500;
+
+-- -----------------------------------------------------------------------
+-- getPageSize()
+-- -----------------------------------------------------------------------
+-- Find the page size as in ldtMap or pick the system configuration value.
+-- Do not let the pageSize be bigger than writeBlockSize
+-- Parms:
+-- (*) ldtMap:
+-- RETURN: PageSize
+-- -----------------------------------------------------------------------
+function ldt_common.getPageSize( topRec, pageSize )
+  local meth = "getPageSize()";
+  if (pageSize == nil) then
+    pageSize = aerospike:get_config(topRec, "ldt-page-size");
+  end
+  return pageSize;
+end -- setReadFunctions()
 
 -- ========================================================================
 -- ldt_common.validateConfigParms()

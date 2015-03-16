@@ -434,21 +434,7 @@ local LS = {
 -- ======================================================================
 local G_Filter = nil;
 local G_FunctionArgs = nil;
-
--- Special Function -- if supplied by the user in the "createSpec" module,
--- then we call that UDF to adjust the LDT configuration settings.
-local G_SETTINGS = "adjust_settings";
-
--- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
--- -----------------------------------------------------------------------
--- resetPtrs()
--- -----------------------------------------------------------------------
--- Reset the UDF Ptrs to nil.
--- -----------------------------------------------------------------------
-local function resetUdfPtrs()
-  G_Filter = nil;
-  G_FunctionArgs = nil;
-end -- resetPtrs()
+local G_PageSize = nil;
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -2156,7 +2142,7 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount, totValSiz
   -- Depending on the Tree Node (Root, Inner, Leaf), we might have different
   -- maximum values.  So, figure out the max, and then figure out if we've
   -- reached it for this node.
-  if (totValSize > ldtMap[LS.PageSize]) then 
+  if (totValSize > G_PageSize) then 
     sp.HasRoom[levelCount] = false; 
   else
     sp.HasRoom[levelCount] = true;
@@ -3412,7 +3398,7 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
     local newValSize    = ldt_common.getValSize(newValue);
     local oldValSize    = ldt_common.getValSize(leftList[#leftList]);
     local leafListSize  = ldt_common.getValSize(leftList);
-    local pageSize      = ldtMap[LS.PageSize];
+    local pageSize      = G_PageSize;
 
     -- Cases
     -- 1: newKey:(X+newVal), PK:Y
@@ -3578,7 +3564,7 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     local compareResult = keyCompare( newKey, splitKey );
     local newValSize    = ldt_common.getValSize(newValue);
     local leafListSize  = ldt_common.getValSize(leftList);
-    local pageSize      = ldtMap[LS.PageSize];
+    local pageSize      = G_PageSize;
 
     -- Cases
     -- 1: newKey:(X+newVal), PK:Y
@@ -4681,7 +4667,7 @@ local function mergeRoot(src, sp, topRec, ldtCtrl)
     leftSubRecDigestString = tostring(leftSubRecDigest);
     leftSubRec = ldt_common.openSubRec(src,topRec,leftSubRecDigestString);
     leftDigestList = leftSubRec[NSR_DIGEST_BIN];
-    if ldt_common.getValSize(leftDigestList) < ldtMap[LS.PageSize] then
+    if ldt_common.getValSize(leftDigestList) < G_PageSize then
       collapseTree(src, topRec, ldtCtrl);
     else
       redistributeRootChild( src, topRec, ldtCtrl );
@@ -4708,7 +4694,7 @@ local function mergeRoot(src, sp, topRec, ldtCtrl)
 
     if ((ldt_common.getValSize(leftDigestList) 
            + ldt_common.getValSize(rightDigestList) + 1) 
-             < ldtMap[LS.PageSize]) then
+             < G_PageSize) then
       collapseTree(src, topRec, ldtCtrl);
     end -- Otherwise, DO NOTHING.
   end
@@ -5181,7 +5167,7 @@ local function collapseToCompact( src, topRec, ldtCtrl )
   end
 
   -- scanList is the new Compact List.  Change the state back to Compact.
-  if (ldt_common.getValSize(scanList) > ldtMap[LS.PageSize]) then
+  if (ldt_common.getValSize(scanList) > G_PageSize) then
     return false; 
   end 
   ldtMap[LS.CompactList] = scanList;
@@ -5560,8 +5546,6 @@ local function localDelete(topRec, ldtBinName, key, src)
     if (resultMap.Status == ERR.OK and resultMap.Found) then
       ldtMap[LS.CompactList] =
         ldt_common.listDelete(objectList, resultMap.Position);
-    else
-      error( ldte.ERR_NOT_FOUND );
     end
   else
     rc = treeDelete(src, topRec, ldtCtrl, key);
@@ -5604,10 +5588,10 @@ local function localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, update)
   -- it's time to turn our single list into a tree.
   if ( ( ldtMap[LS.StoreState] == SS_COMPACT ) and
          (ldt_common.getValSize(ldtMap[LS.CompactList]) 
-          + ldt_common.getValSize(newValue) > ldtMap[LS.PageSize]) ) 
+          + ldt_common.getValSize(newValue) > G_PageSize) ) 
   then
     -- info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
-    --        + ldt_common.getValSize(newValue), ldtMap[LS.PageSize]);
+    --        + ldt_common.getValSize(newValue), G_PageSize);
     convertList(src, topRec, ldtBinName, ldtCtrl );
   end
  
@@ -5710,6 +5694,7 @@ function llist.add (topRec, ldtBinName, newValue, createSpec, src)
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   if (src == nil) then
     src = ldt_common.createSubRecContext();
@@ -5772,6 +5757,7 @@ function llist.add_all( topRec, ldtBinName, valueList, createSpec, src )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   
   if (src == nil) then
     src = ldt_common.createSubRecContext();
@@ -5842,6 +5828,7 @@ function llist.update( topRec, ldtBinName, newValue, createSpec, src )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   
   rc = localWrite(src, topRec, ldtBinName, ldtCtrl, newValue, true);
 
@@ -5899,6 +5886,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   
   local rc = 0;
   local successCount = 0;
@@ -6028,6 +6016,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
 
   -- set up the Read Functions (Filter)
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   G_FunctionArgs = fargs;
 
   if getmetatable(value) == List then
@@ -6117,6 +6106,7 @@ function llist.find_first( topRec, ldtBinName, count, filterModule, filter, farg
   
   -- Set up the read functions (transform/untransform) if present.
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   G_FunctionArgs = fargs;
 
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 
@@ -6197,6 +6187,7 @@ function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs
   -- Set up the read functions (transform/untransform) if present.
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     local objectList = ldtMap[LS.CompactList];
@@ -6274,6 +6265,7 @@ function llist.exists(topRec, ldtBinName, value, src)
   if (src == nil) then
     src = ldt_common.createSubRecContext();
   end
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   local res;
   if (getmetatable(value) == List) then
@@ -6352,6 +6344,8 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
 
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
+  info("pagesize %s", tostring(G_PageSize));
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
@@ -6453,6 +6447,7 @@ function llist.remove( topRec, ldtBinName, value, src )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil);
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   local key = getKeyValue(ldtMap, value);
   
@@ -6496,6 +6491,7 @@ function llist.remove_all( topRec, ldtBinName, valueList, src )
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
   G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil);
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   rc = 0;
   local itemRemoved = 0;
@@ -6558,6 +6554,7 @@ function llist.remove_range (topRec, ldtBinName, minKey, maxKey, src)
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
   
   G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil);
+  G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
   local rc = 0;
   if (valueList ~= nil and list.size(valueList) > 0) then
@@ -6658,6 +6655,53 @@ function llist.config( topRec, ldtBinName )
 
   return config;
 end -- llist.config()
+
+-- ========================================================================
+-- llist.setPageSize() -- set the pageSize
+-- Parms:
+--   topRec: the user-level record holding the LDT Bin
+--   ldtBinName: The name of the LDT Bin
+--   pageSize: Page Size to be set
+-- Result:
+--   SUCCESS: In case the config successfully set
+--   ERROR: In case the value is invalid or beyond bounds
+-- ========================================================================
+function llist.setPageSize( topRec, ldtBinName, pageSize )
+  local meth = "llist.setPageSize()";
+  local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
+  if (rc ~= 0) then
+    error( ldte.ERR_NS_LDT_NOT_ENABLED);
+  end
+
+  validateRecBinAndMap( topRec, ldtBinName, false );
+
+  -- If the record does not exist, or the BIN does not exist, then we must
+  -- create it and initialize the LDT map. Otherwise, use it.
+  if (topRec[ldtBinName] == nil) then
+    return 0;
+  end
+
+  local ldtCtrl = topRec[ldtBinName];
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+  local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+
+  -- Upper bound of 900kb
+  -- Lower bound of 1Kb
+  if (pageSize < 1 * 1024) then
+     pageSize = 1024;
+  elseif (pageSize > aerospike:get_config(topRec, "write-block-size")) then
+     pageSize = aerospike:get_config(topRec, "write-block-size") - 1024;
+  end
+  ldtMap[LS.PageSize] = pageSize;
+
+  if (rc == 0) then
+    topRec[ldtBinName] = ldtCtrl;
+    record.set_flags(topRec, ldtBinName, BF.LDT_BIN) --Must set every time
+    rc = ldt_common.commit(topRec, ldtBinName, nil, rc);
+  end
+
+  return rc;
+end -- function llist.setPageSize()
 
 -- ========================================================================
 -- llist.ldt_exists() --

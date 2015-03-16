@@ -37,6 +37,7 @@ local MOD="ext_llist_2014_11_20.A";
 -- (*) Status = destroy (topRec, ldtBinName)
 -- (*) Number = size    (topRec, ldtBinName)
 -- (*) Map    = config  (topRec, ldtBinName)
+-- (*) Map    = setPageSize  (topRec, ldtBinName, size)
 -- (*) Number = ldt_exists   (topRec, ldtBinName)
 -- (*) Number = ldt_validate (topRec, ldtBinName)
 -- ======================================================================
@@ -261,6 +262,17 @@ end
 -- ========================================================================
 function config( topRec, ldtBinName )
   return llist.config( topRec, ldtBinName );
+end
+
+-- ========================================================================
+-- config() -- return the config settings
+-- ========================================================================
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function setPageSize( topRec, ldtBinName, pageSize )
+  return llist.setPageSize( topRec, ldtBinName, pageSize );
 end
 
 -- ========================================================================
