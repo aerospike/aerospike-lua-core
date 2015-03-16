@@ -2198,9 +2198,18 @@ local function doListScan( objectList, ldtMap, resultList, count, leftScan)
     finish = listSize - readAmount + 1;
     incr = -1;
   end
+  local foundCount = 0;
 
   GP=F and trace("[LIST SCAN]<%s:%s>", MOD, meth);
   for i = start, finish, incr do
+    local filterResult = objectList[i];
+    if (G_Filter ~= nil) then
+      filterResult = G_Filter( objectList[i], G_FunctionArgs );
+    end
+    if (filterResult ~= nil) then
+      list.append( resultList, filterResult);
+      foundCount = foundCount + 1;
+    end
     list.append(resultList, objectList[i]);
   end -- for each item in the list
 
