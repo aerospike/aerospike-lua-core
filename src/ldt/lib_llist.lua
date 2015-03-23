@@ -2164,6 +2164,21 @@ updateSearchPath(sp, propMap, ldtMap, nodeSubRec, resultMap, keyCount, totValSiz
   return 0;
 end -- updateSearchPath()
 
+local function addResult(ldtMap, object, resultList, keyList) 
+  local filterResult = object;
+  if (G_Filter ~= nil) then
+    filterResult = G_Filter( object, G_FunctionArgs );
+  end
+  if (filterResult ~= nil) then
+    if (keyList ~= nil) then
+      list.append( keyList, getKeyValue( ldtMap, object));
+    end
+    list.append( resultList, filterResult);
+    return 1;
+  end
+  return 0;
+end
+
 -- ======================================================================
 -- doListScan(): Scan a List.  ALL (if count == 0) or count items.
 -- ======================================================================
@@ -2180,7 +2195,7 @@ end -- updateSearchPath()
 -- Success:  Return the number of items read.
 -- Error:    Call error() function.
 -- ======================================================================
-local function doListScan( objectList, ldtMap, resultList, count, leftScan)
+local function doListScan( objectList, ldtMap, resultList, keyList, count, leftScan)
   local meth = "doListScan()";
   GP=E and trace("[ENTER]<%s:%s>", MOD, meth);
 
@@ -2215,13 +2230,8 @@ local function doListScan( objectList, ldtMap, resultList, count, leftScan)
 
   GP=F and trace("[LIST SCAN]<%s:%s>", MOD, meth);
   for i = start, finish, incr do
-    local filterResult = objectList[i];
-    if (G_Filter ~= nil) then
-      filterResult = G_Filter( objectList[i], G_FunctionArgs );
-    end
-    if (filterResult ~= nil) then
-      list.append( resultList, filterResult);
-      foundCount = foundCount + 1;
+    if (addResult(ldtMap, objectList[i], resultList, keyList) ~= 0) then
+       foundCount = foundCount + 1;
     end
   end -- for each item in the list
 
@@ -2229,7 +2239,7 @@ local function doListScan( objectList, ldtMap, resultList, count, leftScan)
     MOD, meth, readAmount, #resultList, tostring(resultList));
 
   return readAmount;
-end -- doListScan()
+end -- keyList, doListScan()
 
 
 -- ======================================================================
@@ -2248,8 +2258,8 @@ end -- doListScan()
 -- Success:  Return the number of items read.
 -- Error:    Call error() function.
 -- ======================================================================
-local function leftListScan( objectList, ldtMap, resultList, count )
-  return doListScan( objectList, ldtMap, resultList, count, true);
+local function leftListScan( objectList, ldtMap, resultList, keyList, count )
+  return doListScan( objectList, ldtMap, resultList, keyList, count, true);
 end -- leftListScan()
 
 -- ======================================================================
@@ -2268,8 +2278,8 @@ end -- leftListScan()
 -- Success:  Return the number of items read.
 -- Error:    Call error() function.
 -- ======================================================================
-local function rightListScan( objectList, ldtMap, resultList, count )
-  return doListScan( objectList, ldtMap, resultList, count, false);
+local function rightListScan( objectList, ldtMap, resultList, keyList, count )
+  return doListScan( objectList, ldtMap, resultList, keyList, count, false);
 end -- rightListScan()
 
 -- ======================================================================
@@ -2294,8 +2304,6 @@ local function fullListScan( objectList, ldtMap, resultList )
     liveObject = objectList[i];
     list.append(resultList, liveObject);
   end -- for each item in the list
-
-
   return 0;
 end -- fullListScan()
 
@@ -2318,7 +2326,7 @@ end -- fullListScan()
 -- B: Error Code: B==0 ok.   B < 0 Error.
 -- ======================================================================
 local function
-listScan(objectList, startPosition, ldtMap, resultList, searchKey, count, flag)
+listScan(objectList, startPosition, ldtMap, resultList, keyList, searchKey, count, flag)
   local meth = "listScan()";
 
   -- Start at the specified location, then scan from there.  For every
@@ -2352,12 +2360,7 @@ listScan(objectList, startPosition, ldtMap, resultList, searchKey, count, flag)
 
     if((compareResult == CR.EQUAL)or(compareResult == flag)) then
       -- This one qualifies -- save it in result -- if it passes the filter.
-      local filterResult = liveObject;
-      if( G_Filter ~= nil ) then
-        filterResult = G_Filter( liveObject, G_FunctionArgs );
-      end
-      if( filterResult ~= nil ) then
-        list.append( resultList, filterResult);
+      if (addResult(ldtMap, liveObject, resultList, keyList) ~= 0) then
         if (count ~= nil) then
            count = count - 1;
         end
@@ -2418,11 +2421,11 @@ end -- fullScanLeaf()
 -- Success:  Number of Items Read
 -- Error:    error() function
 -- ======================================================================
-local function rightScanLeaf(topRec, leafSubRec, ldtMap, resultList, count)
+local function rightScanLeaf(topRec, leafSubRec, ldtMap, resultList, keyList, count)
   local meth = "rightScanLeaf()";
   local numRead = 0;
   local objectList = leafSubRec[LSR_LIST_BIN];
-  numRead = rightListScan( objectList, ldtMap, resultList, count );
+  numRead = rightListScan( objectList, ldtMap, resultList, keyList, count );
   return numRead;
 end -- rightScanLeaf()
 
@@ -2442,11 +2445,11 @@ end -- rightScanLeaf()
 -- Success:  Number of Items Read
 -- Error:    error() function
 -- ======================================================================
-local function leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, count)
+local function leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, keyList, count)
   local meth = "leftScanLeaf()";
   local numRead = 0;
   local objectList = leafSubRec[LSR_LIST_BIN];
-  numRead = leftListScan( objectList, ldtMap, resultList, count );
+  numRead = leftListScan( objectList, ldtMap, resultList, keyList, count );
   return numRead;
 end -- leftScanLeaf()
 
@@ -2485,7 +2488,7 @@ end -- leftScanLeaf()
 -- NOTE: Need to pass in leaf Rec and Start Position -- because the
 -- searchPath will be WRONG if we continue the search on a second page.
 local function scanLeaf(topRec, leafSubRec, startPosition, ldtMap, resultList,
-                          searchKey, count, flag)
+                          keyList, searchKey, count, flag)
   local meth = "scanLeaf()";
   local rc = 0;
   -- Linear scan of the Leaf Node (binary search will come later), for each
@@ -2500,7 +2503,7 @@ local function scanLeaf(topRec, leafSubRec, startPosition, ldtMap, resultList,
   -- Later: Split the loop search into two -- atomic and map objects
   local objectList = leafSubRec[LSR_LIST_BIN];
   resultA, resultB = listScan(objectList, startPosition, ldtMap,
-                resultList, searchKey, count, flag);
+                resultList, keyList, searchKey, count, flag);
   return resultA, resultB;
 end -- scanLeaf()
 
@@ -4048,7 +4051,7 @@ end -- convertList()
 -- (*) count: Get the rightmost "COUNT" elements, or ALL if 0.
 -- Return: void
 -- ======================================================================
-local function rightToLeftTreeScan( src, resultList, topRec, ldtCtrl, count)
+local function rightToLeftTreeScan( src, resultList, keyList, topRec, ldtCtrl, count)
   local meth = "rightToLeftTreeScan()";
   GP=E and trace("[ENTER]<%s:%s> ", MOD, meth);
 
@@ -4078,7 +4081,7 @@ local function rightToLeftTreeScan( src, resultList, topRec, ldtCtrl, count)
     MOD, meth, leafDigestString);
   local leafSubRec = ldt_common.openSubRec(src, topRec, leafDigestString);
   while leafSubRec ~= nil and leafSubRec ~= 0 and amountLeft > 0 do
-    leafRead = rightScanLeaf(topRec, leafSubRec, ldtMap, resultList,amountLeft);
+    leafRead = rightScanLeaf(topRec, leafSubRec, ldtMap, resultList, keyList, amountLeft);
     leafSubRec = getNextLeaf( src, topRec, leafSubRec, false);
     amountLeft = amountLeft - leafRead;
   end -- loop thru each subrec
@@ -4100,7 +4103,7 @@ end -- rightToLeftTreeScan()
 -- (*) count: Get the leftmost "COUNT" elements, or ALL if 0.
 -- Return: void
 -- ======================================================================
-local function leftToRightTreeScan( src, resultList, topRec, ldtCtrl, count)
+local function leftToRightTreeScan( src, resultList, keyList, topRec, ldtCtrl, count)
   local meth = "leftToRightTreeScan()";
   GP=E and trace("[ENTER]<%s:%s> ", MOD, meth);
 
@@ -4130,7 +4133,7 @@ local function leftToRightTreeScan( src, resultList, topRec, ldtCtrl, count)
     MOD, meth, leafDigestString);
   local leafSubRec = ldt_common.openSubRec(src, topRec, leafDigestString);
   while leafSubRec ~= nil and leafSubRec ~= 0 and amountLeft > 0 do
-    leafRead = leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, amountLeft);
+    leafRead = leftScanLeaf(topRec, leafSubRec, ldtMap, resultList, keyList, amountLeft);
     leafSubRec = getNextLeaf( src, topRec, leafSubRec, true);
     amountLeft = amountLeft - leafRead;
   end -- loop thru each subrec
@@ -4186,7 +4189,7 @@ end -- fullTreeScan()
 -- (*) key: the end marker: 
 -- (*) flag: Either Scan while equal to end, or Scan until val > end.
 -- ======================================================================
-local function treeScan( src, resultList, topRec, sp, ldtCtrl, maxKey, getCount, flag )
+local function treeScan( src, resultList, keyList, topRec, sp, ldtCtrl, maxKey, getCount, flag )
   local meth = "treeScan()";
   local scan_A = 0;
   local scan_B = 0;
@@ -4208,10 +4211,10 @@ local function treeScan( src, resultList, topRec, sp, ldtCtrl, maxKey, getCount,
     -- if we should continue the scan.
     if (getCount ~= nil) then
       scan_A, scan_B  = scanLeaf(topRec, leafSubRec, startPosition, ldtMap,
-                              resultList, maxKey, getCount - #resultList, flag)
+                              resultList, keyList, maxKey, getCount - #resultList, flag)
     else
       scan_A, scan_B  = scanLeaf(topRec, leafSubRec, startPosition, ldtMap,
-                              resultList, maxKey, nil, flag)
+                              resultList, keyList, maxKey, nil, flag)
     end
 
     -- Uncomment this next line to see the "LEAF BOUNDARIES" in the data.
@@ -5899,7 +5902,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   return successCount;
 end -- llist.update_all()
 
-local function localFind(topRec, ldtCtrl, key, src, resultList)
+local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
 
   local meth = "localFind()";
 
@@ -5913,7 +5916,7 @@ local function localFind(topRec, ldtCtrl, key, src, resultList)
     if (resultMap.Status == ERR.OK and resultMap.Found) then
       local position = resultMap.Position;
       resultA, resultB = 
-          listScan(objectList, position, ldtMap, resultList, key, nil, CR.EQUAL);
+          listScan(objectList, position, ldtMap, resultList, keyList, key, nil, CR.EQUAL);
       if (resultB < 0) then
         warn("[ERROR]<%s:%s> Problems with Scan: Key(%s), List(%s)", MOD, meth,
           tostring( key ), tostring( objectList ) );
@@ -5927,7 +5930,7 @@ local function localFind(topRec, ldtCtrl, key, src, resultList)
     local sp = createSearchPath(ldtMap);
     rc = treeSearch( src, topRec, sp, ldtCtrl, key, nil );
     if (rc == ST.FOUND) then
-      rc = treeScan(src, resultList, topRec, sp, ldtCtrl, key, nil, CR.EQUAL);
+      rc = treeScan(src, resultList, keyList, topRec, sp, ldtCtrl, key, nil, CR.EQUAL);
       if (rc < 0 or list.size(resultList) == 0) then
           warn("[ERROR]<%s:%s> Tree Scan Problem: RC(%d) after a good search",
             MOD, meth, rc );
@@ -5937,6 +5940,25 @@ local function localFind(topRec, ldtCtrl, key, src, resultList)
     end
   end -- tree search
 
+end
+
+local function doTake(topRec, ldtBinName, resultList, keyList, src, take) 
+  local meth = "doTake()";
+  if (take == true) then
+    if (G_Filter ~= nil) and (keyList == nil) then
+      warn("[ERROR]<%s:%s> Filter function defined but keyList is Not ",
+          MOD, meth );
+    end
+	if (keyList ~= nil) then
+      -- KeyList is defined use it to remove
+      if (#keyList > 0) then
+	    llist.remove_all(topRec, ldtBinName, keyList, src);
+      end
+    else
+      -- no Filter use resultList to remove
+      llist.remove_all(topRec, ldtBinName, resultList, src);
+    end
+  end
 end
 
 -- =======================================================================
@@ -5960,7 +5982,7 @@ end
 -- =======================================================================
 -- The find() function can do multiple things. 
 -- =======================================================================
-function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
+function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src, take)
   local meth = "llist.find()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -5997,6 +6019,11 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
     resultList = list.new(propMap[PM.ItemCount]);
   end
 
+  local keyList = nil;
+  if (take == true) and (G_Filter ~= nil) then
+    keyList = list.new(#resultList);
+  end
+
   -- set up the Read Functions (Filter)
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
@@ -6007,7 +6034,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
       local listSize = list.size(value)
       for i = 1, listSize, 1 do
          local key = getKeyValue(ldtMap, value[i]);
-         localFind(topRec, ldtCtrl, key, src, resultList)
+         localFind(topRec, ldtCtrl, key, src, resultList, keyList)
       end -- tree search
     else
       warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
@@ -6016,8 +6043,10 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src)
     end
   else
     local key = getKeyValue(ldtMap, value);
-    localFind(topRec, ldtCtrl, key, src, resultList)
+    localFind(topRec, ldtCtrl, key, src, resultList, keyList)
   end
+
+  doTake(topRec, ldtBinName, resultList, keyList, src, take);
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
@@ -6043,7 +6072,7 @@ end -- function llist.find()
 -- (*) Success: resultList
 -- (*) Error:   error() function is called to jump out of Lua.
 -- =======================================================================
-function llist.find_first( topRec, ldtBinName, count, filterModule, filter, fargs, src )
+function llist.find_first( topRec, ldtBinName, count, filterModule, filter, fargs, src, take )
   local meth = "llist.find_first()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6091,13 +6120,20 @@ function llist.find_first( topRec, ldtBinName, count, filterModule, filter, farg
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   G_FunctionArgs = fargs;
+  
+  local keyList = nil;
+  if (take == true) and (G_Filter ~= nil) then
+    keyList = list.new(#resultList);
+  end
 
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     local objectList = ldtMap[LS.CompactList];
-    leftListScan( objectList, ldtMap, resultList, readAmount );
+    leftListScan( objectList, ldtMap, resultList, keyList, readAmount );
   else
-    leftToRightTreeScan( src, resultList, topRec, ldtCtrl, count);
+    leftToRightTreeScan( src, resultList, keyList, topRec, ldtCtrl, count);
   end
+
+  doTake(topRec, ldtBinName, resultList, keyList, src, take);
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
@@ -6123,7 +6159,7 @@ end -- function llist.find_first()
 -- (*) Success: resultList
 -- (*) Error:   error() function is called to jump out of Lua.
 -- =======================================================================
-function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs, src)
+function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs, src, take)
   local meth = "llist.find_last()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6172,12 +6208,19 @@ function llist.find_last( topRec, ldtBinName, count, filterModule, filter, fargs
   G_FunctionArgs = fargs;
   G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
 
+  local keyList = nil;
+  if (take == true) and (G_Filter ~= nil) then
+    keyList = list.new(#resultList);
+  end
+
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 
     local objectList = ldtMap[LS.CompactList];
-    rightListScan( objectList, ldtMap, resultList, readAmount );
+    rightListScan( objectList, ldtMap, resultList, keyList, readAmount );
   else
-    rightToLeftTreeScan( src, resultList, topRec, ldtCtrl, count);
+    rightToLeftTreeScan( src, resultList, keyList, topRec, ldtCtrl, count);
   end
+
+  doTake(topRec, ldtBinName, resultList, keyList, src, take);
 
   -- Close ALL of the subrecs that might have been opened
   rc = ldt_common.closeAllSubRecs( src );
@@ -6308,7 +6351,7 @@ end -- llist.exists()
 -- Error: Error string to outside Lua caller.
 -- =======================================================================
 function
-llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, src)
+llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, src, take)
   local meth = "llist.range()";
 
   local rc = aerospike:set_context( topRec, UDF_CONTEXT_LDT );
@@ -6323,7 +6366,14 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
     error(ldte.ERR_INPUT_PARAM);
   end
 
-  local resultList = list.new(50, 100);
+  local resultList;
+
+  if (count ~= nil) then
+    resultList = list.new(count);
+  else
+    resultList = list.new(50, 100);
+  end
+
   
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   
@@ -6336,6 +6386,11 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
   G_FunctionArgs = fargs;
   G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
   --info("pagesize %s", tostring(G_PageSize));
+  
+  local keyList;
+  if (take == true) and (G_Filter ~= nil) then
+    keyList = list.new(#resultList); 
+  end
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.
@@ -6353,7 +6408,7 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
     position         = resultMap.Position;
 
     resultA, resultB = 
-        listScan(objectList, position, ldtMap, resultList, maxKey, count, CR.GREATER_THAN);
+        listScan(objectList, position, ldtMap, resultList, keyList, maxKey, count, CR.GREATER_THAN);
     if (resultB < 0) then
       warn("[ERROR]<%s:%s> Problems with Scan: MaxKey(%s), List(%s)", MOD,
         meth, tostring( maxKey ), tostring( objectList ) );
@@ -6363,11 +6418,13 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
   else
     local sp = createSearchPath(ldtMap);
     rc = treeSearch(src, topRec, sp, ldtCtrl, minKey, nil);
-    rc = treeScan(src, resultList, topRec, sp, ldtCtrl, maxKey, count, CR.GREATER_THAN);
+    rc = treeScan(src, resultList, keyList, topRec, sp, ldtCtrl, maxKey, count, CR.GREATER_THAN);
     if (rc < 0 or list.size( resultList ) == 0) then
         -- it's ok to find nothing
     end
   end -- tree search
+  
+  doTake(topRec, ldtBinName, resultList, keyList, src, take);
 
   rc = ldt_common.closeAllSubRecs( src );
   if (rc < 0) then

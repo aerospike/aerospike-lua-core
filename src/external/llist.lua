@@ -113,6 +113,10 @@ end
 function find(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
   return llist.find( topRec, ldtBinName, searchKeyList, filterModule, filter, fargs, nil);
 end
+-- Find and Remove
+function take(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
+  return llist.find( topRec, ldtBinName, searchKeyList, filterModule, filter, fargs, nil, true);
+end
 
 -- =======================================================================
 -- find_from() -- Locate the object(s) between minKey and minKey+count
@@ -130,6 +134,11 @@ function find_from( topRec, ldtBinName, fromKey, count, filterModule, filter, fa
   return llist.range( topRec, ldtBinName, fromKey, nil, count, filterModule,
                       filter, fargs, nil);
 end
+-- Find and Remove
+function take_from( topRec, ldtBinName, fromKey, count, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, fromKey, nil, count, filterModule,
+                      filter, fargs, nil, true);
+end
 
 
 -- =======================================================================
@@ -143,6 +152,10 @@ end
 function find_first(topRec, ldtBinName, count, filterModule, filter, fargs)
   return llist.find_first(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
 end
+-- Find and remove
+function take_first(topRec, ldtBinName, count, filterModule, filter, fargs)
+  return llist.find_first(topRec, ldtBinName, count, filterModule, filter, fargs, nil, true);
+end
 
 -- =======================================================================
 -- find_last() -- Return the last "count" objects in the large list.
@@ -154,6 +167,10 @@ end
 -- =======================================================================
 function find_last( topRec, ldtBinName, count, filterModule, filter, fargs )
   return llist.find_last(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
+end
+-- Find and Remove
+function take_last( topRec, ldtBinName, count, filterModule, filter, fargs )
+  return llist.find_last(topRec, ldtBinName, count, filterModule, filter, fargs, nil, true);
 end
 
 -- =======================================================================
@@ -172,6 +189,11 @@ function find_range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, f
   return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
                       filter, fargs, nil);
 end
+-- Find and Remove
+function take_range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
+                      filter, fargs, nil, true);
+end
 
 -- =======================================================================
 -- find_range_lim() -- Locate the object(s) between minKey and minKey+count
@@ -188,7 +210,10 @@ end
 function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
   return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil);
 end
-
+-- Find and Remove
+function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
+  return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil, true);
+end
 
 -- ======================================================================
 -- remove(): Remove all items corresponding to the specified key.
