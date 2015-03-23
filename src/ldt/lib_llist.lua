@@ -927,9 +927,9 @@ local function printKey(ldtMap, l)
     end
     local keyList = list();
     for i = 1, #l, 1 do
-       list.append(keyList, getKeyValue(ldtMap, l[i]));
-       -- key = getKeyValue(ldtMap, l[i])
-       -- list.append(keyList, string.sub(key, 8, 13));
+       -- list.append(keyList, getKeyValue(ldtMap, l[i]));
+       local key = getKeyValue(ldtMap, l[i])
+       list.append(keyList, key);
     end
     return keyList
 end
@@ -995,6 +995,8 @@ local function printLeaf( ldtMap, leafSubRec )
 
   -- Remember that "print()" goes ONLY to the console, NOT to the log.
   info("LEAF::Objects: Count(%d) Size(%d) Key(%s)", #objList, ldt_common.getValSize(objList), tostring(printKey(ldtMap, objList))); 
+  -- local leafDigest    = record.digest(leafSubRec);
+  --info("LEAF (%s) ::Objects: Count(%d) Size(%d) Key(%s) left(%s) right (%s)", tostring(leafDigest), #objList, ldt_common.getValSize(objList), tostring(printKey(ldtMap, objList)), tostring(leafLdtMap[LF_PrevPage]), tostring(leafLdtMap[LF_NextPage])); 
   -- end
 end -- printLeaf()
 
@@ -1317,7 +1319,7 @@ local function searchKeyListLinear( ldtMap, keyList, searchKey )
       return resultMap;
     elseif compareResult == CR.EQUAL then
       -- Found it -- return the "right child" index (right ptr)
-      resultMap.Position = i;
+      resultMap.Position = i + 1;
       resultMap.Found = true;
       return resultMap;
     end
@@ -1412,7 +1414,7 @@ local function searchKeyListBinary( ldtMap, keyList, searchKey )
         end
       end
       -- Right Child Pointer that goes with iMid
-      resultMap.Position = iMid;
+      resultMap.Position = iMid + 1;
       resultMap.Found = true;
       return resultMap;
     end -- if found, we've returned.
@@ -1901,53 +1903,63 @@ end -- setLeafPagePointers()
 -- get a new Right-Most Leaf (at least in regular Split operations), we
 -- assign that ONLY with the initial create.
 -- ======================================================================
-local function adjustLeafPointersAfterInsert( src, topRec, ldtMap, newLeftLeaf, rightLeaf )
+local function adjustLeafPointersAfterInsert( src, topRec, ldtMap, leftLeaf, rightLeaf, is_right)
   local meth = "adjustLeafPointersAfterInsert()";
 
-  -- We'll denote our leaf recs as "oldLeftLeaf, newLeftLeaf and rightLeaf"
-  -- The existing rightLeaf points to the oldLeftLeaf.
-  local newLeftLeafDigest = record.digest( newLeftLeaf );
-  local rightLeafDigest   = record.digest( rightLeaf );
+  local leftLeafDigest = record.digest( leftLeaf );
+  local rightLeafDigest = record.digest( rightLeaf );
 
-  local newLeftLeafMap = newLeftLeaf[LSR_CTRL_BIN];
+  local leftLeafMap = leftLeaf[LSR_CTRL_BIN];
   local rightLeafMap = rightLeaf[LSR_CTRL_BIN];
 
-  local oldLeftLeafDigest = rightLeafMap[LF_PrevPage];
-  if (oldLeftLeafDigest == nil) or (oldLeftLeafDigest == 0) then
-    -- There is no left Leaf.  Just assign ZERO to the newLeftLeaf Left Ptr.
-    -- Also -- register this leaf as the NEW LEFT-MOST LEAF.
-    newLeftLeafMap[LF_PrevPage] = 0;
-    ldtMap[LS.LeftLeafDigest] = newLeftLeafDigest;
-  else 
-    -- Regular situation:  Go open the old left leaf and update it.
-    local oldLeftLeafDigestString = tostring(oldLeftLeafDigest);
-    local oldLeftLeaf =
-        ldt_common.openSubRec( src, topRec, oldLeftLeafDigestString );
-    if (oldLeftLeaf == nil) then
-      warn("[ERROR]<%s:%s> oldLeftLeaf NIL from openSubrec: digest(%s)",
-        MOD, meth, oldLeftLeafDigestString );
-      error( ldte.ERR_SUBREC_OPEN );
+  local leftNextDigest = leftLeafMap[LF_NextPage] -- 6
+  local leftPrevDigest = leftLeafMap[LF_PrevPage]  -- nil
+  local rightPrevDigest = rightLeafMap[LF_PrevPage] -- nil 
+  local rightNextDigest = rightLeafMap[LF_NextPage] -- nil 
+
+  leftLeafMap[LF_NextPage] = rightLeafDigest;
+  rightLeafMap[LF_PrevPage] = leftLeafDigest; 
+
+  if (is_right) then
+    -- Right side is new 
+    rightLeafMap[LF_NextPage] = leftNextDigest;
+    if (leftNextDigest == nil) or (leftNextDigest == 0) then
+      ldtMap[LS.RightLeafDigest] = rightLeafDigest;
+    else 
+      local leftNextSubRec = ldt_common.openSubRec( src, topRec, tostring(leftNextDigest) );
+      if (leftNextSubRec == nil) then
+        warn("[ERROR]<%s:%s> oldLeftLeaf NIL from openSubrec: digest(%s)",
+          MOD, meth, leftNextDigest);
+        error( ldte.ERR_SUBREC_OPEN );
+      end
+      local leftNextSubRecMap = leftNextSubRec[LSR_CTRL_BIN];
+      leftNextSubRecMap[LF_PrevPage] = rightLeafDigest; 
+      leftNextSubRec[LSR_CTRL_BIN] = leftNextSubRecMap;
+      ldt_common.updateSubRec( src, leftNextSubRec );
     end
-    local oldLeftLeafMap = oldLeftLeaf[LSR_CTRL_BIN];
-    oldLeftLeafMap[LF_NextPage] = newLeftLeafDigest;
-    oldLeftLeaf[LSR_CTRL_BIN] = oldLeftLeafMap;
-    -- Call update to mark the SubRec as dirty, and to force the write if we
-    -- are in "early update" mode. Close will happen at the end of the Lua call.
-    ldt_common.updateSubRec( src, oldLeftLeaf );
+  else
+    -- Left side is new 
+    leftLeafMap[LF_PrevPage] = rightPrevDigest;
+    if (rightPrevDigest == nil) or (rightPrevDigest == 0) then
+      ldtMap[LS.LeftLeafDigest] = leftLeafDigest; 
+    else
+      local rightPrevSubRec = ldt_common.openSubRec( src, topRec, tostring(rightPrevDigest) );
+      if (rightPrevSubRec == nil) then
+        warn("[ERROR]<%s:%s> oldLeftLeaf NIL from openSubrec: digest(%s)",
+          MOD, meth, rightPrevDigest);
+        error( ldte.ERR_SUBREC_OPEN );
+      end
+      local rightPrevSubRecMap = rightPrevSubRec[LSR_CTRL_BIN];
+      rightPrevSubRecMap[LF_NextPage] = leftLeafDigest; 
+      rightPrevSubRec[LSR_CTRL_BIN] = rightPrevSubRecMap;
+      ldt_common.updateSubRec( src, rightPrevSubRec );
+    end
   end
 
-  -- Now update the new Left Leaf, the Right Leaf, and their page ptrs.
-  newLeftLeafMap[LF_PrevPage] = oldLeftLeafDigest;
-  newLeftLeafMap[LF_NextPage] = rightLeafDigest;
-  rightLeafMap[LF_PrevPage]   = newLeftLeafDigest;
-  
-  -- Save the Leaf Record Maps, and update the subrecs.
-  newLeftLeaf[LSR_CTRL_BIN]   =  newLeftLeafMap;
-  rightLeaf[LSR_CTRL_BIN]     = rightLeafMap;
-  -- Call update to mark the SubRec as dirty, and to force the write if we
-  -- are in "early update" mode. Close will happen at the end of the Lua call.
-  ldt_common.updateSubRec( src, newLeftLeaf );
-  ldt_common.updateSubRec( src, rightLeaf );
+  leftLeaf[LSR_CTRL_BIN] = leftLeafMap;
+  rightLeaf[LSR_CTRL_BIN] = rightLeafMap;
+  ldt_common.updateSubRec(src, leftLeaf);
+  ldt_common.updateSubRec(src, rightLeaf);
 
   return 0;
 end -- adjustLeafPointersAfterInsert()
@@ -2026,6 +2038,7 @@ local function adjustLeafPointersAfterDelete( src, topRec, ldtMap, leafSubRec )
   local rightLeafSubRec;
   local leftLeafCtrlMap;
   local rightLeafCtrlMap;
+  --info("Delete for %s left %s right %s", tostring(leafSubRecDigest), tostring(leftLeafDigest), tostring(rightLeafDigest))
 
   -- Update the right leaf first, if it is there.
   if rightLeafDigest ~= nil and rightLeafDigest ~= 0 then
@@ -2210,7 +2223,6 @@ local function doListScan( objectList, ldtMap, resultList, count, leftScan)
       list.append( resultList, filterResult);
       foundCount = foundCount + 1;
     end
-    list.append(resultList, objectList[i]);
   end -- for each item in the list
 
   GP=E and trace("[EXIT]<%s:%s> rc(0) Result: ReadAmount(%d) Sz(%d) List(%s)",
@@ -2797,7 +2809,7 @@ local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
   end
 
   ldt_common.listInsert(keyList, key, position);
-  ldt_common.listInsert(digestList, digest, position);
+  ldt_common.listInsert(digestList, digest, position + 1);
 end -- nodeInsert()
 
 -- ======================================================================
@@ -3116,9 +3128,9 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
     local leftDigestList  = list.take( digestList, splitPosition );
     local rightDigestList = list.drop( digestList, splitPosition );
 
-    local rightNodeRec = nodeSubRec; -- our new name for the existing node
-    local leftNodeRec = createNodeRec( src, topRec, ldtCtrl );
-    local leftNodeDigest = record.digest( leftNodeRec );
+    local leftNodeRec = nodeSubRec; -- our new name for the existing node
+    local rightNodeRec = createNodeRec( src, topRec, ldtCtrl );
+    local rightNodeDigest = record.digest( rightNodeRec );
 
     -- This is a different order than the splitLeafInsert, but before we
     -- populate the new child nodes with their new lists, do the insert of
@@ -3157,7 +3169,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
     local iKeyList = {};
     local iDigestList = {};
     iKeyList[1] = splitKey;
-    iDigestList[1] = leftNodeDigest;
+    iDigestList[1] = rightNodeDigest;
 
     insertParentNode(src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
       level - 1 );
@@ -3364,103 +3376,93 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
     ldt_common.updateSubRec( src, leafSubRec );
   elseif (splitPosition == 1) then
 
-    -- key:newVal, 
-    local newLeafRec     = createLeafRec( src, topRec, ldtCtrl, nil );
-    leafInsert(src, topRec, newLeafRec, ldtMap, key, newValue, 0);
-    adjustLeafPointersAfterInsert(src,topRec,ldtMap, newLeafRec, leafSubRec);
-    iCount = iCount + 1;
-    iDigestList[iCount] = record.digest( newLeafRec);
-    iKeyList[iCount]    = key;
+    -- PK:newVal stored in current leafSubRec 
+    populateLeaf( src, leafSubRec, list());
+    leafInsert(src, topRec, leafSubRec, ldtMap, key, newValue, 0);
 
-    -- PK:2-N
+    -- minKey:2-N
+    local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
     objectList = ldt_common.listDelete(objectList, splitPosition);
-    populateLeaf( src, leafSubRec, objectList);
+    populateLeaf( src, newLeafRec, objectList);
+    iCount = iCount + 1;
+    iDigestList[iCount] = record.digest( newLeafRec );
+    iKeyList[iCount] = getKeyValue(ldtMap, objectList[1]);
+
+    adjustLeafPointersAfterInsert(src,topRec,ldtMap, leafSubRec, newLeafRec, true);
     
     ldt_common.updateSubRec( src, newLeafRec );
     ldt_common.updateSubRec (src, leafSubRec);
 
   elseif (splitPosition == #objectList) then
-    -- maxKey:1-N-1.
+    -- PK:(1, N)
     objectList = ldt_common.listDelete(objectList, splitPosition);
+    populateLeaf (src, leafSubRec, objectList);
+
+    -- newKey:newVal
     local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
-    populateLeaf (src, newLeafRec, objectList);
+    populateLeaf(src, newLeafRec, list());
+    leafInsert(src, topRec, newLeafRec, ldtMap, key, newValue, 0);
     iCount = iCount + 1;
-    iKeyList[iCount]   = getKeyValue(ldtMap, objectList[#objectList]);
+    iKeyList[iCount]   = key
     iDigestList[iCount] = record.digest( newLeafRec);
 
-    -- PK:newVal
-    populateLeaf (src, leafSubRec, list());
-    leafInsert(src, topRec, leafSubRec, ldtMap, key, newValue, 0);
-
-    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec, true);
     ldt_common.updateSubRec( src, newLeafRec );
     ldt_common.updateSubRec( src, leafSubRec );
   else
-    local leftList  = list.take( objectList, splitPosition );
-    local rightList = list.drop( objectList, splitPosition );
-    -- info("Split @ %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
-
-    -- Now figure out WHICH of the two leaves (original or new) we have to
-    -- insert the new value.
-    -- Compare against the SplitKey -- if less, insert into the left leaf,
-    -- and otherwise insert into the right leaf.
     local newValSize    = ldt_common.getValSize(newValue);
-    local oldValSize    = ldt_common.getValSize(leftList[#leftList]);
-    local leafListSize  = ldt_common.getValSize(leftList);
+    local oldValSize    = ldt_common.getValSize(objectList[splitPosition]);
     local pageSize      = G_PageSize;
-
-    -- Cases
-    -- 1: newKey:(X+newVal), PK:Y
-    -- 2: maxKey:X,  newKey:newVal, PK:Y
-
+    local leafListSize  = ldt_common.getValSize(objectList);
     if (newValSize + leafListSize - oldValSize <= pageSize) then
-      --Case 1   
-      --newKey: (X+newVal)
-      local newLeafRec  = createLeafRec( src, topRec, ldtCtrl, nil );
-      populateLeaf( src, newLeafRec, leftList );
-      ldt_common.listUpdate(leftList, newValue, #leftList);
-      adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
-
-      iCount = iCount + 1;
-      iDigestList[iCount] = record.digest( newLeafRec);
-      iKeyList[iCount]    = key;
-        
-      -- PK:Y 
-      populateLeaf( src, leafSubRec, rightList );
-
-      ldt_common.updateSubRec( src, newLeafRec);
-      ldt_common.updateSubRec( src, leafSubRec);
+      leafUpdate(src, topRec, leafSubRec, ldtMap, newValue, splitPosition);
+      ldt_common.updateSubRec( src, leafSubRec );
     else
-      -- Case 2  
-      -- maxKey:X
-      leftList = ldt_common.listDelete(leftList, #leftList);
-      if (leftList ~= nil)  then
-        local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
-        populateLeaf(src, newLeafRec, leftList);
-        adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
+      local splitKey = objectList[splitPosition];
+      local leftList  = list.take( objectList, splitPosition - 1);
+      local rightList = list.drop( objectList, splitPosition - 1);
+      leafListSize  = ldt_common.getValSize(rightList);
+
+      -- PK:leftList
+      populateLeaf( src, leafSubRec, leftList);
+    
+      if (newValSize + leafListSize - oldValSize <= pageSize) then
+        -- newKey: (newVal+rightList)
+        local newLeafRec  = createLeafRec( src, topRec, ldtCtrl, nil );
+        populateLeaf( src, newLeafRec, rightList );
+        leafUpdate(src, topRec, newLeafRec, ldtMap, newValue, 1);
+        adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec, true);
+
         iCount = iCount + 1;
         iDigestList[iCount] = record.digest( newLeafRec);
-        iKeyList[iCount]    = getKeyValue(ldtMap, leftList[#leftList]);
+        iKeyList[iCount] = getKeyValue(ldtMap, rightList[1]);
 
         ldt_common.updateSubRec( src, newLeafRec);
-
-      end
+      else
+        -- minKey:rightList
+        rightList = ldt_common.listDelete(rightList, 1);
+        if (rightList ~= nil)  then
+          local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
+          populateLeaf(src, newLeafRec, rightList);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec, true);
+          iCount = iCount + 1;
+          iDigestList[iCount] = record.digest( newLeafRec);
+          iKeyList[iCount]    = getKeyValue(ldtMap, rightList[1]);
+          ldt_common.updateSubRec( src, newLeafRec);
+        end
     
+        -- newKey:newVal
+        local newLeafRec1 = createLeafRec(src, topRec, ldtCtrl, nil );
+        populateLeaf(src, newLeafRec1, list());
+        leafInsert(src, topRec, newLeafRec1, ldtMap, key, newValue, 0);
+        adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec1, true);
 
-      -- newKey:newVal
-      local newLeafRec1 = createLeafRec(src, topRec, ldtCtrl, nil );
-      populateLeaf(src, newLeafRec1, list());
-      leafInsert(src, topRec, newLeafRec1, ldtMap, key, newValue, 0);
-      adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec1, leafSubRec);
-
-      iCount = iCount + 1;
-      iDigestList[iCount] = record.digest( newLeafRec1);
-      iKeyList[iCount]    = key;
+        iCount = iCount + 1;
+        iDigestList[iCount] = record.digest(newLeafRec1);
+        iKeyList[iCount]    = key;
  
-      -- PK:Y 
-      populateLeaf( src, leafSubRec, rightList );
-
-      ldt_common.updateSubRec( src, newLeafRec1);
+        ldt_common.updateSubRec( src, newLeafRec1);
+      end
       ldt_common.updateSubRec( src, leafSubRec);
     end
   end
@@ -3471,7 +3473,7 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
   end
 
   return 0;
-end -- splitLeafInsert()
+end -- splitLeafUpdate()
 
 -- ======================================================================
 -- splitLeafInsert()
@@ -3524,46 +3526,33 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
   local iCount = 0;
 
   if (#objectList == 0) then
-    --info("Case 1 for key %s", tostring(newKey))
     -- Case 1: PK:newValue
     leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
     ldt_common.updateSubRec(src, leafSubRec);
   elseif (splitPosition > #objectList) then
-    -- info("Case 2 for key %s", tostring(newKey))
     -- Case 2:
     -- maxKey:CurList, PK:newVal  [Move current list to left side]
     local newLeafRec = createLeafRec( src, topRec, ldtCtrl, nil );
-    populateLeaf(src, newLeafRec, objectList);
+    populateLeaf(src, newLeafRec, list());
+    leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
     iCount = iCount + 1;
-    iKeyList[iCount] = getKeyValue(ldtMap, objectList[#objectList]); 
+    iKeyList[iCount] = newKey
     iDigestList[iCount] = record.digest(newLeafRec);
-
-    -- Insert new Value into the current leaf
-    -- For unique key if this has happened then
-    -- Parent Key >= newKey > newLeafKey
-    local l = list();
-    populateLeaf(src, leafSubRec, l); 
-    leafInsert(src, topRec, leafSubRec, ldtMap, newKey, newValue, 0);
-    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
-
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, leafSubRec, newLeafRec, true);
     ldt_common.updateSubRec(src, newLeafRec);
     ldt_common.updateSubRec(src, leafSubRec);
-    -- info("Left = %s, Right = %s", tostring(objectList), tostring(l));
   elseif (splitPosition == 1) then
-    -- info("Case 3 for key %s", tostring(newKey))
     -- Case 2:
     -- newKey:newval, PK:CurList [PK-1 < newKey < PK]
     local newLeafRec     = createLeafRec(src, topRec, ldtCtrl, nil);
-    local l = list();
-    populateLeaf(src, newLeafRec, l); 
+    populateLeaf(src, newLeafRec, list()); 
     leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec);
+    adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec, false);
     ldt_common.updateSubRec(src, newLeafRec);
 
     iCount = iCount + 1;
     iKeyList[iCount] = newKey;
     iDigestList[iCount] = record.digest( newLeafRec);
-    --info("Left %s: Right %s", tostring(l), tostring(objectList));
   else
     local splitKey  = getKeyValue(ldtMap, objectList[splitPosition] );
     local leftList  = list.take(objectList, splitPosition - 1);
@@ -3572,64 +3561,59 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
 
     local compareResult = keyCompare( newKey, splitKey );
     local newValSize    = ldt_common.getValSize(newValue);
-    local leafListSize  = ldt_common.getValSize(leftList);
+    local leafListSize  = ldt_common.getValSize(rightList);
     local pageSize      = G_PageSize;
+
+    -- PK:Y 
+    populateLeaf(src, leafSubRec, leftList);
 
     -- Cases
     -- 1: newKey:(X+newVal), PK:Y
     -- 2: maxKey:X,  newKey:newVal, PK:Y
-    if (compareResult == CR.LESS_THAN) then
+    if (compareResult < CR.EQUAL) then
        if (newValSize + leafListSize <= pageSize) then
-          -- info("Case 4 for key %s", tostring(newKey))
           --Case 3   
           --newKey: (X+newVal)
           local newLeafRec  = createLeafRec( src, topRec, ldtCtrl, nil );
-          populateLeaf( src, newLeafRec, leftList );
+          populateLeaf( src, newLeafRec, rightList );
           leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
-          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec, true);
 
           iCount = iCount + 1;
           iKeyList[iCount] = newKey;
           iDigestList[iCount] = record.digest( newLeafRec);
-        
-          -- PK:Y 
-          populateLeaf(src, leafSubRec, rightList);
 
           ldt_common.updateSubRec(src, newLeafRec);
-          ldt_common.updateSubRec(src, leafSubRec);
        else
-          -- info("Case 5 for key %s", tostring(newKey))
-          -- Case 2  
-          -- maxKey:X
-          local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
-          populateLeaf(src, newLeafRec, leftList );
-          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec, leafSubRec);
-
-          iCount = iCount + 1;
-          iKeyList[iCount] = getKeyValue(ldtMap, leftList[#leftList]);
-          iDigestList[iCount] = record.digest( newLeafRec);
-    
 
           -- newKey:newVal
           local newLeafRec1 = createLeafRec(src, topRec, ldtCtrl, nil );
           populateLeaf(src, newLeafRec1, list());
           leafInsert(src, topRec, newLeafRec1, ldtMap, newKey, newValue, 0);
-          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec1, leafSubRec);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec1, true);
 
           iCount = iCount + 1;
           iKeyList[iCount] = newKey;
           iDigestList[iCount] = record.digest( newLeafRec1);
  
-          -- PK:Y 
-          populateLeaf(src, leafSubRec, rightList);
 
+          -- Case 2  
+          -- minKey:X
+          local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
+          populateLeaf(src, newLeafRec, rightList );
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec, true);
+
+          iCount = iCount + 1;
+          iKeyList[iCount] = getKeyValue(ldtMap, rightList[1]);
+          iDigestList[iCount] = record.digest( newLeafRec);
+    
           ldt_common.updateSubRec(src, newLeafRec);
           ldt_common.updateSubRec(src, newLeafRec1);
-          ldt_common.updateSubRec(src, leafSubRec);
        end
+       ldt_common.updateSubRec(src, leafSubRec);
     else
       -- We got some sort of goofy error.
-      warn("[ERROR]<%s:%s> Compare Error(%d)", MOD, meth, compareResult );
+      warn("[ERROR]<%s:%s> Compare Error(%d) %s<=%s",MOD, meth, compareResult, tostring(newKey), tostring(splitKey) );
       error( ldte.ERR_INTERNAL );
     end
   end
@@ -3748,14 +3732,9 @@ local function firstTreeInsert( src, topRec, ldtCtrl, newValue )
   local leftLeafRec = createLeafRec( src, topRec, ldtCtrl, newValue, nil );
   local leftLeafDigest = record.digest( leftLeafRec );
   ldtMap[LS.LeftLeafDigest] = leftLeafDigest; -- Remember Left-Most Leaf
-
-  local rightLeafRec = createLeafRec( src, topRec, ldtCtrl, nil, nil);
-  local rightLeafDigest = record.digest( rightLeafRec );
-  ldtMap[LS.RightLeafDigest] = rightLeafDigest; -- Remember Right-Most Leaf
-
+  ldtMap[LS.RightLeafDigest] = leftLeafDigest; -- Remember Right-Most Leaf
   -- Our leaf pages are doubly linked -- we use digest values as page ptrs.
-  setLeafPagePointers( src, leftLeafRec, 0, rightLeafDigest );
-  setLeafPagePointers( src, rightLeafRec, leftLeafDigest, 0 );
+  setLeafPagePointers( src, leftLeafRec, 0, 0);
 
   -- Insert our very digest into the root (and no key in root keyList yet).
   list.append( rootDigestList, leftLeafDigest );
@@ -3838,7 +3817,6 @@ local function treeInsert (src, topRec, ldtCtrl, value, update)
         else
           -- Split first, then update.  This split can potentially propagate all
           -- the way up the tree to the root. This is potentially a big deal.
-          --llist.dump(topRec, ldtBinName, src);
           splitLeafUpdate( src, topRec, sp, ldtCtrl, key, value );
           insertResult = 1; -- Special UPDATE (no count stats increase).
         end
@@ -4027,8 +4005,8 @@ local function convertList(src, topRec, ldtBinName, ldtCtrl )
   -- Our List operators :
   -- (*) list.take (take the first N elements)
   -- (*) list.drop (drop the first N elements, and keep the rest)
-    leftLeafList  =  list.take( compactList, splitPosition + 1);
-    rightLeafList =  list.drop( compactList, splitPosition + 1);
+    leftLeafList  =  list.take( compactList, splitPosition );
+    rightLeafList =  list.drop( compactList, splitPosition );
   else
     -- It's possible that the entire compact list is composed of a single
     -- value (e.g. "7,7,7,7 ... 7,7,7"), in which case we have to treat the
@@ -4821,14 +4799,10 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
   local rootPosition;
   local digestPosition;
   local keyPosition;
-  -- If we found the key directly in the list, we use THAT index as the
-  -- place to remove.  If we did NOT find it, then we move back one spot.
-  if (sp.FoundList[rootLevel]) then
-    keyPosition    = sp.PositionList[rootLevel];
-    digestPosition = keyPosition;
-  else
-    keyPosition    = sp.PositionList[rootLevel];
-    digestPosition = keyPosition;
+  digestPosition = sp.PositionList[rootLevel];
+  keyPosition = digestPosition - 1;
+  if (keyPosition < 1) then
+    keyPosition = digestPosition
   end
 
   if (keyPosition > #keyList) then
@@ -4856,7 +4830,7 @@ local function rootDelete(src, sp, topRec, ldtCtrl)
       ldtMap[LS.RootKeyList] = resultKeyList;
       resultDigestList = ldt_common.listDelete(digestList, digestPosition );
       ldtMap[LS.RootDigestList] = resultDigestList;
-  else
+    else
       -- Remove the entry from both the Key List and the Digest List
       resultKeyList = ldt_common.listDelete(keyList, keyPosition);
       ldtMap[LS.RootKeyList] = resultKeyList;
@@ -5011,13 +4985,13 @@ function nodeDelete( src, sp, nodeLevel, topRec, ldtCtrl )
 
   local digestPosition;
   local keyPosition;
-  if (sp.FoundList[nodeLevel]) then
-    keyPosition    = sp.PositionList[nodeLevel];
-    digestPosition = keyPosition;
-  else
-    keyPosition    = sp.PositionList[nodeLevel];
-    digestPosition = keyPosition;
-  end
+
+  digestPosition = sp.PositionList[nodeLevel];
+  keyPosition = digestPosition - 1;
+  if (keyPosition < 1) then
+    keyPosition = digestPosition;
+  end 
+
   if (keyPosition > #keyList) then
     keyPosition = #keyList;
   end
@@ -5242,7 +5216,7 @@ local function leafDelete( src, sp, topRec, ldtCtrl, key )
 
   -- ok -- regular delete processing.  if we're left with NOTHING in the
   -- leaf then collapse this leaf and release the entry in the parent.
-  if (resultList == nil or #resultList == 0) and ldtMap[LS.LeafCount] > 2 then
+  if (resultList == 0 or resultList == nil or #resultList == 0) and ldtMap[LS.LeafCount] > 2 then
     releaseLeaf(src, sp, topRec, ldtCtrl)
   else
     -- Mark this page as dirty and possibly write it out if needed.
@@ -6342,6 +6316,13 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
+  -- if maxKey is null count should be a number
+  if (maxKey == nil and type(count) ~= "number") then
+    warn("[ERROR]<%s:%s> Range Lookup with invalid Parameter maxKey(%s), count(%s)",
+        MOD, meth, tostring( maxKey ), tostring( count ));
+    error(ldte.ERR_INPUT_PARAM);
+  end
+
   local resultList = list.new(50, 100);
   
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
@@ -6354,7 +6335,7 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
   G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
   G_FunctionArgs = fargs;
   G_PageSize = ldt_common.getPageSize( topRec, ldtMap[LS.PageSize] );
-  info("pagesize %s", tostring(G_PageSize));
+  --info("pagesize %s", tostring(G_PageSize));
 
   -- Create our subrecContext, which tracks all open SubRecords during
   -- the call.  Then, allows us to close them all at the end.

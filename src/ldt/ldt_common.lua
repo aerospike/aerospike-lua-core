@@ -737,18 +737,20 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
       -- If we were unable to release any pages with clean, then UP our
       -- clean threshold until we hit the real limit.
-      if (itemCount >= cleanThreshold and cleanThreshold < G_OPEN_SR_LIMIT) then
-        cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
-        -- A quick check and adjustment, just in case our math was wrong.
-        if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
-          cleanThreshold = G_OPEN_SR_LIMIT;
+      if (itemCount >= cleanThreshold) then
+        if (cleanThreshold < G_OPEN_SR_LIMIT) then
+          cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
+          -- A quick check and adjustment, just in case our math was wrong.
+          if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
+            cleanThreshold = G_OPEN_SR_LIMIT;
+          end
+          recMap.CleanThreshold = cleanThreshold;
+        else
+          warn("[ERROR]<%s:%s> SRC Count(%d) CT(%d) Exceeded Limit(%d)",
+            MOD, meth, itemCount, cleanThreshold, G_OPEN_SR_LIMIT );
+          error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
         end
-        recMap.CleanThreshold = cleanThreshold;
-      else
-        warn("[ERROR]<%s:%s> SRC Count(%d) CT(%d) Exceeded Limit(%d)",
-          MOD, meth, itemCount, cleanThreshold, G_OPEN_SR_LIMIT );
-        error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
-      end
+     end
     end
 
     -- Recalc ItemCount after the (possible) clean.
