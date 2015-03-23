@@ -1,6 +1,6 @@
 -- Large Map (LMAP) Operations Library
 -- ======================================================================
--- Copyright [2014] Aerospike, Inc.. Portions may be licensed
+-- Copyright [2015] Aerospike, Inc.. Portions may be licensed
 -- to Aerospike, Inc. under one or more contributor license agreements.
 --
 -- Licensed under the Apache License, Version 2.0 (the "License");
@@ -116,9 +116,6 @@ local DEBUG=false; -- turn on for more elaborate state dumps.
 -- error( ldte.ERR_INTERNAL );
 local ldte = require('ldt/ldt_errors');
 
--- We have a set of packaged settings for each LDT
-local lmapPackage = require('ldt/settings_lmap');
-
 -- Import our third party Hash Function:
 local CRC32 = require('ldt/CRC32');
 
@@ -141,8 +138,8 @@ local LDT_TYPE = "LMAP";
 -- LDT Control map, we're instead going to store an AS_BOOLEAN value, which
 -- is a character (defined here).  We're using Characters rather than
 -- numbers (0, 1) because a character takes ONE byte and a number takes EIGHT
-local AS_TRUE='T';
-local AS_FALSE='F';
+local AS_TRUE = 'T';
+local AS_FALSE = 'F';
 
 -- Our Hash Tables can operate in two modes:
 -- (*) Static (a fixed size Hash Table)
@@ -195,8 +192,8 @@ local SF_MSGPACK    = 1;
 local SF_JSON       = 2;
 
 -- StoreState (SS) values (which "state" is the set in?)
-local SS_COMPACT ='C'; -- Using "single cell list" (compact) mode
-local SS_REGULAR ='R'; -- Using "Regular Storage" (regular) mode
+local SS_COMPACT = 'C'; -- Using "single cell list" (compact) mode
+local SS_REGULAR = 'R'; -- Using "Regular Storage" (regular) mode
 
 -- Result Returns (successful values).  Errors are a different category.
 local RESULT_OK = 0;
@@ -264,9 +261,8 @@ local PM = {
   BinName               = 'B', -- (Top): LDT Bin Name
   Magic                 = 'Z', -- (All): Special Sauce
   CreateTime			= 'C',
-  EsrDigest             = 'E', -- (All): Digest of ESR
   RecType               = 'R', -- (All): Type of Rec:Top,Ldr,Esr,CDir
-  -- LogInfo            = 'L', -- (All): Log Info (currently unused)
+  EsrDigest             = 'E', -- (All): Digest of ESR
   ParentDigest          = 'P', -- (Subrec): Digest of TopRec
   SelfDigest            = 'D'  -- (Subrec): Digest of THIS Record
 };
@@ -1029,6 +1025,158 @@ local function scanLMapList(nameList, valueList, resultMap )
     map.size( resultMap ));
 end -- scanLMapList()
 
+-- ========================================================================
+-- compute_settings()
+-- ========================================================================
+-- This function takes in the user's settings and sets the appropriate
+-- values in the LDT mechanism.
+--
+-- All parameters must be numbers.  
+-- ldtMap        :: The main control Map of the LDT
+-- configMap     :: A Map of Config Settings.
+--
+-- The values we expect to see in the configMap will be one or more of
+-- the following values.  For any value NOT seen in the map, we will use
+-- the published default value.
+--
+-- MaxObjectSize :: the maximum object size (in bytes).
+-- MaxKeySize    :: the maximum Key size (in bytes).
+-- MaxObjectCount:: the maximum LDT Collection size (number of data objects).
+-- WriteBlockSize:: The namespace Write Block Size (in bytes)
+-- PageSize      :: Targetted Page Size (8kb to 1mb)
+-- RecordOverHead:: Amount of "other" space used in this record.
+-- ========================================================================
+-- ========================================================================
+local function compute_settings(ldtMap, configMap )
+ 
+  local meth = "compute_settings()";
+
+  -- Perform some validation of the user's Config Parameters
+  -- Notice that this is done only once at the initial create.
+  local rc = ldt_common.validateConfigParms(ldtMap, configMap);
+  if rc ~= 0 then
+    warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
+      MOD, meth);
+    error(ldte.ERR_INPUT_PARM);
+  end
+
+  -- Now that all of the values have been validated, we can use them
+  -- safely without worry.  No more checking needed.
+  local maxObjectSize   = configMap.MaxObjectSize;
+  local maxKeySize      = configMap.MaxKeySize;
+  local maxObjectCount  = configMap.MaxObjectCount;
+  local pageSize        = configMap.TargetPageSize;
+  local writeBlockSize  = configMap.WriteBlockSize;
+  local recordOverHead  = configMap.RecordOverHead;
+  local userPageSize    = configMap.PageSize;
+  local maxObjectCount  = 10000;
+
+  if (configMap.maxObjectCount ~= nil) then
+    maxObjectCount  = configMap.maxObjectCount;
+  end
+
+  -- These are the values that we have to set.
+  local storeState;          -- Start Compact or Regular
+  local hashDirSize;         -- Dependent on LDT Capacity and Obj Count
+  local threshold;           -- Convert to HashTable
+  local cellListThreshold;   -- Convert List to SubRec.
+  local ldrListMax;          -- # of elements to store in a data sub-rec
+
+  -- Set up our various OVER HEAD values
+  -- We know that LMAP Ctrl occupies up to 400 bytes;
+  local ldtOverHead = 400;
+  recordOverHead = recordOverHead + ldtOverHead;
+  local hashCellOverHead = 40;
+  local ldrOverHead = 200;
+
+  -- Set up our various limits or ceilings
+  local topRecByteLimit = pageSize - recordOverHead;
+  local dataRecByteLimit = pageSize - ldrOverHead;
+
+  -- Figure out the settings for our Compact List Threshold.
+  -- By default, if they can fit, we'd like to have as many as 100
+  -- elements in our Compact List.  However, for Large Objects, we'll 
+  -- have to settle for far fewer, or zero.
+  -- In general, we would hope for at least a hot list of size 4
+  -- (4 items, with a transfer size of 2) however, if we have really
+  -- large objects AND/OR we have multiple LDTs in this record, then
+  -- we cannot hog TopRecord space for the Hot List.
+  local compactListCountCeiling = 100;
+
+  -- We'd like the Compact List to fit in under the ceiling amount,
+  -- or be 1/2 of the target page size, whichever is less.
+  local pageAvailableBytes = math.floor(topRecByteLimit / 2);
+  local compactListByteCeiling = 50000;
+  local compactListTargetBytes =
+    (pageAvailableBytes < compactListByteCeiling) and
+    (pageAvailableBytes) or compactListByteCeiling;
+
+  -- COMPACT LIST CALCULATION
+  -- If not even a object can fit in the Compact List,
+  -- then we need to skip the Compact List altogether and have
+  -- items be written directly to the Hash Table (the LDR pages).
+  if (maxObjectSize  > compactListTargetBytes) then
+    -- Don't bother with a Compact List.  Objects are too big.
+    threshold = 0;
+    storeState = SS_REGULAR;
+    debug("[NOTICE]<%s:%s> Max ObjectSize(%d) is too large for CompactList",
+      MOD, meth, maxObjectSize);
+  else
+    threshold = compactListTargetBytes / maxObjectSize;
+    if threshold > compactListCountCeiling then
+      threshold = compactListCountCeiling;
+    end
+    storeState = SS_COMPACT;
+  end
+
+  -- HASH DIRECTORY SIZE CALCULATION
+  -- When we're in "STATIC MODE" (which is what's used up to Version 3),
+  -- we need to set the size of the hash table according to what we need
+  -- with regard to total storage.  The theoretical storage limit for
+  -- the hash directory is:
+  -- All available space in the TopRec, divided by Cell Overhead
+  -- (MaxPageSize - recordOverHead) / hashCellOverHead
+  local hashDirMin = 128; -- go no smaller than this.
+  local hashDirMax = (pageSize - recordOverHead) / hashCellOverHead;
+  local ldrItemCapacity = math.floor(dataRecByteLimit / maxObjectSize);
+  local hashDirSize = maxObjectCount / ldrItemCapacity;
+  if hashDirSize > hashDirMax then
+    hashDirSize = hashDirMax;
+  end
+  if hashDirSize < hashDirMin then
+    hashDirSize = hashDirMin;
+  end
+
+  -- BIN LIST THRESHOLD CALCULATION
+  -- Note:  We want to stash things in a Hash Cell Bin List only when
+  -- we know that the list of objects will not allow the overall TopRec
+  -- memory footprint to overflow the space allowed for the TopRec.
+  if maxObjectSize < hashCellOverHead then
+    cellListThreshold = math.floor(hashCellOverHead / maxObjectSize);
+  else
+    cellListThreshold = 0;
+  end
+
+  -- LDT Data Record (LDR) List Limit
+  ldrListMax = math.floor(dataRecByteLimit / maxObjectSize);
+
+  if (ldrListMax * maxObjectSize) < (userPageSize - ldrOverHead) then
+    ldrListMax = math.floor((userPageSize - ldrOverHead) / maxObjectSize);
+  end
+
+  -- Apply our computed values to the LDT Map.
+  ldtMap[LS.StoreState]       = storeState;
+  ldtMap[LS.Modulo]           = hashDirSize;
+  ldtMap[LS.Threshold]        = threshold;
+  ldtMap[LS.BinListThreshold] = cellListThreshold;
+  ldtMap[LS.LdrEntryCountMax] = ldrListMax;
+
+  return 0;
+
+end 
+
+
+
 -- ======================================================================
 -- setupLdtBin()
 -- Caller has already verified that there is no bin with this name,
@@ -1053,25 +1201,24 @@ local function setupLdtBin( topRec, ldtBinName, firstName, firstValue, createSpe
   
   -- If the user has passed in settings that override the defaults
   -- (the createSpec), then process that now.
+  local configMap = {};
+
   if (createSpec ~= nil) then
     local createSpecType = type(createSpec);
     if (createSpecType == "string") then
-      ldt_common.processModule(ldtCtrl, createSpec);
-      lmapPackage.compute_settings(ldtMap, ldtMap);
+      ldt_common.processModule(ldtMap, configMap, createSpec); -- Use Module
     elseif (getmetatable(createSpec) == Map) then
-      lmapPackage.compute_settings(ldtMap, createSpec);
-    else
-      warn("[WARNING]<%s:%s> Unknown Creation Object(%s)",
-        MOD, meth, tostring( createSpec ));
+      configMap = createSpec; -- Use Passed in Map
+    else 
+      error(ldte.ERR_INPUT_CREATESPEC);
     end
   elseif firstValue ~= nil then
-    createSpec = {};
-    createSpec["MaxObjectSize"] = ldt_common.getValSize(firstValue);
-    createSpec["MaxObjectCount"] = 100000;
-    createSpec["MaxKeySize"] = ldt_common.getValSize(firstName);
     -- Use First value
-    lmapPackage.compute_settings(ldtMap, createSpec);
+    configMap.MaxObjectSize = ldt_common.getValSize(firstName);
+    configMap.MaxObjectCount = 100000;
+    configMap.MaxKeySize = ldt_common.getValSize(firstName);
   end
+  compute_settings(ldtMap, configMap);
 
   -- Set up our Bin according to the initial State: Compact List or Hash Dir.
   if ldtMap[LS.StoreState] == SS_REGULAR then
@@ -1187,7 +1334,7 @@ local function  ldrSubRecSummary( subRec )
     return "NULL LDR PROPERTY BIN";
   end;
 
-  local resultMap = {};
+  local resultMap = map();
   local subRecCtrlMap = subRec[LDR_CTRL_BIN];
   local subRecPropMap = subRec[SUBREC_PROP_BIN];
 
@@ -2823,14 +2970,14 @@ lmap.get_all(topRec, ldtBinName, nameList, filterModule, filter, fargs, src)
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map(); -- add results to this list.
   local rc = 0; -- start out OK.
 
 
   if nameList == nil or #nameList == 0 then
-    return resultMap; -- return an empty map.
+    return map.new(1);
   end
 
+  local resultMap = map.new(#nameList); -- add results to this list.
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2891,7 +3038,7 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map(); -- add results to this list.
+  local resultMap = {}; -- add results to this list.
   local rc = 0; -- start out OK.
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -2930,7 +3077,7 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   end
 
   local exists = 0;
-  if resultMap and #resultMap > 0 then
+  if resultMap[searchName] ~= nil then
     exists = 1;
   end
 
@@ -2971,7 +3118,11 @@ function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   -- local ldtCtrl = topRec[ldtBinName]; -- The main lmap
   local propMap = ldtCtrl[LDT_PROP_MAP]; 
   local ldtMap = ldtCtrl[LDT_CTRL_MAP]; 
-  local resultMap = map();
+  local itemCount = propMap[PM.ItemCount];
+  if (itemCount == nil or itemCount == 0) then
+    return map.new(1);
+  end
+  local resultMap = map.new(itemCount);
   local rc = 0; -- start out OK.
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
@@ -3044,8 +3195,6 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   GP=E and trace("[DEBUG]<%s:%s> filterModule(%s) filter(%s) fargs(%s)",
     MOD, meth, tostring(filterModule), tostring(filter),tostring(fargs));
 
-  local resultMap = map();  -- add results to this list.
-
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
   -- Some simple protection of faulty records or bad bin names
@@ -3071,7 +3220,7 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   
   -- For the compact list, it's a simple list delete (if we find it).
   -- For the subRec list, it's a more complicated search and delete.
-  local resultMap = map();
+  local resultMap = {};
   if ldtMap[LS.StoreState] == SS_COMPACT then
     rc = compactDelete( ldtMap, searchName, resultMap );
   else

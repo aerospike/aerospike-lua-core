@@ -214,9 +214,8 @@ local PM = {
   BinName               = 'B'; -- (Top): LDT Bin Name
   Magic                 = 'Z'; -- (All): Special Sauce
   CreateTime            = 'C'; -- (All): Creation time of this rec
-  EsrDigest             = 'E'; -- (All): Digest of ESR
   RecType               = 'R'; -- (All): Type of Rec:Top,Ldr,Esr,CDir
-  -- LogInfo               = 'L'; -- (All): Log Info (currently unused)
+  EsrDigest             = 'E'; -- (All): Digest of ESR
   ParentDigest          = 'P'; -- (SubRec): Digest of TopRec
   SelfDigest            = 'D'; -- (SubRec): Digest of THIS Record
 }
@@ -303,6 +302,7 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
   end -- if filter not nil
   return L_Filter;
 end -- setReadFunctions()
+
 
 -- ======================================================================
 -- <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS> - <USER FUNCTIONS>
@@ -457,7 +457,7 @@ local function cleanSRC( srcCtrl )
           end
         end -- else we have something to close
       end -- it's the right type for a Digest Field.
-    else
+    elseif (not name or not value) then
       warn("[INTERNAL ERROR]<%s:%s> Name(%s) Val(%s) NIL Problem", MOD, meth,
         tostring(name), tostring(value));
     end -- if both name and value NOT NIL
@@ -549,6 +549,14 @@ function ldt_common.createAndInitESR(srcCtrl, topRec, ldtCtrl )
 
   -- NOTE: We have to make sure that the TopRec propMap also gets saved.
   esrRec[SUBREC_PROP_BIN] = esrPropMap;
+  
+  rc = aerospike:update_subrec( esrRec );
+  --  Note that update_subrec() returns nil on success
+  if rc then
+    warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+      tostring(esrDigest), tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
 
   -- Add this open ESR SubRec to our SubRec Context, which implicitly 
   -- marks it as dirty.
@@ -603,7 +611,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
   -- we should try a "CLEAN" to free up some slots.  If that fails, then
   -- we're screwed.  Notice that "createESR" doesn't need to check the
   -- counts because by definition it's the FIRST SUB-REC.
-  if( itemCount >= cleanThreshold ) then
+  if (itemCount >= cleanThreshold) then
     cleanSRC( srcCtrl ); -- Flush the clean pages.  Ignore errors.
 
     -- Reset the local var after clean
@@ -652,6 +660,16 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   newSubRec[SUBREC_PROP_BIN] = subRecPropMap;
 
+  -- Create a immediate commit. This won't be rolled back in case of 
+  -- failure 
+  rc = aerospike:update_subrec( newSubRec );
+  --  Note that update_subrec() returns nil on success
+  if rc then
+    warn("[ERROR]<%s:%s> SubRec(%s) rc(%s)", MOD, meth,
+      subRecDigestString, tostring(rc));
+    error( ldte.ERR_SUBREC_UPDATE );
+  end
+
   -- Update the LDT sub-rec count.  Remember that any changes to a record
   -- are remembered until the final Lua Close, then the record(s) will be
   -- flushed to storage.
@@ -668,7 +686,7 @@ end --  createSubRec()
 -- ======================================================================
 -- Return a ptr to the Open Sub-Rec.  We either find the Sub-Rec in our
 -- table of open Sub-Recs, or we Open a new one.  If we reach the limit
--- of open Sub-Recs (last known size of the limit was 20), then we try
+-- of open Sub-Recs (last known size of the limit was 4000), then we try
 -- to find a CLEAN Sub-Rec and close it.  Note that we cannot close
 -- a dirty Sub-Rec -- that is an error.  Also, it is an error to try
 -- to open an existing open Sub-Rec, so that's why we have this pool
@@ -719,18 +737,20 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
 
       -- If we were unable to release any pages with clean, then UP our
       -- clean threshold until we hit the real limit.
-      if (itemCount >= cleanThreshold and cleanThreshold < G_OPEN_SR_LIMIT) then
-        cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
-        -- A quick check and adjustment, just in case our math was wrong.
-        if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
-          cleanThreshold = G_OPEN_SR_LIMIT;
+      if (itemCount >= cleanThreshold) then
+        if (cleanThreshold < G_OPEN_SR_LIMIT) then
+          cleanThreshold = cleanThreshold + G_OPEN_SR_CLEAN_THRESHOLD;
+          -- A quick check and adjustment, just in case our math was wrong.
+          if ( cleanThreshold > G_OPEN_SR_LIMIT ) then
+            cleanThreshold = G_OPEN_SR_LIMIT;
+          end
+          recMap.CleanThreshold = cleanThreshold;
+        else
+          warn("[ERROR]<%s:%s> SRC Count(%d) CT(%d) Exceeded Limit(%d)",
+            MOD, meth, itemCount, cleanThreshold, G_OPEN_SR_LIMIT );
+          error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
         end
-        recMap.CleanThreshold = cleanThreshold;
-      else
-        warn("[ERROR]<%s:%s> SRC Count(%d) CT(%d) Exceeded Limit(%d)",
-          MOD, meth, itemCount, cleanThreshold, G_OPEN_SR_LIMIT );
-        error( ldte.ERR_TOO_MANY_OPEN_SUBRECS );
-      end
+     end
     end
 
     -- Recalc ItemCount after the (possible) clean.
@@ -787,10 +807,15 @@ function ldt_common.closeSubRecDigestString( srcCtrl, digestString, dirty)
 
   if (not dirtyStatus) then
     rc = aerospike:close_subrec( subRec );
-    -- Now erase this subrec from the SRC maps.
-    recMap[digestString] = nil;
-    dirtyMap[digestString] = nil;
-    recMap.ItemCount = itemCount - 1;
+    if( rc ~= nil and rc < 0 ) then
+      warn("[ERROR]<%s:%s> Error closing SubRec: rc(%s) Digest(%s)",
+          MOD, meth, tostring(rc), tostring( digestString ));
+    else 
+      -- Now erase this subrec from the SRC maps.
+      recMap[digestString] = nil;
+      dirtyMap[digestString] = nil;
+      recMap.ItemCount = itemCount - 1;
+    end
   end
   return 0;
 end -- closeSubRecDigestString()
@@ -904,6 +929,10 @@ end -- markSubRecDirty()
 function ldt_common.closeAllSubRecs( srcCtrl )
   local meth = "closeAllSubRecs()";
 
+  if (srcCtrl == nil) then
+    return 0;
+  end
+  
   local recMap = srcCtrl[1];
   local dirtyMap = srcCtrl[2];
 
@@ -1093,8 +1122,6 @@ ldt_common.validateRecBinAndMap(topRec,ldtBinName,mustExist,ldtType,codeVersion)
     -- Control Bin Must Exist, in this case, ldtCtrl is what we check.
     -- This is not a serious error.
     if (not topRec[ldtBinName]) then
-      info("[ERROR]<%s:%s> LDT BIN(%s) Does Not Exist",
-            MOD, meth, tostring(ldtBinName));
       error( ldte.ERR_BIN_DOES_NOT_EXIST );
     end
 
@@ -1263,9 +1290,26 @@ end -- ldt_common.validateLdtBin()
 local DEFAULT_MAX_OBJ_SIZE     =     200;
 local DEFAULT_MAX_KEY_SIZE     =      22;
 local DEFAULT_MINIMUM_PAGESIZE =    4000;
-local DEFAULT_TARGET_PAGESIZE  =   64000;
+local DEFAULT_TARGET_PAGESIZE  =    8192;
 local DEFAULT_WRITE_BLOCK_SIZE = 1000000;
 local DEFAULT_RECORD_OVERHEAD  =     500;
+
+-- -----------------------------------------------------------------------
+-- getPageSize()
+-- -----------------------------------------------------------------------
+-- Find the page size as in ldtMap or pick the system configuration value.
+-- Do not let the pageSize be bigger than writeBlockSize
+-- Parms:
+-- (*) ldtMap:
+-- RETURN: PageSize
+-- -----------------------------------------------------------------------
+function ldt_common.getPageSize( topRec, pageSize )
+  local meth = "getPageSize()";
+  if (pageSize == nil) then
+    pageSize = aerospike:get_config(topRec, "ldt-page-size");
+  end
+  return pageSize;
+end -- setReadFunctions()
 
 -- ========================================================================
 -- ldt_common.validateConfigParms()
@@ -1315,6 +1359,10 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
     (configMap.RecordOverHead ~= nil and configMap.RecordOverHead) or
     DEFAULT_RECORD_OVERHEAD;
 
+  local userPageSize         =
+    (configMap.PageSize ~= nil and configMap.PageSize) or
+    DEFAULT_TARGET_PAGESIZE;
+
   if  ldtMap          == nil or
       maxObjectSize   == nil or type(maxObjectSize)  ~= "number" or
       maxKeySize      == nil or type(maxKeySize)     ~= "number" or
@@ -1353,7 +1401,7 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
   local pageTarget    = DEFAULT_TARGET_PAGESIZE;
   local pageMaximum   = writeBlockSize;  -- 128k to 1mb ceiling
 
-  if (maxObjectSize * 4) > writeBlockSize then
+  if maxObjectSize > writeBlockSize then
     error(ldte.ERR_INPUT_TOO_LARGE .. ":Max Object Size (" .. maxObjectSize .. ") Exceeds WriteBlockSize(" .. writeBlockSize .. ")");
   elseif (maxObjectSize * 4) > pageSize then
     if (maxObjectSize * 4) < pageTarget then
@@ -1378,6 +1426,7 @@ function ldt_common.validateConfigParms( ldtMap, configMap )
   configMap.MaxObjectSize   = maxObjectSize;
   configMap.MaxKeySize      = maxKeySize;
   configMap.TargetPageSize  = pageSize;
+  configMap.PageSize        = userPageSize;
   configMap.WriteBlockSize  = writeBlockSize;
   configMap.RecordOverHead  = recordOverHead;
 
@@ -1393,24 +1442,17 @@ end -- ldt_common.validateConfigParms()
 -- (*) Various filter functions (callable later during search)
 -- adjust_settings() function, which puts these values in the control map.
 -- ======================================================================
-function ldt_common.processModule(ldtMap, moduleName)
+function ldt_common.processModule(ldtMap, configMap, moduleName)
   local meth = "processModule()";
 
   if (moduleName ~= nil) then
-    if (type(moduleName) ~= "string") then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid::wrong type(%s)",
-        MOD, meth, tostring(moduleName), type(moduleName));
-      error( ldte.ERR_USER_MODULE_BAD );
-    end
-
     local userModule = require(moduleName);
     if (userModule == nil) then
-      warn("[ERROR]<%s:%s>User Module(%s) not valid", MOD, meth, moduleName);
       error( ldte.ERR_USER_MODULE_NOT_FOUND );
     else
-      local userSettings =  userModule[G_SETTINGS];
+      local userSettings = userModule[G_SETTINGS];
       if (userSettings ~= nil) then
-        userSettings( ldtMap ); -- hope for the best.
+        userSettings(configMap); -- Update based on user need
         ldtMap[LC.UserModule] = moduleName;
       end
     end
@@ -1856,6 +1898,33 @@ function ldt_common.validateList( valList )
     return true;
 end -- ldt_common.validateList()
 
+local function updateTop(topRec)
+  local meth = "updateTop()";
+  -- Now that we've changed the top rec, do the update to make sure the
+  -- changes are saved.
+  local rc = 0;
+  local is_create = false;
+
+  if (not aerospike:exists(topRec)) then
+    is_create = true;
+    rc = aerospike:create(topRec);
+  else 
+    rc = aerospike:update(topRec);
+  end
+ 
+  if (rc ~= 0) then
+    if (is_create) then
+      warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
+      error(ldte.ERR_TOPREC_CREATE);
+    else
+      warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
+      error(ldte.ERR_TOPREC_UPDATE);
+    end
+  end
+  return rc;
+end
+
+
 -- ======================================================================
 -- When we create the initial LDT Control Bin for the entire record (the
 -- first time ANY LDT is initialized in a record), we create a property
@@ -1872,14 +1941,6 @@ function ldt_common.setLdtRecordType( topRec )
   -- set the topRec record type (to LDT) and we praise the lord for yet
   -- another miracle LDT birth.
   if (topRec[REC_LDT_CTRL_BIN] == nil) then
-    if (not aerospike:exists(topRec)) then
-      rc = aerospike:create( topRec );
-      if( rc ~= 0 ) then
-        warn("[ERROR]<%s:%s>Problems Creating TopRec rc(%d)", MOD, meth, rc );
-        error( ldte.ERR_TOPREC_CREATE );
-      end
-    end
-
     record.set_type( topRec, RT_LDT );
     recPropMap = map();
     -- vinfo will be a 5 byte value, but it will be easier for us to store
@@ -1900,13 +1961,8 @@ function ldt_common.setLdtRecordType( topRec )
   -- Set this control bin as HIDDEN
   record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
 
-  -- Now that we've changed the top rec, do the update to make sure the
-  -- changes are saved.
-  rc = aerospike:update(topRec);
-  if( rc ~= 0 ) then
-    warn("[ERROR]<%s:%s>Problems Updating TopRec rc(%d)", MOD, meth, rc );
-    error( ldte.ERR_TOPREC_UPDATE );
-  end
+  rc = updateTop(topRec)
+
   return rc;
 end -- setLdtRecordType()
 
@@ -2016,7 +2072,7 @@ function ldt_common.destroy( src, topRec, ldtBinName, ldtCtrl)
     record.set_flags(topRec, REC_LDT_CTRL_BIN, BF_LDT_HIDDEN );
   end
   
-  rc = aerospike:update( topRec );
+  rc = aerospike:update(topRec);
   if rc ~= nil and rc ~= 0 then
     warn("[ERROR]<%s:%s>TopRec Update Error rc(%s)",MOD,meth,tostring(rc));
     error( ldte.ERR_TOPREC_UPDATE );
@@ -2225,9 +2281,34 @@ function ldt_common.ldt_exists( topRec, ldtBinName, ldtType )
   local meth = "ldt_common.ldt_exists()";
   -- Validate the topRec, the bin and the map.  If anything is weird, then
   -- this will kick out with a long jump error() call.
-  local result = ldt_common.checkBin(topRec,ldtBinName,ldtType);
+  local result = ldt_common.checkBin(topRec, ldtBinName, ldtType);
   return result;
 end -- function ldt_common.ldt_exists()
+
+
+function ldt_common.commit(topRec, ldtBinName, src, rc)
+  if (rc == 0) then
+    rc = ldt_common.closeAllSubRecs(src);
+    if (rc < 0) then
+      warn("[ERROR] Problems closing subrecs in delete");
+      error( ldte.ERR_SUBREC_CLOSE );
+    end
+
+    rc = updateTop(topRec);
+ 
+    if rc and rc ~= 0 then
+      warn("[ERROR] TopRec Update Error rc(%s)", tostring(rc));
+      error(ldte.ERR_TOPREC_UPDATE);
+    end 
+    return 0;
+  elseif (rc == -2) then
+    ldt_common.closeAllSubRecs(src);
+    return -2;
+  else
+    warn("[ERROR EXIT]: Return(%s)", tostring(rc));
+    error(ldte.ERR_DELETE);
+  end
+end
 
 
 -- ======================================================================

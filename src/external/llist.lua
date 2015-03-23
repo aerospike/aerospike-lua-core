@@ -25,32 +25,21 @@ local MOD="ext_llist_2014_11_20.A";
 -- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 -- The following external functions are defined in the LLIST module:
 --
--- (*) Status = add( topRec, ldtBinName, newValue, createSpec )
--- (*) Status = add_all( topRec, ldtBinName, valueList, createSpec )
--- (*) Status = update( topRec, ldtBinName, newValue, createSpec )
--- (*) Status = update_all( topRec, ldtBinName, valueList, createSpec )
--- (*) List   = find( topRec, bin, value, module, filter, fargs )
--- (*) List   = scan( topRec, ldtBinName )
--- (*) List   = filter( topRec, ldtBinName, key, filterModule, filter, fargs )
--- (*) List   = range(topRec,ldtBinName,minKey,maxKey,filterModule,filter,fargs)
--- (*) Status = remove( topRec, ldtBinName, searchValue ) 
--- (*) Status = remove_all( topRec, ldtBinName, valueList ) 
--- (*) Status = remove_range(topRec,ldtBinName,minKey,maxKey)
--- (*) Status = destroy( topRec, ldtBinName )
--- (*) Number = size( topRec, ldtBinName )
--- (*) Map    = get_config( topRec, ldtBinName )
--- (*) Status = set_capacity( topRec, ldtBinName, new_capacity)
--- (*) Status = get_capacity( topRec, ldtBinName )
--- (*) Number = ldt_exists( topRec, ldtBinName )
--- (*) Number = ldt_validate( topRec, ldtBinName )
--- ======================================================================
--- Experimental Functions
--- ======================================================================
--- (*) Number    = write_bytes( topRec, ldtBinName, inputArray, offset )
--- (*) ByteArray = read_bytes( topRec, ldtBinName, offset )
--- ======================================================================
--- Deprecated Functions
--- (*) function create( topRec, ldtBinName, createSpec )
+-- (*) Status = add   (topRec, ldtBinName, newValue, createSpec)
+-- (*) Status = update(topRec, ldtBinName, newValue, createSpec)
+-- (*) List   = find  (topRec, bin, keyList, module, filter, fargs )
+-- (*) List   = find_first (topRec, ldtBinName, count, module, filter, fargs)
+-- (*) List   = find_last  (topRec, ldtBinName, count, module, filter, fargs)
+-- (*) List   = find_range (topRec,ldtBinName, minKey, maxKey, filterModule, filter, fargs)
+-- (*) List   = exists (topRec, ldtBinName, value)
+-- (*) Status = remove (topRec, ldtBinName, searchKey) 
+-- (*) Status = remove_range (topRec, ldtBinName, minKey, maxKey)
+-- (*) Status = destroy (topRec, ldtBinName)
+-- (*) Number = size    (topRec, ldtBinName)
+-- (*) Map    = config  (topRec, ldtBinName)
+-- (*) Map    = setPageSize  (topRec, ldtBinName, size)
+-- (*) Number = ldt_exists   (topRec, ldtBinName)
+-- (*) Number = ldt_validate (topRec, ldtBinName)
 -- ======================================================================
 -- Reference the LLIST LDT Library Module:
 local llist = require('ldt/lib_llist');
@@ -59,21 +48,11 @@ local llist = require('ldt/lib_llist');
 -- functions for managing the open sub-recs.
 local ldt_common = require('ldt/ldt_common');
 -- ======================================================================
-
--- ======================================================================
--- create() :: Deprecated
--- ======================================================================
--- Create/Initialize a Large Ordered List  structure in a bin, using a
--- single LLIST -- bin, using User's name, but Aerospike TYPE (AS_LLIST).
---
--- Parms:
--- (*) topRec: the user-level record holding the LDT Bin
--- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) createSpec: The map or module that contains Create Settings
--- ======================================================================
-function create( topRec, ldtBinName, createSpec )
-  return llist.create( topRec, ldtBinName, createSpec );
-end
+-- These values should be "built-in" for our Lua, but it is either missing
+-- or inconsistent, so we define it here.  We use this when we check to see
+-- if a value is a LIST or a MAP.
+local Map  = getmetatable( map() );
+local List = getmetatable( list() );
 
 -- =======================================================================
 -- add() -- insert a value into the ordered list.
@@ -85,20 +64,11 @@ end
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
 function add( topRec, ldtBinName, newValue, createSpec )
-  return llist.add( topRec, ldtBinName, newValue, createSpec, nil)
-end
-
--- =======================================================================
--- add_all() -- Insert a list of values into the LLIST.
--- =======================================================================
--- Parms:
--- (*) topRec: the user-level record holding the LDT Bin
--- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) valueList: The list of values to be inserted
--- (*) createSpec: The map or module that contains Create Settings
--- =======================================================================
-function add_all( topRec, ldtBinName, valueList, createSpec )
-  return llist.add_all( topRec, ldtBinName, valueList, createSpec, nil);
+  if (getmetatable(newValue) == List) then
+    return llist.add_all(topRec, ldtBinName, newValue, createSpec, nil)
+  else
+    return llist.add( topRec, ldtBinName, newValue, createSpec, nil)
+  end
 end
 
 -- =======================================================================
@@ -113,20 +83,23 @@ end
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
 function update( topRec, ldtBinName, newValue, createSpec )
-  return llist.update( topRec, ldtBinName, newValue, createSpec, nil)
+  if (getmetatable(newValue) == List) then
+    return llist.update_all( topRec, ldtBinName, newValue, createSpec, nil)
+  else
+    return llist.update( topRec, ldtBinName, newValue, createSpec, nil)
+  end
 end
 
 -- =======================================================================
--- update_all() -- Update a list of values in LLIST.
+-- exist() -- Check if the object(s) associated with searchKey. 0/1
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) valueList: The list of values to be updated.
--- (*) createSpec: The map or module that contains Create Settings
+-- (*) searchKey: The key value for the objects to be found
 -- =======================================================================
-function update_all( topRec, ldtBinName, valueList, createSpec )
-  return llist.update_all( topRec, ldtBinName, valueList, createSpec, nil)
+function exists(topRec, ldtBinName, searchKeyList)
+  return llist.exists(topRec, ldtBinName, searchKeyList, nil);
 end
 
 -- =======================================================================
@@ -137,12 +110,71 @@ end
 -- (*) ldtBinName: The user's chosen name for the LDT bin
 -- (*) searchKey: The key value for the objects to be found
 -- =======================================================================
-function find( topRec, ldtBinName, searchKey )
-  return llist.find( topRec, ldtBinName, searchKey, nil);
+function find(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
+  return llist.find( topRec, ldtBinName, searchKeyList, filterModule, filter, fargs, nil);
+end
+-- Find and Remove
+function take(topRec, ldtBinName, searchKeyList, filterModule, filter, fargs)
+  return llist.find( topRec, ldtBinName, searchKeyList, filterModule, filter, fargs, nil, true);
 end
 
 -- =======================================================================
--- range() -- Locate the object(s) between minKey and maxKey
+-- find_from() -- Locate the object(s) between minKey and minKey+count
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) from: The key value for the beginning of the search
+-- (*) count: count number of values from key
+-- (*) filterModule: The User's UDF that contains filter functions
+-- (*) filter: User Defined Function (UDF) that returns passing values
+-- (*) fargs: Arguments passed in to the filter function.
+-- =======================================================================
+function find_from( topRec, ldtBinName, fromKey, count, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, fromKey, nil, count, filterModule,
+                      filter, fargs, nil);
+end
+-- Find and Remove
+function take_from( topRec, ldtBinName, fromKey, count, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, fromKey, nil, count, filterModule,
+                      filter, fargs, nil, true);
+end
+
+
+-- =======================================================================
+-- find_first() -- Return the first "count" objects in the large list.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) count: The Number of elements to return from the front of the LLIST.
+-- =======================================================================
+function find_first(topRec, ldtBinName, count, filterModule, filter, fargs)
+  return llist.find_first(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
+end
+-- Find and remove
+function take_first(topRec, ldtBinName, count, filterModule, filter, fargs)
+  return llist.find_first(topRec, ldtBinName, count, filterModule, filter, fargs, nil, true);
+end
+
+-- =======================================================================
+-- find_last() -- Return the last "count" objects in the large list.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) count: The Number of elements to return from the end of the LLIST.
+-- =======================================================================
+function find_last( topRec, ldtBinName, count, filterModule, filter, fargs )
+  return llist.find_last(topRec, ldtBinName, count, filterModule, filter, fargs, nil);
+end
+-- Find and Remove
+function take_last( topRec, ldtBinName, count, filterModule, filter, fargs )
+  return llist.find_last(topRec, ldtBinName, count, filterModule, filter, fargs, nil, true);
+end
+
+-- =======================================================================
+-- find_range() -- Locate the object(s) between minKey and maxKey
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
@@ -153,41 +185,34 @@ end
 -- (*) filter: User Defined Function (UDF) that returns passing values
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
-function range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
-  return llist.range( topRec, ldtBinName, minKey, maxKey, filterModule,
+function find_range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
                       filter, fargs, nil);
 end
-
--- =======================================================================
--- scan(): Return all elements
--- =======================================================================
--- Use the library find() call with no key (match all) and no filters.
--- =======================================================================
--- Parms:
--- (*) topRec: the user-level record holding the LDT Bin
--- (*) ldtBinName: The user's chosen name for the LDT bin
--- =======================================================================
-function scan( topRec, ldtBinName )
-  return llist.find( topRec, ldtBinName, nil, nil, nil, nil, nil);
+-- Find and Remove
+function take_range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
+                      filter, fargs, nil, true);
 end
 
 -- =======================================================================
--- filter(): Pass all matching elements thru the filter and return all
--- that qualify.
--- =======================================================================
--- Use the library find() call.  Note that passing in a nil key to do a
--- full scan.
+-- find_range_lim() -- Locate the object(s) between minKey and minKey+count
 -- =======================================================================
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) key: Search key for a value, or nil to match all values.
+-- (*) minKey: The key value for the beginning of the range search
+-- (*) count:  count number of values from minKey
 -- (*) filterModule: The User's UDF that contains filter functions
 -- (*) filter: User Defined Function (UDF) that returns passing values
 -- (*) fargs: Arguments passed in to the filter function.
 -- =======================================================================
-function filter( topRec, ldtBinName, key, filterModule, filter, fargs )
-  return llist.find( topRec, ldtBinName, key, filterModule, filter, fargs, nil);
+function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
+  return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil);
+end
+-- Find and Remove
+function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
+  return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil, true);
 end
 
 -- ======================================================================
@@ -201,21 +226,11 @@ end
 -- (3) key: The key we'll search for
 -- ======================================================================
 function remove( topRec, ldtBinName, key )
-  return llist.remove( topRec, ldtBinName, key, nil);
-end
-
--- ======================================================================
--- remove_all(): Remove all items corresponding to the Value List.
--- ======================================================================
--- Remove (Delete) the item(s) that correspond to "key".
---
--- Parms 
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName
--- (3) valueList: Could be values, could be keys
--- ======================================================================
-function remove_all( topRec, ldtBinName, valueList )
-  return llist.remove_all( topRec, ldtBinName, valueList, nil);
+  if (getmetatable(key) == List) then
+    return llist.remove_all( topRec, ldtBinName, key, nil);
+  else
+    return llist.remove( topRec, ldtBinName, key, nil);
+  end
 end
 
 -- (*) Status = remove_range(topRec,ldtBinName,minKey,maxKey)
@@ -265,7 +280,6 @@ end
 
 -- ========================================================================
 -- config() -- return the config settings
--- get_config() -- return the config settings
 -- ========================================================================
 -- Parms 
 -- (1) topRec: the user-level record holding the LDT Bin
@@ -275,27 +289,15 @@ function config( topRec, ldtBinName )
   return llist.config( topRec, ldtBinName );
 end
 
-function get_config( topRec, ldtBinName )
-  return llist.config( topRec, ldtBinName );
-end
-
 -- ========================================================================
--- get_capacity() -- return the current capacity setting for this LDT.
--- set_capacity() -- set the current capacity setting for this LDT.
+-- config() -- return the config settings
 -- ========================================================================
--- Parms:
+-- Parms 
 -- (1) topRec: the user-level record holding the LDT Bin
 -- (2) ldtBinName: The name of the LDT Bin
--- Result:
---   rc >= 0  (the current capacity)
---   rc < 0: Aerospike Errors
 -- ========================================================================
-function get_capacity( topRec, ldtBinName )
-  return llist.get_capacity( topRec, ldtBinName );
-end
-
-function set_capacity( topRec, ldtBinName, capacity )
-  return llist.set_capacity( topRec, ldtBinName, capacity );
+function setPageSize( topRec, ldtBinName, pageSize )
+  return llist.setPageSize( topRec, ldtBinName, pageSize );
 end
 
 -- ========================================================================
@@ -308,7 +310,6 @@ end
 function ldt_exists( topRec, ldtBinName )
   return llist.ldt_exists( topRec, ldtBinName );
 end
-
 
 -- ========================================================================
 -- ldt_validate() -- return 1 if LDT is in good shape.
@@ -325,144 +326,130 @@ end
 -- Dump: Debugging/Tracing mechanism -- show the WHOLE tree.
 -- ========================================================================
 function dump( topRec, ldtBinName )
-  return llist.dump( nil, topRec, ldtBinName );
+  return llist.dump( topRec, ldtBinName, nil );
 end
 
--- =======================================================================
--- Bulk Number Load Operations
--- =======================================================================
--- Add significant amounts to a list -- to aid in testing LLIST.
--- From "startValue", add "count" many more items, incrementing by 1 each time.
--- If the caller wants a pseudo-random pattern, she has some options:
--- (1) Call this function with random intervals -- like this:
---    (2..299, 1..99, 5..599, 3..399)
--- (2) Call this function with interleaved ranges (increment by, say, 3)
---    (0..299<incr 3>, 1..299<incr 3>, 2..299<incr 3>
---    First Range:  0, 3, 6, 9 ...
---    Second Range: 1, 4, 7, 10 ...
---    Third Range:  2, 5, 8, 11 ...
--- (3) Build a similar function that doesn't increment, but instead uses
---     math.random.  Notice, however, that if we use random, then we have to
---     configure it correctly so that it doesn't complain about duplicates.
+
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- <<  LLIST Main Functions >>
+-- ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+-- (*) Map    = get_config( topRec, ldtBinName )
+-- (*) Status = remove_all( topRec, ldtBinName, valueList ) 
+-- (*) Status = add_all( topRec, ldtBinName, valueList, createSpec )
+-- (*) Status = update_all( topRec, ldtBinName, valueList, createSpec )
+-- (*) List   = scan( topRec, ldtBinName )
+-- (*) List   = filter( topRec, ldtBinName, key, filterModule, filter, fargs )
+-- (*) List   = range(topRec,ldtBinName, minKey, maxKey,filterModule,filter,fargs)
+-- ======================================================================
+-- create()
+-- ======================================================================
+-- Create/Initialize a Large Ordered List  structure in a bin, using a
+-- single LLIST -- bin, using User's name, but Aerospike TYPE (AS_LLIST).
+--
 -- Parms:
 -- (*) topRec: the user-level record holding the LDT Bin
 -- (*) ldtBinName: The user's chosen name for the LDT bin
--- (*) startValue: The starting value to be inserted
--- (*) count:   The Number of values to insert
--- (*) incr:  The amount to increment each time to get the next value.
---            if (-1), then use the RANDOM function
+-- (*) createSpec: The map or module that contains Create Settings
+-- ======================================================================
+function create( topRec, ldtBinName, createSpec )
+  return llist.create( topRec, ldtBinName, createSpec );
+end
+
+-- =======================================================================
+-- add_all() -- Insert a list of values into the LLIST.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) valueList: The list of values to be inserted
 -- (*) createSpec: The map or module that contains Create Settings
 -- =======================================================================
-function
-bulk_number_load(topRec, ldtBinName, startValue, count, incr, createSpec)
-  local meth = "bulk_number_load()";
-  info("[ENTER]<%s:%s> Bin(%s) SV(%s) C(%s) Incr(%s) CS(%s)", MOD, meth,
-    tostring(ldtBinName), tostring(startValue), tostring(count), 
-    tostring(incr), tostring(createSpec));
+function add_all( topRec, ldtBinName, valueList, createSpec )
+  return llist.add_all( topRec, ldtBinName, valueList, createSpec, nil);
+end
 
-  -- Check the input values for non-nil
-  if startValue == nil or count == nil or incr == nil then
-    warn("Input Error: nil Parameters: startValue(%s) Count(%s) Incr(%s)",
-      tostring(startValue), tostring(count), tostring(incr));
-    error("Nil Input Parameters");
-  end
-
-  -- Check the input values for valid types (numbers only)
-  if type(startValue) ~= "number" or type(count) ~= "number" or
-     type(incr) ~= "number"
-  then
-    warn("Input Error: Bad Param types: startValue(%s) Count(%s) Incr(%s)",
-      type(startValue), type(count), type(incr));
-    error("Bad Input Parameter Types");
-  end
-
-  -- Init our subrecContext. .  The SRC tracks all open
-  -- SubRecords during the call. Then, allows us to close them all at the end.
-  -- For the case of repeated calls from Lua, the caller must pass in
-  -- an existing SRC that lives across LDT calls.
-  local src = ldt_common.createSubRecContext();
-
-  local rc = 0;
-  local value;
-  local rand = false;
-  if( incr == -1 ) then
-    -- set up for RANDOM values, not incremented values
-    rand = true;
-    incr = 1;
-  end
-  for i = 1, count*incr, incr do
-    if rand then
-      value = math.random(1, 10000);
-    else
-      value = startValue + i;
-    end
-      rc = llist.add( topRec, ldtBinName, value, createSpec, src );
-      if ( rc < 0 ) then
-          warn("<%s:%s>Error Return from Add Value(%d)",MOD, meth, rc );
-          error("INTERNAL ERROR");
-      end
-  end
-
-  info("[EXIT]<%s:%s> RC(%d)", MOD, meth, rc );
-  return rc;
-end -- bulk_number_load()
-
--- ========================================================================
--- <<< NEW (Experimental) FUNCTIONS >>>====================================
--- ========================================================================
--- (1) write_bytes( topRec, ldtBinName, inputArray, offset )
--- (2) read_bytes( topRec, ldtBinName, offset )
--- ========================================================================
-
--- ======================================================================
--- write_bytes()
--- ======================================================================
--- Take the inputArray and chop it into pieces that can be stored in
--- a LLIST.
---
+-- =======================================================================
+-- update_all() -- Update a list of values in LLIST.
+-- =======================================================================
 -- Parms:
--- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- (3) inputArray: The input data
--- (4) offset: Not used yet, but eventually will be the point at which
---             we start writing (or appending).  For now, assumed to be
---             zero, which means WRITE NEW every time.
--- Result:
---   Success: Return number of bytes written
---   Failure: Return error.
--- ======================================================================
-function write_bytes( topRec, ldtBinName, inputArray, offset )
-  return llist.write_bytes( topRec, ldtBinName, inputArray, offset, nil );
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) valueList: The list of values to be updated.
+-- (*) createSpec: The map or module that contains Create Settings
+-- =======================================================================
+function update_all( topRec, ldtBinName, valueList, createSpec )
+  return llist.update_all( topRec, ldtBinName, valueList, createSpec, nil)
+end
+
+-- =======================================================================
+-- range() -- Locate the object(s) between minKey and maxKey
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) minKey: The key value for the beginning of the range search
+-- (*) maxKey: The key value for the END       of the range search
+-- (*) filterModule: The User's UDF that contains filter functions
+-- (*) filter: User Defined Function (UDF) that returns passing values
+-- (*) fargs: Arguments passed in to the filter function.
+-- =======================================================================
+function range( topRec, ldtBinName, minKey, maxKey, filterModule, filter, fargs )
+  return llist.range( topRec, ldtBinName, minKey, maxKey, nil, filterModule,
+                      filter, fargs, nil);
+end
+
+-- =======================================================================
+-- scan(): Return all elements
+-- =======================================================================
+-- Use the library find() call with no key (match all) and no filters.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- =======================================================================
+function scan( topRec, ldtBinName )
+  return llist.find( topRec, ldtBinName, nil, nil, nil, nil, nil);
+end
+
+-- filter(): Pass all matching elements thru the filter and return all
+-- that qualify.
+-- =======================================================================
+-- Use the library find() call.  Note that passing in a nil key to do a
+-- full scan.
+-- =======================================================================
+-- Parms:
+-- (*) topRec: the user-level record holding the LDT Bin
+-- (*) ldtBinName: The user's chosen name for the LDT bin
+-- (*) key: Search key for a value, or nil to match all values.
+-- (*) filterModule: The User's UDF that contains filter functions
+-- (*) filter: User Defined Function (UDF) that returns passing values
+-- (*) fargs: Arguments passed in to the filter function.
+-- =======================================================================
+function filter( topRec, ldtBinName, keyList, filterModule, filter, fargs )
+  return llist.find( topRec, ldtBinName, keyList, filterModule, filter, fargs, nil);
 end
 
 -- ======================================================================
--- read_bytes()
+-- remove_all(): Remove all items corresponding to the Value List.
 -- ======================================================================
--- Read the binary pieces out of the LLIST and return them as a byte
--- array to the user.
+-- Remove (Delete) the item(s) that correspond to "key".
 --
--- Parms:
+-- Parms 
 -- (1) topRec: the user-level record holding the LDT Bin
--- (2) ldtBinName: The name of the LDT Bin
--- (3) offset: Not used yet, but eventually will be the point at which
---             we start writing (or appending).  For now, assumed to be
---             zero, which means WRITE NEW every time.
--- Result:
---   Success: Return the full byte array.
---   Failure: Return error.
+-- (2) ldtBinName
+-- (3) valueList: Could be values, could be keys
 -- ======================================================================
-function read_bytes( topRec, ldtBinName, offset )
-  return llist.read_bytes( topRec, ldtBinName, offset, nil );
+function remove_all( topRec, ldtBinName, valueList )
+  return llist.remove_all( topRec, ldtBinName, valueList, nil);
 end
 
 -- ========================================================================
---   _      _     _____ _____ _____ 
---  | |    | |   |_   _/  ___|_   _|
---  | |    | |     | | \ `--.  | |  
---  | |    | |     | |  `--. \ | |  
---  | |____| |_____| |_/\__/ / | |  
---  \_____/\_____/\___/\____/  \_/   (EXTERNAL)
---                                  
+-- get_config() -- return the config settings
 -- ========================================================================
--- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> -- <EOF> --
-
+-- Parms 
+-- (1) topRec: the user-level record holding the LDT Bin
+-- (2) ldtBinName: The name of the LDT Bin
+-- ========================================================================
+function get_config( topRec, ldtBinName )
+  return llist.config( topRec, ldtBinName );
+end
