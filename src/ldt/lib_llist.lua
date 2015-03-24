@@ -5286,6 +5286,22 @@ local function treeDelete( src, topRec, ldtCtrl, key )
   return rc;
 end -- treeDelete()
 
+local function setPageSize(topRec, ldtMap, pageSize) 
+  -- Upper bound of 900kb
+  -- Lower bound of 1Kb
+  if ((pageSize == nil) or (pageSize == 0)) then
+    ldtMap[LS.PageSize] = nil;
+    return
+  end
+
+  if (pageSize < 1 * 1024) then
+    pageSize = 1024;
+  elseif (pageSize > aerospike:get_config(topRec, "write-block-size")) then
+    pageSize = aerospike:get_config(topRec, "write-block-size") - 1024;
+  end
+  ldtMap[LS.PageSize] = pageSize;
+end
+
 -- This function takes in the user's settings and sets the appropriate
 -- values in the LDT mechanism.
 --
@@ -5306,31 +5322,20 @@ end -- treeDelete()
 -- StoreLimit    :: StoreLimit
 -- ========================================================================
 -- ======================================================================
-local function compute_settings(ldtMap, configMap )
+local function compute_settings(topRec, ldtMap, configMap )
   local meth="compute_settings()"
  
-  -- Perform some validation of the user's Config Parameters.
-  -- Notice that this is done only once at the initial create.
-  local rc = ldt_common.validateConfigParms(ldtMap, configMap);
-  if rc ~= 0 then
-    warn("[ERROR]<%s:%s> Unable to Set Configuration due to errors",
-      MOD, meth);
-    error(ldte.ERR_INPUT_PARM);
-  end
 
   -- Now that all of the values have been validated, we can use them
   -- safely without worry.  No more checking needed.
-  local pageSize        = configMap.TargetPageSize;
-  if (configMap.PageSize ~= nil) then
-    pageSize = configMap.PageSize;
-  end 
-  local writeBlockSize  = configMap.WriteBlockSize;
-  local recordOverHead  = configMap.RecordOverHead;
+  local pageSize = configMap.PageSize;
 
-  -- If set by user pick Store Limit and KeyUnique
-  if (configMap.StoreLimit ~= nil) then
-    ldtMap[LC.StoreLimit] = configMap.StoreLimit;
+  if (pageSize ~= nil and type(pageSize) ~= "number") then
+    warn("[ERROR]<%s:%s> PageSize (%s) is not a number", MOD, meth, tostring(pageSize));
+    error(ldte.ERR_INPUT_PARM);
   end
+  local writeBlockSize = aerospike:get_config(topRec, "write-block-size");
+
 
   if (configMap.KeyUnique ~= nil) then
     if (configMap.KeyUnique == true) then
@@ -5342,16 +5347,8 @@ local function compute_settings(ldtMap, configMap )
       ldtMap[LS.KeyUnique]  = AS_TRUE;
   end
 
-  -- These are the values we're going to set.
-  local ldtOverHead = 500; -- Overhead in Bytes.  Used in Root Node calc.
-  recordOverHead = recordOverHead + ldtOverHead;
-  if (pageSize > writeBlockSize - recordOverHead) then
-    pageSize = writeBlockSize - recordOverHead;
-  end
-
-  local threshold = 100;
   ldtMap[LS.StoreState] = SS_COMPACT; -- start in "compact mode"
-  ldtMap[LS.PageSize]   = pageSize;
+  setPageSize(topRec, ldtMap, pageSize);
 
   return 0;
 
@@ -5395,7 +5392,7 @@ local function setupLdtBin( topRec, ldtBinName, createSpec, firstValue)
     configMap.MaxObjectSize = ldt_common.getValSize(firstValue);
     configMap.MaxKeySize = ldt_common.getValSize(key);
   end
-  compute_settings(ldtMap, configMap);
+  compute_settings(topRec, ldtMap, configMap);
 
   -- Set up our Bin according to which type of storage we're starting with.
   if (ldtMap[LS.StoreState] == SS_COMPACT) then 
@@ -6733,15 +6730,7 @@ function llist.setPageSize( topRec, ldtBinName, pageSize )
   local propMap = ldtCtrl[LDT_PROP_MAP];
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
 
-  -- Upper bound of 900kb
-  -- Lower bound of 1Kb
-  if (pageSize < 1 * 1024) then
-     pageSize = 1024;
-  elseif (pageSize > aerospike:get_config(topRec, "write-block-size")) then
-     pageSize = aerospike:get_config(topRec, "write-block-size") - 1024;
-  end
-  ldtMap[LS.PageSize] = pageSize;
-
+  setPageSize(topRec, ldtMap, pageSize);
   if (rc == 0) then
     topRec[ldtBinName] = ldtCtrl;
     record.set_flags(topRec, ldtBinName, BF.LDT_BIN) --Must set every time
