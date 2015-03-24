@@ -485,6 +485,7 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.RootKeyList        = ldtMap[LS.RootKeyList];
   resultMap.RootDigestList     = ldtMap[LS.RootDigestList];
   resultMap.CompactList        = ldtMap[LS.CompactList];
+  resultMap.PageSize           = ldtMap[LS.PageSize];
   
   -- LLIST Inner Node Settings
 
