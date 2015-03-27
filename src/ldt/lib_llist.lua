@@ -2561,7 +2561,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
   for i = 1, treeLevels, 1 do
     if (i < treeLevels) then
       -- It's a root or node search -- so search the keys
-      resultMap = searchKeyList(keyList, searchKey);
+      resultMap = searchKeyList(ldtMap, keyList, searchKey);
       if (resultMap.Status < 0 or resultMap.Position <= 0) then
         info("[ERROR]<%s:%s> searchKeyList Problem: ResMap(%s)", MOD, meth,
           tostring(resultMap));
