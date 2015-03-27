@@ -483,7 +483,7 @@ local LS = {
 -- M:LC.StoreMode            m:LS.Modulo
 -- N:                        n:
 -- O:                        o:
--- P:LC.UserModule           p:
+-- P:                        p:
 -- Q:                        q:
 -- R:                        r:                     
 -- S:LS.StoreState           s:LS.LdrByteEntrySize   
@@ -680,7 +680,6 @@ local function ldtMapSummary( resultMap, ldtMap )
   resultMap.StoreState           = ldtMap[LS.StoreState];
   resultMap.SetTypeStore         = ldtMap[LS.SetTypeStore];
   resultMap.StoreLimit           = ldtMap[LC.StoreLimit];
-  resultMap.UserModule           = ldtMap[LC.UserModule];
   resultMap.BinaryStoreSize      = ldtMap[LS.BinaryStoreSize];
   resultMap.KeyType              = ldtMap[LC.KeyType];
   resultMap.TotalCount			 = ldtMap[LS.TotalCount];		
@@ -3224,7 +3223,7 @@ local function localDump( src, topRec, ldtBinName )
 
   local resultMap;
 
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   if(ldtMap[LS.SetTypeStore] ~= nil and ldtMap[LS.SetTypeStore] == ST_SUBRECORD)
   then
@@ -3472,7 +3471,7 @@ function lset.add( topRec, ldtBinName, newValue, createSpec, src, commit)
   -- For debugging, print out our main control map.
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   if (ldtMap[LS.SetTypeStore] ~= nil and ldtMap[LS.SetTypeStore] == ST_SUBRECORD)
   then
@@ -3623,7 +3622,7 @@ lset.get( topRec, ldtBinName, searchValue, filterModule, filter, fargs, src )
 
   -- Set up our global Filter Function.  This lets us process the function 
   -- pointers once per call, and consistently for all LSET operations.
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -3707,7 +3706,7 @@ function lset.exists( topRec, ldtBinName, searchValue, src )
   -- Set up our global Filter Functions. This lets us
   -- process the function pointers once per call, and consistently for
   -- all LSET operations. (However, filter not used here.)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   if(ldtMap[LS.SetTypeStore] ~= nil and ldtMap[LS.SetTypeStore] == ST_SUBRECORD)
   then
@@ -3776,7 +3775,7 @@ function lset.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   -- For debugging, print out our main control map.
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
   
   if(ldtMap[LS.SetTypeStore] ~= nil and ldtMap[LS.SetTypeStore] == ST_SUBRECORD)
@@ -3850,7 +3849,7 @@ function lset.remove( topRec, ldtBinName, deleteValue, filterModule,
     src = ldt_common.createSubRecContext();
   end
 
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
   
   if(ldtMap[LS.SetTypeStore] ~= nil and ldtMap[LS.SetTypeStore] == ST_SUBRECORD)

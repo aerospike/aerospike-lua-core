@@ -258,12 +258,9 @@ local LC = {
 -- (*) filter:
 -- RETURN: L_Filter, is assigned to G_Filter
 -- -----------------------------------------------------------------------
-function ldt_common.setReadFunctions(ldtMap, userModule, filter )
+function ldt_common.setReadFunctions(userModule, filter )
   local meth = "setReadFunctions()";
 
-  -- Do the Filter First. If not nil, then process.  Complain if things
-  -- go badly.
-  local createModule = ldtMap[LC.UserModule];
   local L_Filter = nil;
   local userModuleRef;   -- Hold the imported user module table
   local createModuleRef; -- Hold the imported create module table
@@ -274,20 +271,10 @@ function ldt_common.setReadFunctions(ldtMap, userModule, filter )
         MOD, meth, type(filter), tostring(filter) );
       error( ldte.ERR_FILTER_BAD );
     else
-      -- Ok -- so far, looks like we have a valid filter name, 
       if (userModule ~= nil and type(userModule) == "string" ) then
         userModuleRef = require(userModule);
         if (userModuleRef ~= nil and userModuleRef[filter] ~= nil) then
           L_Filter = userModuleRef[filter];
-        end
-      end
-
-      -- If we didn't find a good filter, keep looking.  Try the createModule.
-      -- The createModule should already have been checked for validity.
-      if (L_Filter == nil and createModule ~= nil) then
-        createModuleRef = require(createModule);
-        if (createModuleRef ~= nil and createModuleRef[filter] ~= nil) then
-          L_Filter = createModuleRef[filter];
         end
       end
 
@@ -1453,7 +1440,6 @@ function ldt_common.processModule(ldtMap, configMap, moduleName)
       local userSettings = userModule[G_SETTINGS];
       if (userSettings ~= nil) then
         userSettings(configMap); -- Update based on user need
-        ldtMap[LC.UserModule] = moduleName;
       end
     end
   else
@@ -1672,28 +1658,7 @@ function ldt_common.listInsert( valList, newValue, position )
     -- Just append to the list
     list.append( valList, newValue );
   else
-    -- Move elements in the list from "Position" to the end (end + 1)
-    -- and then insert the new value at "Position".  We go back to front so
-    -- that we don't overwrite anything.
-    -- (move pos:end to the right one cell)
-    -- This example: Position = 1, end = 3. (1 based array indexing, not zero)
-    --          +---+---+---+
-    -- (111) -> |222|333|444| +----Cell added by list.append()
-    --          +---+---+---+ V
-    --          +---+---+---+---+
-    -- (111) -> |   |222|333|444|
-    --          +---+---+---+---+
-    --          +---+---+---+---+
-    --          |111|222|333|444|
-    --          +---+---+---+---+
-    -- Note that we can't index beyond the end, so that first move must be
-    -- an append, not an index access list[end+1] = value.
-    local endValue = valList[listSize];
-    list.append( valList, endValue );
-    for i = (listSize - 1), position, -1  do
-      valList[i+1] = valList[i];
-    end -- for()
-    valList[position] = newValue;
+    list.insert( valList, position, newValue);
   end
   return 0; -- Always OK
 end -- ldt_common.listInsert()
@@ -1719,50 +1684,8 @@ function ldt_common.listDelete( objectList, position )
       MOD, meth, position, #objectList);
     error( ldte.ERR_DELETE );
   end
-
-  -- Move elements in the list to "cover" the item at Position.
-  --  +---+---+---+---+
-  --  |111|222|333|444|   Delete item (333) at position 3.
-  --  +---+---+---+---+
-  --  Moving forward, Iterate:  list[pos] = list[pos+1]
-  --  This is what you would THINK would work:
-  -- for i = position, (listSize - 1), 1 do
-  --   objectList[i] = objectList[i+1];
-  -- end -- for()
-  -- objectList[i+1] = nil;  (or, call trim() )
-  -- However, because we cannot assign "nil" to a list, nor can we just trim
-  -- a list (not yet anyway), we have to build a NEW list from the old list,
-  -- that contains JUST the pieces we want.
-  --
-  -- So, basically, we're going to build a new list out of the LEFT and
-  -- RIGHT pieces of the original list.
-  --
-  -- Future work:  Swap the current item with the end, and then just take
-  -- the list, minus the end.  This might perform better that doing two
-  -- list operations.
-  --
-  -- Our List operators :
-  -- (*) list.take (take the first N elements) 
-  -- (*) list.drop (drop the first N elements, and keep the rest) 
-  -- The special cases are:
-  -- (*) A list of size 1:  Just return a new (empty) list.
-  -- (*) We're deleting the FIRST element, so just use RIGHT LIST.
-  -- (*) We're deleting the LAST element, so just use LEFT LIST
-  if( listSize == 1 ) then
-    resultList = list();
-  elseif( position == 1 ) then
-    resultList = list.drop( objectList, 1 );
-  elseif( position == listSize ) then
-    resultList = list.take( objectList, position - 1 );
-  else
-    resultList = list.take( objectList, position - 1);
-    local addList = list.drop( objectList, position );
-    local addLength = list.size( addList );
-    for i = 1, addLength, 1 do
-      list.append( resultList, addList[i] );
-    end
-  end
-  return resultList;
+  list.remove(objectList, position);
+  return objectList; --resultList;
 end -- ldt_common.listDelete()
 
 -- ======================================================================
