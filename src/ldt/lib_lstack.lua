@@ -450,7 +450,7 @@ local LS = {
 -- L:LC.StoreLimit           l:LS.WarmListDigestCount
 -- N:                        n:
 -- O:                        o:
--- P:LC.UserModule           p:
+-- P:                        p:
 -- Q:                        q:
 -- R:LS.ColdDataRecCount     r:LS.ColdDirRecCount
 -- S:                        s:LS.LdrByteEntrySize
@@ -534,7 +534,6 @@ local function ldtMapSummary( resultMap, ldtMap )
 
   -- General LDT Parms:
   resultMap.StoreLimit           = ldtMap[LC.StoreLimit];
-  resultMap.UserModule           = ldtMap[LC.UserModule];
 
   -- LDT Data Record (LDR) Settings:
   resultMap.LdrEntryCountMax     = ldtMap[LS.LdrEntryCountMax];
@@ -4437,7 +4436,7 @@ function lstack.push( topRec, ldtBinName, newValue, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   local newStoreValue = newValue;
 
@@ -4527,7 +4526,7 @@ function lstack.push_all( topRec, ldtBinName, valueList, createSpec, src )
 
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -4648,7 +4647,7 @@ lstack.peek( topRec, ldtBinName, peekCount, filterModule, filter, fargs, src )
   GP=F and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  G_Filter = ldt_common.setReadFunctions(ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
@@ -4812,7 +4811,7 @@ lstack.pop( topRec, ldtBinName, popCount, filterModule, filter, fargs, src )
   GP=D and trace("[DEBUG]: <%s:%s> LDT List Summary(%s)",
     MOD, meth, ldtSummaryString( ldtCtrl ) );
 
-  G_Filter = ldt_common.setReadFunctions(ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open

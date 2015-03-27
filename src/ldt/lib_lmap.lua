@@ -327,7 +327,7 @@ local LDR_ByteEntryCount       = 'C';
 -- M:LC.StoreMode            m:LS.HashDirMark
 -- N:LS.TotalCount           n:LS.CompactNameList
 -- O:                        o:LS.OverWrite
--- P:LC.UserModule           p:
+-- P:                        p:
 -- Q:                        q:
 -- R:                        r:
 -- S:LS.StoreState           s:LS.LdrByteEntrySize
@@ -490,7 +490,6 @@ local function ldtMapSummary( resultMap, ldtMap )
   -- General LMAP Parms:
   resultMap.StoreMode            = ldtMap[LC.StoreMode];
   resultMap.StoreState           = ldtMap[LS.StoreState];
-  resultMap.UserModule           = ldtMap[LC.UserModule];
   resultMap.KeyType              = ldtMap[LC.KeyType];
   resultMap.BinaryStoreSize      = ldtMap[LS.BinaryStoreSize];
   resultMap.KeyType              = ldtMap[LC.KeyType];
@@ -2649,7 +2648,7 @@ function lmap.put( topRec, ldtBinName, newName, newValue, createSpec, src )
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions(ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions(nil, nil );
   
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2777,7 +2776,7 @@ function lmap.put_all( topRec, ldtBinName, nameValMap, createSpec, src )
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read/Write Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
 
   -- Init our subrecContext, if necessary.  The SRC tracks all open
   -- SubRecords during the call. Then, allows us to close them all at the end.
@@ -2894,7 +2893,7 @@ lmap.get(topRec, ldtBinName, searchName, filterModule, filter, fargs, src)
   end
   
   -- Set up the Read Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
 
 --  --
@@ -2988,7 +2987,7 @@ lmap.get_all(topRec, ldtBinName, nameList, filterModule, filter, fargs, src)
   end
   
   -- Set up the Read Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
 
   local listSize = #nameList;
@@ -3050,7 +3049,7 @@ function lmap.exists(topRec, ldtBinName, searchName, src )
   end
   
   -- Set up the Read Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, nil, nil );
+  G_Filter = ldt_common.setReadFunctions( nil, nil );
   G_FunctionArgs = nil;
 
   -- Process these two options differently.  Either we're in COMPACT MODE,
@@ -3136,7 +3135,7 @@ function lmap.scan(topRec, ldtBinName, filterModule, filter, fargs, src)
   end
 
   -- Set up the Read Functions (Filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter );
+  G_Filter = ldt_common.setReadFunctions(filterModule, filter );
   G_FunctionArgs = fargs;
 
   if ldtMap[LS.StoreState] == SS_COMPACT then 
@@ -3215,7 +3214,7 @@ lmap.remove( topRec, ldtBinName, searchName, filterModule, filter, fargs, src )
   GP=DEBUG and ldtDebugDump( ldtCtrl );
 
   -- Set up the Read Functions (filter)
-  G_Filter = ldt_common.setReadFunctions( ldtMap, filterModule, filter);
+  G_Filter = ldt_common.setReadFunctions(filterModule, filter);
   G_FunctionArgs = fargs;
   
   -- For the compact list, it's a simple list delete (if we find it).
