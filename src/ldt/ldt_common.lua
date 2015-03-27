@@ -1296,7 +1296,7 @@ function ldt_common.getPageSize( topRec, pageSize )
     pageSize = aerospike:get_config(topRec, "ldt-page-size");
   end
   return pageSize;
-end -- setReadFunctions()
+end -- getPageSize()
 
 -- ========================================================================
 -- ldt_common.validateConfigParms()
@@ -1905,7 +1905,7 @@ end -- setLdtRecordType()
 --   res = 0: all is well
 --   res = -1: Some sort of error
 -- ========================================================================
-function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
+function ldt_common.removeEsr( src, topRec, propMap)
   local meth = "removeEsr()";
   local rc = 0; -- start off optimistic
 
@@ -1918,8 +1918,8 @@ function ldt_common.removeEsr( src, topRec, propMap, ldtBinName )
     if (rc == nil or rc == 0) then
       propMap[PM.EsrDigest] = 0;
     else
-      warn("[ESR DELETE ERROR]<%s:%s>RC(%d) Bin(%s) ESR(%s)",
-        MOD, meth, rc, ldtBinName, esrDigestString);
+      warn("[ESR DELETE ERROR]<%s:%s>RC(%d) ESR(%s)",
+        MOD, meth, rc, esrDigestString);
       error( ldte.ERR_SUBREC_DELETE );
     end
   end
