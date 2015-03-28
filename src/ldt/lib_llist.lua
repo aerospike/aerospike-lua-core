@@ -416,6 +416,7 @@ local LS = {
 local G_Filter = nil;
 local G_FunctionArgs = nil;
 local G_PageSize = nil;
+local G_Prev = nil;
 
 -- <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> <udf> 
 -- -----------------------------------------------------------------------
@@ -2767,7 +2768,11 @@ local function nodeInsert( ldtMap, keyList, digestList, key, digest, position )
   end
 
   ldt_common.listInsert(keyList, key, position);
-  ldt_common.listInsert(digestList, digest, position + 1);
+  if (G_Prev) then
+    ldt_common.listInsert(digestList, digest, position);
+  else
+    ldt_common.listInsert(digestList, digest, position + 1);
+  end
 end -- nodeInsert()
 
 -- ======================================================================
@@ -3498,11 +3503,12 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     populateLeaf(src, newLeafRec, list()); 
     leafInsert(src, topRec, newLeafRec, ldtMap, newKey, newValue, 0);
     adjustLeafPointersAfterInsert(src, topRec, ldtMap, newLeafRec, leafSubRec, false);
+    G_Prev = true;
     ldt_common.updateSubRec(src, newLeafRec);
 
     iCount = iCount + 1;
-    iKeyList[iCount] = newKey;
-    iDigestList[iCount] = record.digest( newLeafRec);
+    iKeyList[iCount] = getKeyValue(objectList[1]);
+    iDigestList[iCount] = record.digest(newLeafRec);
   else
     local splitKey  = getKeyValue( objectList[splitPosition] );
     local leftList  = list.take(objectList, splitPosition - 1);
@@ -3770,7 +3776,7 @@ local function treeInsert (src, topRec, ldtCtrl, value, update)
         end
       else
         info("[User ERROR]<%s:%s> Unique Key(%s) Violation",
-          MOD, meth, tostring(value ));
+          MOD, meth, tostring(getKeyValue(value) ));
         error( ldte.ERR_UNIQUE_KEY );
       end
       -- End of the UPDATE case
@@ -5470,18 +5476,20 @@ local function localWrite(src, topRec, ldtCtrl, newValue, update)
   local rc = 0;
   local objectList = ldtMap[LS.CompactList];
   local storeState = ldtMap[LS.StoreState];
+  G_Prev = false;
 
   -- When we're in "Compact" mode, before each insert, look to see if 
   -- it's time to turn our single list into a tree.
-  if ( (storeState == SS_COMPACT) and
-         (ldt_common.getValSize(objectList) 
+  if ( ( ldtMap[LS.StoreState] == SS_COMPACT ) and
+         (ldt_common.getValSize(ldtMap[LS.CompactList]) 
           + ldt_common.getValSize(newValue) > G_PageSize) ) 
   then
     -- info("Size %d > %d", ldt_common.getValSize(ldtMap[LS.CompactList])
     --        + ldt_common.getValSize(newValue), G_PageSize);
-    convertList(src, topRec, ldtCtrl);
+    convertList(src, topRec, ldtCtrl, ldtMap);
   end
  
+  local storeState = ldtMap[LS.StoreState];
   -- Do the local insert.
   local key;
   local update_done = false;
