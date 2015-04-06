@@ -2322,8 +2322,8 @@ listScan(objectList, startPosition, ldtMap, resultList, keyList, searchKey, coun
       break;
     end
 
-    if((compareResult == CR.EQUAL)or(compareResult == flag)) then
-      -- This one qualifies -- save it in result -- if it passes the filter.
+	if ((flag == CR.EQUAL) and (compareResult == CR.EQUAL)) then
+	  -- Equality lookup
       if (addResult(ldtMap, liveObject, resultList, keyList) ~= 0) then
         if (count ~= nil) then
            count = count - 1;
@@ -2333,12 +2333,25 @@ listScan(objectList, startPosition, ldtMap, resultList, keyList, searchKey, coun
       -- If we're doing a RANGE scan, then we don't want to jump out, but
       -- if we're doing just a VALUE search (and it's unique), then we're 
       -- done and it's time to leave.
-      if(uniqueKey == AS_TRUE and searchKey ~= nil and flag == CR.EQUAL) then
+      if (uniqueKey == AS_TRUE and searchKey ~= nil) then
         scanStatus = SCAN.DONE;
         break;
       end
-    else
-      -- First non-equals (or non-range end) means we're done.
+    elseif (flag == CR.GREATER_THAN) then
+      -- This one qualifies maxKey is strictly greater 
+      -- save it in result -- if it passes the filter.
+	  if (compareResult == CR.GREATER_THAN) then
+        if (addResult(ldtMap, liveObject, resultList, keyList) ~= 0) then
+          if (count ~= nil) then
+             count = count - 1;
+          end
+        end
+      elseif (flag == CR.EQUAL) then 
+        scanStatus = SCAN.DONE;
+        break;
+      end
+    elseif (compareResult == CR.LESS_THAN) then
+      -- First non-equals (or beyond range end) means we're done.
       scanStatus = SCAN.DONE;
       break;
     end
@@ -5796,7 +5809,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   return successCount;
 end -- llist.update_all()
 
-local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+local function localFind(topRec, ldtCtrl, key, src, resultList, keyList, noerror)
 
   local meth = "localFind()";
 
@@ -5817,7 +5830,12 @@ local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
         error (ldte.ERR_INTERNAL);
       end
     else
-      error (ldte.ERR_NOT_FOUND);
+      if (noerror == true) then
+        -- Send back key for the non-unique world
+        list.append(resultList, nil);
+      else
+        error (ldte.ERR_NOT_FOUND);
+      end
     end
   else
     -- Do the TREE Search
@@ -5830,7 +5848,12 @@ local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
             MOD, meth, rc );
       end
     else
-      error(ldte.ERR_NOT_FOUND);
+      if (noerror == true) then
+        -- Send back key for the non-unique world
+        list.append(resultList, nil);
+      else
+        error (ldte.ERR_NOT_FOUND);
+      end
     end
   end -- tree search
 
@@ -5927,7 +5950,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src,
       local listSize = list.size(value)
       for i = 1, listSize, 1 do
          local key = getKeyValue( value[i]);
-         localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+         localFind(topRec, ldtCtrl, key, src, resultList, keyList, true)
       end -- tree search
     else
       warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
@@ -5936,7 +5959,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src,
     end
   else
     local key = getKeyValue( value);
-    localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+    localFind(topRec, ldtCtrl, key, src, resultList, keyList, false)
   end
 
   doTake(topRec, ldtBinName, resultList, keyList, src, take);
