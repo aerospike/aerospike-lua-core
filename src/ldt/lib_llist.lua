@@ -5796,7 +5796,7 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
   return successCount;
 end -- llist.update_all()
 
-local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+local function localFind(topRec, ldtCtrl, key, src, resultList, keyList, noerror)
 
   local meth = "localFind()";
 
@@ -5817,7 +5817,12 @@ local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
         error (ldte.ERR_INTERNAL);
       end
     else
-      error (ldte.ERR_NOT_FOUND);
+      if (noerror == true) then
+        -- Send back key for the non-unique world
+        list.append(resultList, nil);
+      else
+        error (ldte.ERR_NOT_FOUND);
+      end
     end
   else
     -- Do the TREE Search
@@ -5830,7 +5835,12 @@ local function localFind(topRec, ldtCtrl, key, src, resultList, keyList)
             MOD, meth, rc );
       end
     else
-      error(ldte.ERR_NOT_FOUND);
+      if (noerror == true) then
+        -- Send back key for the non-unique world
+        list.append(resultList, nil);
+      else
+        error (ldte.ERR_NOT_FOUND);
+      end
     end
   end -- tree search
 
@@ -5927,7 +5937,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src,
       local listSize = list.size(value)
       for i = 1, listSize, 1 do
          local key = getKeyValue( value[i]);
-         localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+         localFind(topRec, ldtCtrl, key, src, resultList, keyList, true)
       end -- tree search
     else
       warn("[ERROR]<%s:%s> Invalid Input Value List(%s)",
@@ -5936,7 +5946,7 @@ function llist.find(topRec, ldtBinName, value, filterModule, filter, fargs, src,
     end
   else
     local key = getKeyValue( value);
-    localFind(topRec, ldtCtrl, key, src, resultList, keyList)
+    localFind(topRec, ldtCtrl, key, src, resultList, keyList, false)
   end
 
   doTake(topRec, ldtBinName, resultList, keyList, src, take);
@@ -6253,7 +6263,7 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
   if (maxKey == nil and type(count) ~= "number") then
     warn("[ERROR]<%s:%s> Range Lookup with invalid Parameter maxKey(%s), count(%s)",
         MOD, meth, tostring( maxKey ), tostring( count ));
-    error(ldte.ERR_INPUT_PARAM);
+    error(ldte.ERR_INPUT_PARM);
   end
 
   local resultList;
