@@ -2322,8 +2322,8 @@ listScan(objectList, startPosition, ldtMap, resultList, keyList, searchKey, coun
       break;
     end
 
-	if ((flag == CR.EQUAL) and (compareResult == CR.EQUAL)) then
-	  -- Equality lookup
+    if((compareResult == CR.EQUAL)or(compareResult == flag)) then
+      -- This one qualifies -- save it in result -- if it passes the filter.
       if (addResult(ldtMap, liveObject, resultList, keyList) ~= 0) then
         if (count ~= nil) then
            count = count - 1;
@@ -2333,25 +2333,12 @@ listScan(objectList, startPosition, ldtMap, resultList, keyList, searchKey, coun
       -- If we're doing a RANGE scan, then we don't want to jump out, but
       -- if we're doing just a VALUE search (and it's unique), then we're 
       -- done and it's time to leave.
-      if (uniqueKey == AS_TRUE and searchKey ~= nil) then
+      if(uniqueKey == AS_TRUE and searchKey ~= nil and flag == CR.EQUAL) then
         scanStatus = SCAN.DONE;
         break;
       end
-    elseif (flag == CR.GREATER_THAN) then
-      -- This one qualifies maxKey is strictly greater 
-      -- save it in result -- if it passes the filter.
-	  if (compareResult == CR.GREATER_THAN) then
-        if (addResult(ldtMap, liveObject, resultList, keyList) ~= 0) then
-          if (count ~= nil) then
-             count = count - 1;
-          end
-        end
-      elseif (flag == CR.EQUAL) then 
-        scanStatus = SCAN.DONE;
-        break;
-      end
-    elseif (compareResult == CR.LESS_THAN) then
-      -- First non-equals (or beyond range end) means we're done.
+    else
+      -- First non-equals (or non-range end) means we're done.
       scanStatus = SCAN.DONE;
       break;
     end
