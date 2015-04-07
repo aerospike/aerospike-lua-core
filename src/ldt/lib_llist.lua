@@ -6263,7 +6263,7 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
   if (maxKey == nil and type(count) ~= "number") then
     warn("[ERROR]<%s:%s> Range Lookup with invalid Parameter maxKey(%s), count(%s)",
         MOD, meth, tostring( maxKey ), tostring( count ));
-    error(ldte.ldte.ERR_INPUT_PARM);
+    error(ldte.ERR_INPUT_PARM);
   end
 
   local resultList;
