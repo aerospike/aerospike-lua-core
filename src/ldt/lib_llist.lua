@@ -5754,6 +5754,10 @@ function llist.update_all( topRec, ldtBinName, valueList, createSpec, src )
 
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, false );
 
+  if (ldtCtrl == nil) then
+    ldtCtrl = setupLdtBin( topRec, ldtBinName, createSpec, firstValue );
+  end
+
   if ( src == nil ) then
     src = ldt_common.createSubRecContext();
   end
@@ -6616,7 +6620,7 @@ function llist.setPageSize( topRec, ldtBinName, pageSize )
     error( ldte.ERR_NS_LDT_NOT_ENABLED);
   end
 
-  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, false );
+  local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
 
   -- If the record does not exist, or the BIN does not exist, then we must
   -- create it and initialize the LDT map. Otherwise, use it.
