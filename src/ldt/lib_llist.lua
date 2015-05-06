@@ -2863,6 +2863,16 @@ local function createNodeRec( src, topRec, ldtCtrl )
   return nodeSubRec;
 end -- createNodeRec()
 
+local function getLeftRight(splitList, splitPosition)
+    if (splitPosition == 0) then
+	return list(), splitList;
+    end
+
+    local leftLeafList  =  list.take( splitList, splitPosition );
+    local rightLeafList =  list.drop( splitList, splitPosition );
+    return leftLeafList, rightLeafList; 
+end
+
 
 -- ======================================================================
 -- splitRootInsert()
@@ -2934,8 +2944,7 @@ local function splitRootInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList)
     rightKeyList = list();
   end
 
-  local leftDigestList  = list.take( digestList, splitPosition );
-  local rightDigestList = list.drop( digestList, splitPosition );
+  local leftDigestList, rightDigestList = getLeftRight( digestList, splitPosition );
 
   -- Create two new Child Inner Nodes -- that will be the new Level 2 of the
   -- tree.  The root gets One Key and Two Digests.
@@ -3082,8 +3091,7 @@ local function splitNodeInsert( src, topRec, sp, ldtCtrl, iKeyList, iDigestList,
       rightKeyList = list();
     end
 
-    local leftDigestList  = list.take( digestList, splitPosition );
-    local rightDigestList = list.drop( digestList, splitPosition );
+    local leftDigestList, rightDigestList = getLeftRight( digestList, splitPosition );
 
     local leftNodeRec = nodeSubRec; -- our new name for the existing node
     local rightNodeRec = createNodeRec( src, topRec, ldtCtrl );
@@ -3374,8 +3382,7 @@ splitLeafUpdate( src, topRec, sp, ldtCtrl, key, newValue )
       ldt_common.updateSubRec( src, leafSubRec );
     else
       local splitKey = objectList[splitPosition];
-      local leftList  = list.take( objectList, splitPosition - 1);
-      local rightList = list.drop( objectList, splitPosition - 1);
+      local leftList, rightList = getLeftRight( objectList, splitPosition - 1);
       leafListSize  = ldt_common.getValSize(rightList);
 
       -- PK:leftList
@@ -3511,8 +3518,7 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
     iDigestList[iCount] = record.digest(newLeafRec);
   else
     local splitKey  = getKeyValue( objectList[splitPosition] );
-    local leftList  = list.take(objectList, splitPosition - 1);
-    local rightList = list.drop(objectList, splitPosition - 1);
+    local leftList, rightList = getLeftRight( objectList, splitPosition - 1);
     --info("Split @ %s of %s as %s for %s in %s as L(%s) R(%s)", tostring(splitPosition), tostring(#objectList), tostring(splitKey), tostring(newKey), tostring(printKey(ldtMap, objectList)), tostring(printKey(ldtMap, leftList)), tostring(printKey(ldtMap, rightList)));
 
     local compareResult = keyCompare( newKey, splitKey );
@@ -3557,7 +3563,7 @@ splitLeafInsert( src, topRec, sp, ldtCtrl, newKey, newValue )
           -- minKey:X
           local newLeafRec  = createLeafRec(src, topRec, ldtCtrl, nil );
           populateLeaf(src, newLeafRec, rightList );
-          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, leafSubRec, newLeafRec, true);
+          adjustLeafPointersAfterInsert(src ,topRec, ldtMap, newLeafRec1, newLeafRec, true);
 
           iCount = iCount + 1;
           iKeyList[iCount] = getKeyValue( rightList[1]);
@@ -3957,8 +3963,7 @@ local function convertList(src, topRec, ldtCtrl )
   -- Our List operators :
   -- (*) list.take (take the first N elements)
   -- (*) list.drop (drop the first N elements, and keep the rest)
-    leftLeafList  =  list.take( compactList, splitPosition );
-    rightLeafList =  list.drop( compactList, splitPosition );
+    leftLeafList, rightLeafList = getLeftRight( compactList, splitPosition );
   else
     -- It's possible that the entire compact list is composed of a single
     -- value (e.g. "7,7,7,7 ... 7,7,7"), in which case we have to treat the
@@ -4463,8 +4468,7 @@ local function redistributeRootChild(src, topRec, ldtCtrl)
   local leftKeyList  = list.take( childKeyList, splitPosition - 1 );
   local rightKeyList = list.drop( childKeyList, splitPosition  );
 
-  local leftDigestList  = list.take( childDigestList, splitPosition );
-  local rightDigestList = list.drop( childDigestList, splitPosition );
+  local leftDigestList, rightDigestList = getLeftRight(childDigestList, splitPosition);
 
   -- It is as if we now have two root children -- a Left Node(the old single
   -- child) and the new Right Node.
