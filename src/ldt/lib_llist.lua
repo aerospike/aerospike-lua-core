@@ -1130,6 +1130,9 @@ local function keyCompare(searchKey, dataKey)
     -- a nil search key is always LESS THAN everything.
     result = CR.LESS_THAN;
   else
+    if (type(searchKey) ~= type(dataKey)) then
+      error(ldte.ERR_TYPE_MISMATCH);
+    end
     if searchKey == dataKey then
       result = CR.EQUAL;
     elseif searchKey < dataKey then

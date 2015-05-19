@@ -1057,6 +1057,9 @@ function ldt_common.validateBinName( ldtBinName )
   elseif type( ldtBinName ) ~= "string"  then
     warn("[ERROR EXIT]:<%s:%s> Bin Name Not a String", MOD, meth );
     error( ldte.ERR_BIN_NAME_NOT_STRING );
+  elseif ldtBinName == "" then
+    warn("[ERROR EXIT]:<%s:%s> Empty Bin Name", MOD, meth );
+    error( ldte.ERR_NULL_BIN_NAME );
   elseif string.len( ldtBinName ) > AS_BIN_NAME_LIMIT then
     warn("[ERROR EXIT]:<%s:%s> Bin Name Too Long", MOD, meth );
     error( ldte.ERR_BIN_NAME_TOO_LONG );
