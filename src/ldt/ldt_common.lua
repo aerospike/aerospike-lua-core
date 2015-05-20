@@ -1298,7 +1298,7 @@ function ldt_common.getPageSize( topRec, pageSize )
   if (pageSize == nil) then
     pageSize = aerospike:get_config(topRec, "ldt-page-size");
   end
-  return pageSize;
+  return pageSize, aerospike:get_config(topRec, "write-block-size")
 end -- getPageSize()
 
 -- ========================================================================
