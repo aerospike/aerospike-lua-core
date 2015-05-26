@@ -2552,7 +2552,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
       -- than that to be an inner node.
       if( i < (treeLevels - 1) ) then
         -- Next Node is an Inner Node. 
-        nodeRec = ldt_common.openSubRec( src, topRec, digestString );
+        nodeRec = ldt_common.openSubRec( src, topRec, digestString, sp );
         keyList = nodeRec[NSR_KEY_LIST_BIN];
         keyCount = list.size( keyList );
         digestList = nodeRec[NSR_DIGEST_BIN]; 
@@ -2564,7 +2564,7 @@ local function treeSearch( src, topRec, sp, ldtCtrl, searchKey, newVal)
         end
       else
         -- Next Node is a Leaf
-        nodeRec = ldt_common.openSubRec( src, topRec, digestString );
+        nodeRec = ldt_common.openSubRec( src, topRec, digestString, sp );
         objectList = nodeRec[LSR_LIST_BIN];
         objectCount = list.size( objectList );
         if (objectList ~= nil) then

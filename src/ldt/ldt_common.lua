@@ -684,7 +684,7 @@ end --  createSubRec()
 -- digestString: The identifier of the Sub-Rec.
 --
 -- ======================================================================
-function ldt_common.openSubRec( srcCtrl, topRec, digestString )
+function ldt_common.openSubRec( srcCtrl, topRec, digestString, sp)
   local meth = "openSubRec()";
 
   -- Do some checks while we're in DEBUG mode.
@@ -746,8 +746,8 @@ function ldt_common.openSubRec( srcCtrl, topRec, digestString )
     --     recMap.ItemCount = itemCount + 1;
     subRec = aerospike:open_subrec( topRec, digestString );
     if (subRec == nil) then
-      warn("[ERROR]<%s:%s> SubRec Open Failure: Digest(%s)", MOD, meth,
-        digestString );
+      warn("[ERROR]<%s:%s> SubRec Open Failure: Digest(%s) Parent Digest(%s)", MOD, meth,
+        digestString, sp and tostring(sp.DigestList[1]) or "NULL" );
       error( ldte.ERR_SUBREC_OPEN );
     end
     -- Add this open SubRec to our SubRec Context.
