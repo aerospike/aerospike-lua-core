@@ -622,7 +622,7 @@ function ldt_common.createSubRec( srcCtrl, topRec, ldtCtrl, recType )
 
   local newSubRec = aerospike:create_subrec( topRec );
   if( newSubRec == nil ) then
-    warn("[ERROR]<%s:%s>Problems Creating New Subrec (%s)", MOD,meth );
+    warn("[ERROR]<%s:%s>Problems Creating New Subrec", MOD,meth );
     error( ldte.ERR_SUBREC_CREATE );
   end
   record.set_type( newSubRec, RT_SUB ); -- Always RT_SUB for this call.
