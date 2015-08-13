@@ -6281,20 +6281,26 @@ llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, far
         MOD, meth, tostring( maxKey ), tostring( count ));
     error(ldte.ERR_INPUT_PARM);
   end
-
-  local resultList;
-
-  if (count ~= nil) then
-    resultList = list.new(count);
-  else
-    resultList = list.new(50, 100);
-  end
-
   
   local ldtCtrl = validateRecBinAndMap( topRec, ldtBinName, true );
   
   -- Extract the property map and control map from the ldt bin list.
   local ldtMap  = ldtCtrl[LDT_CTRL_MAP];
+  local propMap = ldtCtrl[LDT_PROP_MAP];
+
+  local itemCount = propMap[PM.ItemCount];
+
+  local resultList;
+
+  if (count ~= nil) then
+    if count > itemCount or count <= 0 then
+      resultList = list.new(itemCount);
+    else
+      resultList = list.new(count);
+    end
+  else
+    resultList = list.new(50, 100);
+  end
 
   G_Filter = ldt_common.setReadFunctions( filterModule, filter );
   G_FunctionArgs = fargs;
