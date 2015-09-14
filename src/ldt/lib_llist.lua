@@ -5446,6 +5446,8 @@ local function localDelete(topRec, ldtCtrl, key, src)
     if (resultMap.Status == ERR.OK and resultMap.Found) then
       ldtMap[LS.CompactList] =
         ldt_common.listDelete(objectList, resultMap.Position);
+    else
+        rc = ERR.NOT_FOUND;
     end
   else
     rc = treeDelete(src, topRec, ldtCtrl, key);
