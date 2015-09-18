@@ -67,6 +67,7 @@ function env_record()
         ["Map"] = Map, 
         ["List"] = List,
         ["Bytes"] = Bytes,
+        ["GeoJSON"] = GeoJSON,
         ["putX"] = putX,
 
         -- logging functions
