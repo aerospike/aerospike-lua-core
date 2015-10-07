@@ -5898,6 +5898,7 @@ end
 -- (*) func:
 -- (*) fargs:
 -- (*) src: Sub-Rec Context - Needed for repeated calls from caller
+-- (*) take: whether to remove the items from the list
 -- Result:
 -- (*) Success: resultList
 -- (*) Error:   error() function is called to jump out of Lua.
@@ -6373,16 +6374,16 @@ function llist.scan( topRec, ldtBinName, src )
 end -- llist.scan()
 
 -- =======================================================================
--- filter(): Pass all elements thru the filter and return all that qualify.
+-- filter(): Pass elements thru the filter and return all that qualify.
 -- =======================================================================
--- Do a full scan and pass all elements thru the filter, returning all
--- elements that match.
+-- Find the element(s) specified by keyList (or do a full scan if keyList
+-- is nil) and pass them through the filter, returning all that qualify.
 -- Return:
 -- Success: the Result List.
 -- Error: error()
 -- =======================================================================
-function llist.filter (topRec, ldtBinName, filterModule, filter, fargs, src)
-  return llist.scan(topRec, ldtBinName, filterModule, filter, fargs, src);
+function llist.filter( topRec, ldtBinName, keyList, filterModule, filter, fargs, src )
+  return llist.find( topRec, ldtBinName, keyList, filterModule, filter, fargs, src );
 end -- llist.filter()
 
 
