@@ -211,7 +211,7 @@ function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule
   return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil);
 end
 -- Find and Remove
-function find_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
+function take_range_lim( topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs )
   return llist.range(topRec, ldtBinName, minKey, maxKey, count, filterModule, filter, fargs, nil, true);
 end
 
