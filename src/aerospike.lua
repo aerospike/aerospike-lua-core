@@ -63,6 +63,7 @@ function env_record()
         ["list"] = list,
         ["map"] = map,
         ["bytes"] = bytes,
+        ["geojson"] = geojson,
         ["aerospike"] = aerospike,
         ["Map"] = Map, 
         ["List"] = List,
