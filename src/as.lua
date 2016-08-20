@@ -73,7 +73,7 @@ function map.merge(m1,m2,f)
     for k,v in map.pairs(m2) do
         mm[k] = (mm[k] and f and type(f) == 'function' and f(m1[k],m2[k])) or v
     end
-    return map(mm)
+    return map(mm, map.size(m1) + map.size(m2))
 end
 
 --
@@ -92,7 +92,7 @@ function map.diff(m1,m2)
             mm[k] = v
         end
     end
-    return map(mm)
+    return map(mm, map.size(m1) + map.size(m2))
 end
 
 --
@@ -105,7 +105,7 @@ function map.clone(m)
     for k,v in map.pairs(m) do
         mm[k] = v
     end
-    return map(mm)
+    return map(mm, map.size(m))
 end
 
 -- ############################################################################
