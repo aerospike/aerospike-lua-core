@@ -83,6 +83,7 @@ function env_record()
         ["getmetatable"] = getmetatable,
         ["ipairs"] = ipairs,
         ["load"] = load,
+        ["loadstring"] = loadstring,
         ["module"] = module,
         ["next"] = next,
         ["pairs"] = pairs,
