@@ -30,19 +30,19 @@ ldebug = debug;
 -- ############################################################################
 
 function trace(m, ...)
-    return aerospike:log(4, string.format(m, ...))
+	return aerospike:log(4, string.format(m, ...))
 end
 
 function debug(m, ...)
-    return aerospike:log(3, string.format(m, ...))
+	return aerospike:log(3, string.format(m, ...))
 end
 
 function info(m, ...)
-    return aerospike:log(2, string.format(m, ...))
+	return aerospike:log(2, string.format(m, ...))
 end
 
 function warn(m, ...)
-    return aerospike:log(1, string.format(m, ...))
+	return aerospike:log(1, string.format(m, ...))
 end
 
 -- ############################################################################
@@ -55,72 +55,72 @@ end
 -- Creates a new environment for use in apply_record functions
 --
 function env_record()
-    return {
+	return {
 
-        -- aerospike types
-        ["record"] = record,
-        ["iterator"] = iterator,
-        ["list"] = list,
-        ["map"] = map,
-        ["bytes"] = bytes,
-        ["geojson"] = geojson,
-        ["aerospike"] = aerospike,
-        ["Map"] = Map, 
-        ["List"] = List,
-        ["Bytes"] = Bytes,
-        ["GeoJSON"] = GeoJSON,
-        ["putX"] = putX,
+		-- aerospike types
+		["record"] = record,
+		["iterator"] = iterator,
+		["list"] = list,
+		["map"] = map,
+		["bytes"] = bytes,
+		["geojson"] = geojson,
+		["aerospike"] = aerospike,
+		["Map"] = Map, 
+		["List"] = List,
+		["Bytes"] = Bytes,
+		["GeoJSON"] = GeoJSON,
+		["putX"] = putX,
 
-        -- logging functions
-        ["trace"] = trace,
-        ["debug"] = debug,
-        ["info"] = info,
-        ["warn"] = warn,
-        
-        -- standard lua functions
-        ["collectgarbage"] = collectgarbage,
-        ["error"] = error,
-        ["getmetatable"] = getmetatable,
-        ["ipairs"] = ipairs,
-        ["load"] = load,
-        ["module"] = module,
-        ["next"] = next,
-        ["pairs"] = pairs,
-        ["print"] = print,
-        ["pcall"] = pcall,
-        ["rawequal"] = rawequal,
-        ["rawget"] = rawget,
-        ["rawset"] = rawset,
-        ["require"] = require,
-        ["require"] = require,
-        ["select"] = select,
-        ["setmetatable"] = setmetatable,
-        ["setfenv"] = setfenv,
-        ["tonumber"] = tonumber,
-        ["tostring"] = tostring,
-        ["type"] = type,
-        ["unpack"] = unpack,
-        ["xpcall"] = xpcall,
+		-- logging functions
+		["trace"] = trace,
+		["debug"] = debug,
+		["info"] = info,
+		["warn"] = warn,
+		
+		-- standard lua functions
+		["collectgarbage"] = collectgarbage,
+		["error"] = error,
+		["getmetatable"] = getmetatable,
+		["ipairs"] = ipairs,
+		["load"] = load,
+		["module"] = module,
+		["next"] = next,
+		["pairs"] = pairs,
+		["print"] = print,
+		["pcall"] = pcall,
+		["rawequal"] = rawequal,
+		["rawget"] = rawget,
+		["rawset"] = rawset,
+		["require"] = require,
+		["require"] = require,
+		["select"] = select,
+		["setmetatable"] = setmetatable,
+		["setfenv"] = setfenv,
+		["tonumber"] = tonumber,
+		["tostring"] = tostring,
+		["type"] = type,
+		["unpack"] = unpack,
+		["xpcall"] = xpcall,
 
-        -- standard lua objects
-        ["math"] = math,
-        ["io"] = io,
-        ["os"] = {
-            ['clock'] = os.clock,
-            ['date'] = os.date,
-            ['difftime'] = os.difftime,
-            ['getenv'] = os.getenv,
-            ['setlocale'] = os.setlocale,
-            ['time'] = os.time,
-            ['tmpname'] = os.tmpname
-        },
-        ["package"] = package,
-        ["string"] = string,
-        ["table"] = table,
+		-- standard lua objects
+		["math"] = math,
+		["io"] = io,
+		["os"] = {
+			['clock'] = os.clock,
+			['date'] = os.date,
+			['difftime'] = os.difftime,
+			['getenv'] = os.getenv,
+			['setlocale'] = os.setlocale,
+			['time'] = os.time,
+			['tmpname'] = os.tmpname
+		},
+		["package"] = package,
+		["string"] = string,
+		["table"] = table,
 
-        -- standard lua variables
-        ["_G"] = {}
-    }
+		-- standard lua variables
+		["_G"] = {}
+	}
 end
 
 --
@@ -133,22 +133,22 @@ end
 -- 
 function apply_record(f, r, ...)
 
-    if f == nil then
-        error("function not found", 2)
-    end
-    
-    if not sandboxed[f] then
-        setfenv(f,env_record())
-        sandboxed[f] = true
-    end
+	if f == nil then
+		error("function not found", 2)
+	end
 
-    success, result = pcall(f, r, ...)
-    if success then
-        return result
-    else
-        error(result, 2)
-        return nil
-    end
+	if not sandboxed[f] then
+		setfenv(f,env_record())
+		sandboxed[f] = true
+	end
+
+	success, result = pcall(f, r, ...)
+	if success then
+		return result
+	else
+		error(result, 2)
+		return nil
+	end
 end
 
 --
@@ -161,49 +161,48 @@ end
 -- 
 function apply_stream(f, scope, istream, ostream, ...)
 
-    if f == nil then
-        error("function not found", 2)
-        return 2
-    end
-    
-    require("stream_ops")
+	if f == nil then
+		error("function not found", 2)
+		return 2
+	end
+	
+	require("stream_ops")
 
-    if not sandboxed[f] then
-        setfenv(f,env_record())
-        sandboxed[f] = true
-    end
+	if not sandboxed[f] then
+		setfenv(f,env_record())
+		sandboxed[f] = true
+	end
 
-    local stream_ops = StreamOps_create();
-    
-    success, result = pcall(f, stream_ops, ...)
+	local stream_ops = StreamOps_create();
 
-    -- info("apply_stream: success=%s, result=%s", tostring(success), tostring(result))
+	success, result = pcall(f, stream_ops, ...)
 
-    if success then
+	-- info("apply_stream: success=%s, result=%s", tostring(success), tostring(result))
 
-        local ops = StreamOps_select(result.ops, scope);
-        
-        -- Apply server operations to the stream
-        -- result => a stream_ops object
-        local values = StreamOps_apply(stream_iterator(istream), ops);
+	if success then
 
-        -- Iterate the stream of values from the computation
-        -- then pipe it to the ostream
-        for value in values do
-            -- info("value = %s", tostring(value))
-            if stream.write(ostream, value) ~= 0 then
-                break
-            end
-        end
+		local ops = StreamOps_select(result.ops, scope);
 
-        -- Write NIL to indicate the end of the stream
-        stream.write(ostream, nil)
+		-- Apply server operations to the stream
+		-- result => a stream_ops object
+		local values = StreamOps_apply(stream_iterator(istream), ops);
 
-        -- 0 is success
-        return 0
-    else
-        error(result, 2)
-        return 2
-    end
+		-- Iterate the stream of values from the computation
+		-- then pipe it to the ostream
+		for value in values do
+			-- info("value = %s", tostring(value))
+			if stream.write(ostream, value) ~= 0 then
+				break
+			end
+		end
+
+		-- Write NIL to indicate the end of the stream
+		stream.write(ostream, nil)
+
+		-- 0 is success
+		return 0
+	else
+		error(result, 2)
+		return 2
+	end
 end
-
