@@ -78,7 +78,7 @@ function filter( next, p )
 
         -- find the first value which satisfies the predicate
         for a in next do
-            if p(a) then
+            if type(a) == 'table' and p(a) then
                 return a
             end
         end
